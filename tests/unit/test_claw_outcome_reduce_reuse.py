@@ -10,13 +10,27 @@ from reward_engine.core.outcome.context import build_context
 
 @pytest.mark.asyncio
 async def test_reduce_only_keeps_task_subrequirements_without_new_map_calls():
-    context, evidence = build_context({"task_id": "x", "prompt": "Fix calculation; preserve units"})
-    criterion = {"id": "units", "standard": "Preserve units", "kind": "hard", "origin": "task",
-                 "measurement_question": "Are units preserved?", "evidence_refs": ["task"]}
-    expected = {**criterion, "expectation_id": "a:0",
-                "subrequirements": [{"part_id": "a:0/0", "text": "Preserve units"}]}
-    inputs = {"proposals": [{"criterion_refs": ["a:0"]}, {"criterion_refs": ["a:0"]}],
-              "independent_expectations": [expected], "proposal_expectations": []}
+    context, evidence = build_context(
+        {"task_id": "x", "prompt": "Fix calculation; preserve units"}
+    )
+    criterion = {
+        "id": "units",
+        "standard": "Preserve units",
+        "kind": "hard",
+        "origin": "task",
+        "measurement_question": "Are units preserved?",
+        "evidence_refs": ["task"],
+    }
+    expected = {
+        **criterion,
+        "expectation_id": "a:0",
+        "subrequirements": [{"part_id": "a:0/0", "text": "Preserve units"}],
+    }
+    inputs = {
+        "proposals": [{"criterion_refs": ["a:0"]}, {"criterion_refs": ["a:0"]}],
+        "independent_expectations": [expected],
+        "proposal_expectations": [],
+    }
     saved = deepcopy(inputs)
     calls = []
 
@@ -25,10 +39,26 @@ async def test_reduce_only_keeps_task_subrequirements_without_new_map_calls():
         supplied = deepcopy(request["independent_expectations"])
         assert supplied[0]["subrequirements"][0].pop("selection_id") == "p0"
         assert supplied == [expected]
-        return {"criteria": [criterion], "coverage": [{"expectation_id": "a:0",
-            "status": "mapped", "criterion_ids": ["units"], "reason": "Required by task",
-            "subrequirements": [{"part_id": "a:0/0", "status": "mapped", "criterion_ids": ["units"],
-                                 "reason": "Explicitly retained", "retained_text": "Preserve units"}]}]}
+        return {
+            "criteria": [criterion],
+            "coverage": [
+                {
+                    "expectation_id": "a:0",
+                    "status": "mapped",
+                    "criterion_ids": ["units"],
+                    "reason": "Required by task",
+                    "subrequirements": [
+                        {
+                            "part_id": "a:0/0",
+                            "status": "mapped",
+                            "criterion_ids": ["units"],
+                            "reason": "Explicitly retained",
+                            "retained_text": "Preserve units",
+                        }
+                    ],
+                }
+            ],
+        }
 
     result = await jury.reduce_proposals(context, evidence, inputs, reducer)
     assert calls == ["outcome_jury_reduce"]

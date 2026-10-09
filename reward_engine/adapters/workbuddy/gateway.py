@@ -46,18 +46,33 @@ class Capacity:
             self.condition.notify_all()
 
 
-def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, retry_wait=asyncio.sleep,
-                stream_timeout_s=STREAM_TIMEOUT_S):
+def application(
+    config,
+    *,
+    backend_key=None,
+    client_factory=httpx.AsyncClient,
+    retry_wait=asyncio.sleep,
+    stream_timeout_s=STREAM_TIMEOUT_S,
+):
     app = FastAPI()
     limits_path = Path(config["output"]) / "transport_limits.json"
-    limit = read(limits_path)["global_limit"] if limits_path.exists() else config["model_concurrency"]
+    limit = (
+        read(limits_path)["global_limit"]
+        if limits_path.exists()
+        else config["model_concurrency"]
+    )
     ceiling = config.get("max_model_concurrency", 8)
     if type(ceiling) is not int or not 1 <= ceiling <= 128:
         raise ValueError("Invalid configured transport ceiling")
     if type(limit) is not int or not 1 <= limit <= ceiling:
         raise ValueError("Transport concurrency exceeds configured ceiling")
     gate = Capacity(limit)
-    secret = backend_key or dotenv_values(config["credentials_file"])[config.get("backend_key_env", "YIBU_API_KEY")]
+    secret = (
+        backend_key
+        or dotenv_values(config["credentials_file"])[
+            config.get("backend_key_env", "YIBU_API_KEY")
+        ]
+    )
     allowed = set(config["roles"].values())
     per_model_limit = config.get("per_model_concurrency", 2)
     if type(per_model_limit) is not int or not 1 <= per_model_limit <= ceiling:
@@ -69,9 +84,15 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "limit": gate.limit, "per_model_limit": per_model_limit,
-                "model_inflight": model_inflight, "stream_timeout_s": stream_timeout_s,
-                "role_stream_timeout_s": role_stream_timeout_s, **counters}
+        return {
+            "status": "ok",
+            "limit": gate.limit,
+            "per_model_limit": per_model_limit,
+            "model_inflight": model_inflight,
+            "stream_timeout_s": stream_timeout_s,
+            "role_stream_timeout_s": role_stream_timeout_s,
+            **counters,
+        }
 
     @app.post("/control/concurrency")
     async def concurrency(request: Request):
@@ -81,9 +102,16 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
         limit = body.get("global_limit") if isinstance(body, dict) else None
         if type(limit) is not int or not 1 <= limit <= ceiling:
             raise HTTPException(400, "global_limit exceeds configured ceiling")
-        event = {"global_limit": limit, "previous_limit": gate.limit,
-                 "per_model_limit": per_model_limit, "updated_at": time.time()}
-        write(Path(config["output"]) / "transport_limit_events" / (uuid4().hex + ".json"), event)
+        event = {
+            "global_limit": limit,
+            "previous_limit": gate.limit,
+            "per_model_limit": per_model_limit,
+            "updated_at": time.time(),
+        }
+        write(
+            Path(config["output"]) / "transport_limit_events" / (uuid4().hex + ".json"),
+            event,
+        )
         write(limits_path, event)
         await gate.resize(limit)
         return await health()
@@ -99,10 +127,17 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
             raise HTTPException(400, "Unconfigured model")
         if channel.startswith("wb-"):
             body.setdefault("temperature", 0.95)
-        root = Path(config["output"]) / ("official.private" if channel.startswith("grade") else "transport")
+        root = Path(config["output"]) / (
+            "official.private" if channel.startswith("grade") else "transport"
+        )
         root = root / channel / uuid4().hex
         write(root / "request.json", body)
-        record = {"channel": channel, "model": body["model"], "queued_at": time.time(), "status": "queued"}
+        record = {
+            "channel": channel,
+            "model": body["model"],
+            "queued_at": time.time(),
+            "status": "queued",
+        }
         write(root / "receipt.json", record)
         model_gate = model_gates[body["model"]]
         await model_gate.acquire()
@@ -116,8 +151,14 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
         counters["peak"] = max(counters["peak"], counters["inflight"])
         counters["requests"] += 1
         started = time.monotonic()
-        request_timeout_s = role_stream_timeout_s if channel == "roles" else stream_timeout_s
-        record.update(status="running", queue_s=time.time() - record["queued_at"], stream_timeout_s=request_timeout_s)
+        request_timeout_s = (
+            role_stream_timeout_s if channel == "roles" else stream_timeout_s
+        )
+        record.update(
+            status="running",
+            queue_s=time.time() - record["queued_at"],
+            stream_timeout_s=request_timeout_s,
+        )
         write(root / "receipt.json", record)
         client = client_factory(timeout=httpx.Timeout(840, read=120), trust_env=False)
         response = None
@@ -197,29 +238,45 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
                 raw = await response.aread()
                 (root / "response.json").write_bytes(raw)
                 data = json.loads(raw)
-                if data.get("model") and not model_matches(config, body["model"], data["model"]):
+                if data.get("model") and not model_matches(
+                    config, body["model"], data["model"]
+                ):
                     raise ValueError("Provider model identity differs")
-                record.update(status="completed", usage=data.get("usage"), actual_model=data.get("model"))
+                record.update(
+                    status="completed",
+                    usage=data.get("usage"),
+                    actual_model=data.get("model"),
+                )
                 await close()
                 return Response(raw, media_type="application/json")
         except BaseException as error:
             record.update(status="failed", error_type=type(error).__name__)
             if isinstance(error, httpx.HTTPStatusError):
-                record['upstream_http_status'] = error.response.status_code
+                record["upstream_http_status"] = error.response.status_code
             await close()
             if isinstance(error, asyncio.CancelledError):
                 raise
-            raise HTTPException(502, "Upstream request failed; see campaign transport receipt") from None
+            raise HTTPException(
+                502, "Upstream request failed; see campaign transport receipt"
+            ) from None
 
         async def stream():
             nonlocal response
             try:
                 async with asyncio.timeout(request_timeout_s):
                     for stream_attempt in range(6):
-                        buffered, completed, finish, model, usage = [], False, None, None, None
+                        buffered, completed, finish, model, usage = (
+                            [],
+                            False,
+                            None,
+                            None,
+                            None,
+                        )
                         retry_reason = None
                         try:
-                            with (root / f"response-{stream_attempt + 1}.sse").open("w") as log:
+                            with (root / f"response-{stream_attempt + 1}.sse").open(
+                                "w"
+                            ) as log:
                                 async for line in response.aiter_lines():
                                     log.write(line + "\n")
                                     log.flush()
@@ -241,7 +298,9 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
                                         error = event["error"]
                                         if isinstance(error, dict):
                                             error_type = error.get("type")
-                                            message = str(error.get("message", "")).lower()
+                                            message = str(
+                                                error.get("message", "")
+                                            ).lower()
                                             if error_type == "rate_limit_error":
                                                 retry_reason = "rate_limit_error"
                                                 break
@@ -249,32 +308,50 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
                                                 error_type == "new_api_error"
                                                 and "temporarily unavailable" in message
                                             ):
-                                                retry_reason = "provider_temporarily_unavailable"
+                                                retry_reason = (
+                                                    "provider_temporarily_unavailable"
+                                                )
                                                 break
                                             if (
                                                 error_type == "new_api_error"
                                                 and "stream ended before the response was complete"
                                                 in message
                                             ):
-                                                retry_reason = "provider_incomplete_stream"
+                                                retry_reason = (
+                                                    "provider_incomplete_stream"
+                                                )
                                                 break
                                         raise RuntimeError("Provider stream error")
                                     if event.get("model"):
                                         model = event["model"]
-                                        if not model_matches(config, body["model"], model):
-                                            raise ValueError("Provider model identity differs")
+                                        if not model_matches(
+                                            config, body["model"], model
+                                        ):
+                                            raise ValueError(
+                                                "Provider model identity differs"
+                                            )
                                     usage = event.get("usage") or usage
                                     for choice in event.get("choices", []):
                                         finish = choice.get("finish_reason") or finish
                         except (httpx.ReadTimeout, httpx.RemoteProtocolError):
                             retry_reason = "interrupted_stream"
-                        attempt_record = {"attempt": record["attempts"], "actual_model": model,
-                                          "usage": usage, "finish_reason": finish, "done": completed}
+                        attempt_record = {
+                            "attempt": record["attempts"],
+                            "actual_model": model,
+                            "usage": usage,
+                            "finish_reason": finish,
+                            "done": completed,
+                        }
                         record.setdefault("stream_attempts", []).append(attempt_record)
                         if not retry_reason and (not completed or not finish):
                             retry_reason = "incomplete_stream"
                         if not retry_reason:
-                            record.update(status="completed", actual_model=model, finish_reason=finish, usage=usage)
+                            record.update(
+                                status="completed",
+                                actual_model=model,
+                                finish_reason=finish,
+                                usage=usage,
+                            )
                             # No partial model content or tool arguments reach the runtime.
                             (root / "response.sse").write_text("".join(buffered))
                             for line in buffered:
@@ -283,7 +360,9 @@ def application(config, *, backend_key=None, client_factory=httpx.AsyncClient, r
                         attempt_record["retry_reason"] = retry_reason
                         if stream_attempt == 5:
                             raise RuntimeError("Provider transport retries exhausted")
-                        record.setdefault("retries", []).append({"reason": retry_reason, "at": time.time()})
+                        record.setdefault("retries", []).append(
+                            {"reason": retry_reason, "at": time.time()}
+                        )
                         write(root / "receipt.json", record)
                         await response.aclose()
                         response = None
@@ -313,7 +392,12 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     config = read(args.config)
-    uvicorn.run(application(config), host="0.0.0.0", port=config["gateway_port"], access_log=False)
+    uvicorn.run(
+        application(config),
+        host="0.0.0.0",
+        port=config["gateway_port"],
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":

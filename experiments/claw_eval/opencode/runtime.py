@@ -293,7 +293,8 @@ class Actor:
 
         self.writer.write_event(
             TraceMessage(
-                trace_id=self.trial_id, message=Message(role=role, content=content),
+                trace_id=self.trial_id,
+                message=Message(role=role, content=content),
                 **({"timestamp": timestamp} if timestamp else {}),
             )
         )

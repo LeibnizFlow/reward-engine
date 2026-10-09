@@ -4,7 +4,6 @@ import asyncio
 from copy import deepcopy
 
 import pytest
-from tests.support.claw_outcome_builder_harness import setup
 
 from reward_engine.core.batch import BatchPolicy
 from reward_engine.core.outcome import builder, hypotheses, jury
@@ -12,29 +11,46 @@ from reward_engine.core.outcome.context import build_context, requirement_contex
 from reward_engine.core.outcome.coverage import report
 from reward_engine.core.outcome.harness import defaults, measure
 from reward_engine.core.outcome.runner import DeliveryReview
+from tests.support.claw_outcome_builder_harness import setup
 
 
 def expected():
-    return {"id": "content", "expectation_id": "seat:0", "standard": "Explain the requested conclusion",
-            "kind": "hard", "origin": "task", "evidence_refs": ["task"],
-            "measurement_question": "Does the answer justify the conclusion?",
-            "why": "A parseable response can still fail the user's question", "priority": "critical"}
+    return {
+        "id": "content",
+        "expectation_id": "seat:0",
+        "standard": "Explain the requested conclusion",
+        "kind": "hard",
+        "origin": "task",
+        "evidence_refs": ["task"],
+        "measurement_question": "Does the answer justify the conclusion?",
+        "why": "A parseable response can still fail the user's question",
+        "priority": "critical",
+    }
 
 
 @pytest.mark.asyncio
 async def test_each_jury_phase_has_its_own_deadline_without_extra_calls():
     context, evidence, _, _ = setup()
     calls, logs = [], {}
+
     async def member(request):
         calls.append(request["mode"])
         # Two valid calls exceed one phase's budget, but each is within it.
-        await asyncio.sleep(.12)
+        await asyncio.sleep(0.12)
         return {"criteria": [expected()]}
+
     async def reduce(request):
         assert len(request["proposals"]) == 3
         return {"criteria": [expected()]}
-    await jury.propose(context, evidence, {str(i): member for i in range(3)}, reduce,
-        policy=BatchPolicy(deadline_s=.2), record=lambda k, v: logs.update({k: v}))
+
+    await jury.propose(
+        context,
+        evidence,
+        {str(i): member for i in range(3)},
+        reduce,
+        policy=BatchPolicy(deadline_s=0.2),
+        record=lambda k, v: logs.update({k: v}),
+    )
     assert calls.count("outcome_expectations") == 3
     assert calls.count("outcome_jury_map") == 3
     assert logs["jury_expectations_map"]["succeeded"] == 3
@@ -46,19 +62,33 @@ async def test_each_jury_phase_has_its_own_deadline_without_extra_calls():
 async def test_one_stalled_jury_seat_does_not_erase_other_two(failed_phase):
     context, evidence, _, _ = setup()
     calls, logs = [], {}
+
     async def healthy(request):
         return {"criteria": [expected()]}
+
     async def stalled(request):
         calls.append(request["mode"])
         if request["mode"] == failed_phase:
             await asyncio.sleep(5)
         return await healthy(request)
+
     async def reduce(request):
         assert len(request["proposals"]) == 2
         return {"criteria": [expected()]}
-    await jury.propose(context, evidence, {"a": healthy, "b": healthy, "c": stalled}, reduce,
-        policy=BatchPolicy(deadline_s=.05), record=lambda k, v: logs.update({k: v}))
-    phase = "jury_expectations_map" if failed_phase == "outcome_expectations" else "jury_map"
+
+    await jury.propose(
+        context,
+        evidence,
+        {"a": healthy, "b": healthy, "c": stalled},
+        reduce,
+        policy=BatchPolicy(deadline_s=0.05),
+        record=lambda k, v: logs.update({k: v}),
+    )
+    phase = (
+        "jury_expectations_map"
+        if failed_phase == "outcome_expectations"
+        else "jury_map"
+    )
     assert logs[phase]["succeeded"] == 2
     assert logs[phase]["items"][-1]["status"] == "timeout"
     assert calls.count(failed_phase) == 1  # no automatic model redraw
@@ -68,12 +98,26 @@ async def test_one_stalled_jury_seat_does_not_erase_other_two(failed_phase):
 
 def test_blind_phase_cannot_read_products_even_by_evidence_expansion():
     task = {"task_id": "x", "prompt": "Explain the result"}
-    context, evidence = build_context(task, [{"artifact": {"final_response": "OLD_SECRET",
-        "public_consultation": {"earlier_exchanges": [
-            {"speaker": "user", "text": "Use Chinese"},
-            {"speaker": "assistant", "text": "ASSISTANT_SECRET"}]}},
-        "environment": {"secret": "ENV_SECRET"}, "source_documents": ["SOURCE_SECRET"]}],
-        skills=["Consider causal mechanisms"], memories=["MEMORY_SECRET"])
+    context, evidence = build_context(
+        task,
+        [
+            {
+                "artifact": {
+                    "final_response": "OLD_SECRET",
+                    "public_consultation": {
+                        "earlier_exchanges": [
+                            {"speaker": "user", "text": "Use Chinese"},
+                            {"speaker": "assistant", "text": "ASSISTANT_SECRET"},
+                        ]
+                    },
+                },
+                "environment": {"secret": "ENV_SECRET"},
+                "source_documents": ["SOURCE_SECRET"],
+            }
+        ],
+        skills=["Consider causal mechanisms"],
+        memories=["MEMORY_SECRET"],
+    )
     blind, refs = requirement_context(context, evidence)
     assert "SECRET" not in str(blind) + str(refs)
     assert "Use Chinese" in str(blind) and "causal mechanisms" in str(blind)
@@ -90,11 +134,20 @@ async def test_common_omission_survives_reduce_and_builder_without_fake_check():
         if request["mode"] == "outcome_expectations":
             return {"criteria": [expected()]}
         assert "artifact" in request["context"]["products"][0]
-        return {"criteria": [{**definition["criteria"][0], "evidence_refs": ["task"],
-                              "measurement_question": "Parse"}]}
+        return {
+            "criteria": [
+                {
+                    **definition["criteria"][0],
+                    "evidence_refs": ["task"],
+                    "measurement_question": "Parse",
+                }
+            ]
+        }
 
     async def reducer(request):
-        return await member(request)  # Simulate a reducer forgetting the independent outcome.
+        return await member(
+            request
+        )  # Simulate a reducer forgetting the independent outcome.
 
     output = await jury.propose(context, evidence, {"a": member, "b": member}, reducer)
     assert len(seen) == 5
@@ -119,14 +172,25 @@ async def test_common_omission_survives_reduce_and_builder_without_fake_check():
 
 
 def test_hard_expectation_cannot_be_excluded_and_phantom_mapping_rejected():
-    output = {"criteria": [{"id": "x"}], "coverage": [{"expectation_id": "seat:0",
-              "criterion_ids": [], "status": "excluded", "reason": "All samples omit it"}]}
+    output = {
+        "criteria": [{"id": "x"}],
+        "coverage": [
+            {
+                "expectation_id": "seat:0",
+                "criterion_ids": [],
+                "status": "excluded",
+                "reason": "All samples omit it",
+            }
+        ],
+    }
     assert jury.reconcile_coverage([expected()], output)[0]["status"] == "deferred"
     output["coverage"][0].update(status="mapped", criterion_ids=["invented"])
     with pytest.raises(ValueError):
         jury.reconcile_coverage([expected()], output)
     with pytest.raises(ValueError):
-        jury.reconcile_coverage([expected()], {**output, "coverage": output["coverage"] * 2})
+        jury.reconcile_coverage(
+            [expected()], {**output, "coverage": output["coverage"] * 2}
+        )
 
 
 @pytest.mark.asyncio
@@ -138,11 +202,18 @@ async def test_hypothesis_sees_uncovered_major_outcome_and_actor_gets_verificati
     async def call(request):
         assert "coverage" not in request["jury"]
         assert request["jury"]["open_questions"][0]["status"] == "unverified_proposal"
-        assert request["jury"]["open_questions"][0]["source_expectation_ids"] == ["seat:0"]
+        assert request["jury"]["open_questions"][0]["source_expectation_ids"] == [
+            "seat:0"
+        ]
         assert "Explain the requested conclusion" in str(request)
-        return {"status": "propose", "method": "Inspect the relevant source then justify the conclusion",
-                "target": "Missing explanation", "expected_improvement": "Supported conclusion",
-                "verification": "Compare claims with the actual source", "evidence_refs": ["task"]}
+        return {
+            "status": "propose",
+            "method": "Inspect the relevant source then justify the conclusion",
+            "target": "Missing explanation",
+            "expected_improvement": "Supported conclusion",
+            "verification": "Compare claims with the actual source",
+            "evidence_refs": ["task"],
+        }
 
     result = await hypotheses.propose(context, evidence, definition, {"a": call}, call)
     prompt = hypotheses.actor_prompt(result)
@@ -150,9 +221,18 @@ async def test_hypothesis_sees_uncovered_major_outcome_and_actor_gets_verificati
 
 
 def test_missing_check_and_unknown_are_not_pass_and_exclusion_is_explicit():
-    pack = {"tests": [], "independent_expectations": [expected()],
-            "expectation_coverage": [{"expectation_id": "seat:0", "status": "mapped",
-                                      "criterion_ids": ["content"], "reason": "Requested"}]}
+    pack = {
+        "tests": [],
+        "independent_expectations": [expected()],
+        "expectation_coverage": [
+            {
+                "expectation_id": "seat:0",
+                "status": "mapped",
+                "criterion_ids": ["content"],
+                "reason": "Requested",
+            }
+        ],
+    }
     assert report(pack, [])[0]["status"] == "unknown"
 
 
@@ -168,10 +248,14 @@ async def test_local_revision_reuses_only_proven_unchanged_inputs():
     first = await measure(pack, registry, context, evidence)
     changed = deepcopy(evidence)
     changed["product_1:artifact:unrelated"] = "new note"
-    second = await measure(pack, registry, context, changed, previous=(context, evidence, first))
+    second = await measure(
+        pack, registry, context, changed, previous=(context, evidence, first)
+    )
     assert second["results"][0]["reused_unchanged_input"]
     changed["product_1:artifact:final_response"] = "bad JSON"
-    third = await measure(pack, registry, context, changed, previous=(context, evidence, first))
+    third = await measure(
+        pack, registry, context, changed, previous=(context, evidence, first)
+    )
     assert third["results"][0]["status"] == "fail"
     assert not third["results"][0].get("reused_unchanged_input")
 
@@ -179,9 +263,17 @@ async def test_local_revision_reuses_only_proven_unchanged_inputs():
 @pytest.mark.asyncio
 async def test_whole_task_review_finds_gap_despite_passed_checks():
     context, evidence, definition, reply = setup()
-    definition.update(independent_expectations=[expected()], coverage=[{
-        "expectation_id": "seat:0", "criterion_ids": ["syntax"], "status": "mapped",
-        "reason": "Deliberately incomplete mapping to test independent final review"}])
+    definition.update(
+        independent_expectations=[expected()],
+        coverage=[
+            {
+                "expectation_id": "seat:0",
+                "criterion_ids": ["syntax"],
+                "status": "mapped",
+                "reason": "Deliberately incomplete mapping to test independent final review",
+            }
+        ],
+    )
 
     async def build_call(_):
         return reply
@@ -192,11 +284,21 @@ async def test_whole_task_review_finds_gap_despite_passed_checks():
         calls.append(request)
         assert request["test"]["test_id"] == "__outcome_completeness__"
         assert "complete actual Task" in str(request["test"])
-        return {"status": "fail", "reason": "JSON exists but contains no requested explanation",
-                "gap": "Explain the conclusion", "evidence_refs": ["product_1:artifact:final_response"],
-                "claims": [{"claim": "An explanation is present", "claim_refs": ["task"],
+        return {
+            "status": "fail",
+            "reason": "JSON exists but contains no requested explanation",
+            "gap": "Explain the conclusion",
+            "evidence_refs": ["product_1:artifact:final_response"],
+            "claims": [
+                {
+                    "claim": "An explanation is present",
+                    "claim_refs": ["task"],
                     "evidence_refs": ["product_1:artifact:final_response"],
-                    "observation": "The delivered object is empty", "judgment": "contradicted"}]}
+                    "observation": "The delivered object is empty",
+                    "judgment": "contradicted",
+                }
+            ],
+        }
 
     registry = defaults(judge)
     pack = await builder.build(context, evidence, definition, registry, build_call)

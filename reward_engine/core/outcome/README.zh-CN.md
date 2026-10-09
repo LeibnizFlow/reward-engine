@@ -1,5 +1,7 @@
 # Outcome-first 简化 Reward Engine
 
+> 当前发行版的可运行命令见[原生烟测说明](../../../docs/native-smoke.md)。本页保留协议演变记录；历史验收记录未作为当前运行结果。
+
 独立单轨迹 reward 的显式可选协议见 [公开要求驱动的 Reward v1](PUBLIC_REWARD.zh-CN.md)：公开要求绑定、真实终态检查、硬约束及分级区间聚合。默认运行时选择与历史 Pack 保持原协议。
 
 原生多轮任务使用 [公开 Task 范围与跨步骤规则](MULTITURN.zh-CN.md)：真实追问更新要求，
@@ -60,14 +62,14 @@ C/D 共用终局阶段控制器，D 保留每个符合条件根回合的运行�
 Reduce 上限 393,216 字节；超限先触发 Flash 导航压缩，Task、条款、案例和原始回执不靠截断塞入。
 固定部分仍超过容量时明确失败，不冒充完成。
 
-单次集成烟测入口为 `reward_engine.adapters.claw_eval.general_smoke`；WorkBuddy Office 适配器见
+单次集成烟测入口为 `experiments.smoke --benchmark claw_eval`；WorkBuddy Office 适配器见
 [实际文件与原生链路](../../adapters/workbuddy/README.zh-CN.md)。两边共用核心，不读取隐藏 grader。
 
 正式完整入口及冻结 Pack 入口均支持此策略。此前两次独立 ABCD 的冻结编排入口为
 `reward_engine.adapters.claw_eval.outcome_validation_run`，使用
-[T068 配置](../../../experiments/claw_eval/outcome/counterexample_20260911.plan.json)。
+T068 配置（历史归档，不包含在本发行版中）。
 同一套公开输入只构建一次，八个新 Actor 无跨次学习，各不同正文独立双评。
-实施与真实结果见[记录](../../../experiments/claw_eval/outcome/COUNTEREXAMPLE_VALIDATION_20260910.zh-CN.md)。
+实施与真实结果见记录（历史归档，不包含在本发行版中）。
 
 ## 历史兼容：Task 优先的固定三轮构建
 
@@ -100,7 +102,7 @@ D 每个配置到期的工具回合后介入。无论运行中是否审查过，
 
 ## 默认剪枝（2026-09-08）
 
-2026-09-10 当前实验统一官方 Flash＋thinking，包括搜索、来源Map和最终Reduce；独立Grader不改。见[统一配置与验收](../../../reports/claw_eval/agentic_search_v13_20260909/v39_thinking_implementation.zh-CN.md)。v39保留知识类型但修正越界：同来源条件先判断相关性，不自动全变硬前提；显式非法use不冒充方法，旧unclassified仍兼容；复用／Author后重新绑定。Skill目录的拒绝标签不再代替一次真实正文试读，模型仍拒读则明确失败。
+2026-09-10 当前实验统一官方 Flash＋thinking，包括搜索、来源Map和最终Reduce；独立Grader不改。见统一配置与验收（历史归档，不包含在本发行版中）。v39保留知识类型但修正越界：同来源条件先判断相关性，不自动全变硬前提；显式非法use不冒充方法，旧unclassified仍兼容；复用／Author后重新绑定。Skill目录的拒绝标签不再代替一次真实正文试读，模型仍拒读则明确失败。
 
 长未决问题保留每项文本／重要性，重复处置明细按原句柄取回。Critic汇总同样保留全部检查事实，重复覆盖草稿按需读；拒绝超限记录实际字节与限额，不报成模型能力差。测量完成后的降级仍传真实结果。具体见[Critic合同](POLICY_CRITIC.zh-CN.md)。
 
@@ -131,23 +133,23 @@ Critic进展补齐：近期真实工具记录取代“旧旁白冒充成品”�
 
 这里是 2026-09-08 新简化实现，不是历史 T110/C17 已运行版本。
 Runtime Policy Critic 已接当前 Outcome 主线，详见[说明](POLICY_CRITIC.zh-CN.md)；原生 Grader Hook 已移至 `reward_engine/adapters/claw_eval/`，已在187完成T068真实评分，自定义Judge配置不等同默认排行榜。
-已单独运行一次 [真实 B 冒烟](../../../reports/claw_eval/outcome/live_b_smoke_20260908.zh-CN.md)：Harness 实际调用，但初稿全获放行，未触发修订；人工复核发现漏判，不宣称实模型闭环已验证。
+已单独运行一次 真实 B 冒烟（历史归档，不包含在本发行版中）：Harness 实际调用，但初稿全获放行，未触发修订；人工复核发现漏判，不宣称实模型闭环已验证。
 
 ## 从哪里读
 
-可选知识前置：[task_review.py](task_review.py)，[模块说明](../../../docs/design/outcome/docs/task_review/README.zh-CN.md)。默认关闭，Task-only 搜索/原文提取后沿 Skills 通道进入 Jury，无新增裁判层。
+可选知识前置：[task_review.py](task_review.py)，[模块说明](task_review.py)。默认关闭，Task-only 搜索/原文提取后沿 Skills 通道进入 Jury，无新增裁判层。
 选材/补搜/长文补读由 [agentic_search.py](agentic_search.py) 的模型决策循环负责，代码只执行并发工具和预算。未解决的知识缺口也随包传给 Jury，不因汇总完成而消失。
 
-先看 [简化版算法](../../../docs/design/outcome/SIMPLIFIED_ALGORITHM.zh-CN.md)，再按模块阅读：
+先看 [简化版算法](../../../docs/architecture.md)，再按模块阅读：
 
 | 模块 | 代码 | README | 单元测试 |
 |---|---|---|---|
-| 共享输入、Jury | [context.py](context.py)、[jury.py](jury.py) | [Jury](../../../docs/design/outcome/docs/jury/README.zh-CN.md) | `test_claw_outcome_context_roles.py`、`test_claw_outcome_gap_signals.py` |
-| 联合 Builder、开放 Harness | [builder.py](builder.py)、[harness.py](harness.py) | [Builder](../../../docs/design/outcome/docs/builder/README.zh-CN.md) | `test_claw_outcome_builder_harness.py` |
-| Hypotheses | [hypotheses.py](hypotheses.py) | [Hypotheses](../../../docs/design/outcome/docs/hypotheses/README.zh-CN.md) | `test_claw_outcome_context_roles.py`、`test_claw_outcome_infra.py` |
-| Battle Memory／Attention | [memory.py](memory.py) | [Memory](../../../docs/design/outcome/docs/battle_attention/README.zh-CN.md) | `test_claw_outcome_memory_runner.py`、`test_claw_outcome_infra.py` |
-| 单次交付、修订、当前任务清单 | [runner.py](runner.py)、[task_progress.py](task_progress.py) | [Runner](../../../docs/design/outcome/docs/runner/README.zh-CN.md) | `test_claw_outcome_task_progress.py`、`test_claw_outcome_memory_runner.py`、`test_claw_outcome_native.py` |
-| 默认一轮、按需续跑、原生入口 | [loop.py](loop.py)、[outcome_experiment.py](../../adapters/claw_eval/outcome_experiment.py) | [Loop](../../../docs/design/outcome/docs/loop/README.zh-CN.md) | `test_claw_outcome_loop.py`、`test_t068_native_entry.py` |
+| 共享输入、Jury | [context.py](context.py)、[jury.py](jury.py) | [Jury](jury.py) | `test_claw_outcome_context_roles.py`、`test_claw_outcome_gap_signals.py` |
+| 联合 Builder、开放 Harness | [builder.py](builder.py)、[harness.py](harness.py) | [Builder](builder.py) | `test_claw_outcome_builder_harness.py` |
+| Hypotheses | [hypotheses.py](hypotheses.py) | [Hypotheses](hypotheses.py) | `test_claw_outcome_context_roles.py`、`test_claw_outcome_infra.py` |
+| Battle Memory／Attention | [memory.py](memory.py) | [Memory](memory.py) | `test_claw_outcome_memory_runner.py`、`test_claw_outcome_infra.py` |
+| 单次交付、修订、当前任务清单 | [runner.py](runner.py)、[task_progress.py](task_progress.py) | [Runner](runner.py) | `test_claw_outcome_task_progress.py`、`test_claw_outcome_memory_runner.py`、`test_claw_outcome_native.py` |
+| 默认一轮、按需续跑、原生入口 | [loop.py](loop.py)、[campaign.py](../../../experiments/claw_eval/opencode/campaign.py) | [Loop](loop.py) | `test_claw_outcome_loop.py`、`test_t068_native_entry.py` |
 
 MapReduce 复用已有 [batch.py](../batch.py)，不增加一层模型指挥官。
 模型传输、原生 Jiuwen 运行器和任务适配复用仓库已有实现，不复制 SDK。
@@ -158,12 +160,12 @@ Jury 的最终 Reduce 校验失败最多纠错一次，不重采 Map；失败后
 
 Jury 定义和终局排名的 Reduce 请求默认上限为 160,000 个 UTF-8 字节。原生实验配置可显式设置 `jury_reduce_max_bytes`（例如 `262144`，即 256 KiB）；入口同步设置 Core 检查和 Reduce 模型传输限制，纠错请求也受同一上限约束。此项不改变 Map 或其他模块的限制，不截断或改写输入；thinking/non-thinking 对比应使用相同值。
 
-其他 `ask` 调用可从注入 callable 的 `max_request_bytes` 读取显式容量，未声明时仍为 160,000 字节；调用处显式 `max_bytes` 优先。JSON Role 把配置中的同一上限同时提供给 Core 和传输层，避免新版知识已超过 160 KB、传输上限提高后仍被 Core 旧默认拦截。补读同样受限，Batch 收据保留具体字节诊断。T068 full01 的 185,260 字节前置预期请求已验证此问题，见[完整验收记录](../../../reports/claw_eval/outcome/flash_thinking_full_20260910.zh-CN.md)。
+其他 `ask` 调用可从注入 callable 的 `max_request_bytes` 读取显式容量，未声明时仍为 160,000 字节；调用处显式 `max_bytes` 优先。JSON Role 把配置中的同一上限同时提供给 Core 和传输层，避免新版知识已超过 160 KB、传输上限提高后仍被 Core 旧默认拦截。补读同样受限，Batch 收据保留具体字节诊断。T068 full01 的 185,260 字节前置预期请求已验证此问题，见完整验收记录（历史归档，不包含在本发行版中）。
 
 官方 Flash-thinking 配置的搜索 `selection_model.max_request_bytes` 显式为 **393,216 字节（384 KiB）**，正式配置生成器与搜索测试入口共用常量；历史配置不回写。`TaskReviewRunner` 在 selection 请求超过此值时触发 `task_review_selection_compress`，使用同一 selection 模型及 thinking 设置，将变长的导航预览、最近正文、重复引文分片摘要；每个压缩请求自身也须满足同一上限。Task、用户要求、未解决问题、候选 ID 和来源偏移保持原样，完整源文仍供 Map/Reduce 使用。摘要明确标注为可能出错的阅读导航，不能当作原文引证。单轮压缩最多 32 次操作，无质量重抽；压缩后重新计算 UTF-8 JSON 字节数，仍超限或摘要非法则停止，并在 `request_compactions` / `request_budgets` 留下收据。这不改变其他角色的容量或历史实验结果。
 原输入／两次回复可单独回放。只对原文和作用域一致的条款合并选择号，全部来源仍可回查。
 提案 Prompt 集中于 [jury_prompts.py](jury_prompts.py)，带版本与文本记录。
-细节及兼容边界见 [Jury README](../../../docs/design/outcome/docs/jury/README.zh-CN.md)。
+细节及兼容边界见 [Jury README](jury.py)。
 
 Jury 草稿容错和小点去向见 [jury_drafts.py](jury_drafts.py)。Reduce 按短编号成组保留原条款，代码原样带入Criterion并生成父子映射；确需改写时要求新文本、理由和依据。漏项保持 unknown，贯穿 Builder、Harness 覆盖报告和任务清单。保留文字不是证明文字正确，无新增裁判调用。单测：`tests/unit/test_claw_outcome_jury_details.py`、`test_claw_outcome_clause_selection.py`。
 
@@ -178,7 +180,7 @@ Jury、Hypotheses 输入共享一份公开 Task、按作品归属的实际用户
 语义检查现在先输出 `claims`：主张及位置 → 对应证据及实际观察 → supported／contradicted／unverified，
 再汇总 pass／fail／unknown。必须覆盖本标准相关的重要主张和实际交付渠道，不只听 Actor 的总结。
 程序能发现引用不存在、缺审查记录、未证实主张却判 pass 等结构问题；不能代替模型判断证据是否真正支持主张。
-一次 [固定作品复测](../../../reports/claw_eval/outcome/claim_audit_recheck_20260908.zh-CN.md) 找到了真实缺口，但也误把未展开的源记录列为证据不足；尚不能声明检查已可靠。
+一次 固定作品复测（历史归档，不包含在本发行版中） 找到了真实缺口，但也误把未展开的源记录列为证据不足；尚不能声明检查已可靠。
 现增加引用预览补读：语义结论引用 preview-only 记录时先补全文，再由同一检查模型定稿。
 与模型主动 `need_evidence` 共用一次补读预算，不增加新裁判；超预算保留 unknown。
 第二次真实复测确认补读能执行，但最终仍漏判，详见上述诊断记录；不要据此宣称检查质量已通过。
@@ -189,7 +191,7 @@ Hypotheses 可提出少量主动澄清问题，C 的 Actor 通过现有会话询
 
 独立终局验收见 [原生 Grader Hook · Yibu Qwen](../../adapters/claw_eval/NATIVE_GRADER_HOOK.zh-CN.md)：
 使用 Claw-Eval 原生评分器＋Yibu `qwen3.8-max`，不是官方榜单模型配置。
-187 Jiuwen原生Actor已打通完整轨迹、最终环境快照和付费评分。各轮成绩、配置差异与最新运行入口集中在 [T068试验索引](../../../experiments/claw_eval/studies/t068_outcome_20260908/README.zh-CN.md)；算法README不再复制可能过时的分数。历史B92存在修订超时／工具项差异，尚不能称稳定复现。
+187 Jiuwen原生Actor已打通完整轨迹、最终环境快照和付费评分。各轮成绩、配置差异与最新运行入口集中在 T068试验索引（历史归档，不包含在本发行版中）；算法README不再复制可能过时的分数。历史B92存在修订超时／工具项差异，尚不能称稳定复现。
 
 入口读取已有任务／模型配置，但在**新输出目录**保存新协议和真实 A/B/C 开关，不改历史结果。
 例如 `c17_simple_flash_20260908/experiment.json` 提供已有 Task、DeepSeek 官方 Flash 角色和流式参数；
@@ -249,7 +251,7 @@ NEW_EXPERIMENT_DIRECTORY/<task_id>/
 
 ## 测试与边界
 
-历史 [收尾记录](../../../reports/claw_eval/outcome/test_report_20260908.zh-CN.md) 不代表当前测试总数。2026-09-09最新统一离线回归494项通过；记录入口与实际命令见 [Infra说明](../../../experiments/claw_eval/outcome/INFRA_REPRODUCTION.zh-CN.md)。
+历史 收尾记录（历史归档，不包含在本发行版中） 不代表当前测试总数。2026-09-09最新统一离线回归494项通过；记录入口与实际命令见 Infra说明（历史归档，不包含在本发行版中）。
 当前 outcome 核心＋共享batch为3885行（2026-09-09 `wc -l`），包含知识研究／数值测量能力、注释和空行。
 计数不含复用的 SDK／传输／历史框架，不是整个仓库的总代码量。
 

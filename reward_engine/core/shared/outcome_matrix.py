@@ -3,19 +3,25 @@
 Only structure and evidence ownership are checked here, never factual correctness,
 Task satisfaction or the winner. The complete model response survives in reason.
 """
+
 import json
 import re
 from copy import deepcopy
 
 PROTOCOL_ID = "task-evidence-matrix-v1"
-SCHEMAS = {"reward_builder_v4.final_outcome_battle.v1",
-           "reward_builder_v4.overall_calibration_judge_request.v1"}
+SCHEMAS = {
+    "reward_builder_v4.final_outcome_battle.v1",
+    "reward_builder_v4.overall_calibration_judge_request.v1",
+}
 SLOTS = ("candidate_1", "candidate_2")
 
 
 def _factor_shared_measurements(body):
     """Factor exact repeated large values, never tests, facts or source citations."""
-    if body.get("schema_version") != "reward_builder_v4.overall_calibration_judge_request.v1":
+    if (
+        body.get("schema_version")
+        != "reward_builder_v4.overall_calibration_judge_request.v1"
+    ):
         return
     groups = {}
     for row in body.get("harness_evidence_by_criterion", ()):
@@ -24,9 +30,13 @@ def _factor_shared_measurements(body):
                 # Do not introduce an ambiguous reserved shape into arbitrary JSON.
                 if isinstance(value, dict) and "shared_measurement_ref" in value:
                     return
-                encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                encoded = json.dumps(
+                    value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                )
                 if len(encoded.encode()) > 1024:
-                    groups.setdefault(encoded, []).append((test["measurements"], name, value))
+                    groups.setdefault(encoded, []).append(
+                        (test["measurements"], name, value)
+                    )
     repeated = [rows for rows in groups.values() if len(rows) > 1]
     if not repeated:
         return
@@ -42,7 +52,8 @@ def _factor_shared_measurements(body):
         " A measurement value containing only shared_measurement_ref is an exact reference to"
         " shared_measurements[that reference]. Expand it to the complete original JSON value before"
         " interpreting the test. Each test retains its own contract, status and evidence citations;"
-        " shared values do not imply shared success or semantic judgments.")
+        " shared values do not imply shared success or semantic judgments."
+    )
 
 
 def _task_units(prompt):
@@ -52,8 +63,10 @@ def _task_units(prompt):
     parts = re.split(r"(?m)(?=^[ \t]*\d+[.)][ \t]+)", prompt)
     if len(parts) == 1:
         parts = re.split(r"\n[ \t]*\n", prompt)
-    return [{"requirement_id": f"task-{index}", "text": part}
-            for index, part in enumerate((p.strip() for p in parts if p.strip()), 1)]
+    return [
+        {"requirement_id": f"task-{index}", "text": part}
+        for index, part in enumerate((p.strip() for p in parts if p.strip()), 1)
+    ]
 
 
 def prepare_matrix_request(body):
@@ -69,17 +82,27 @@ def prepare_matrix_request(body):
     _factor_shared_measurements(result)
     result["outcome_comparison_protocol"] = protocol
     decision = "verdict" if "verdict" in body["response"] else "preference"
-    cell = {"fact": "Brief observed fact, contradiction or missing evidence; no invented completion.",
-            "evidence_refs": ["Only this candidate's evidence aliases; [] when evidence is missing."]}
+    cell = {
+        "fact": "Brief observed fact, contradiction or missing evidence; no invented completion.",
+        "evidence_refs": [
+            "Only this candidate's evidence aliases; [] when evidence is missing."
+        ],
+    }
     result["response"] = {
-        "requirement_comparisons": [{"requirement_id": "One supplied task_units ID; cover every ID once.",
-                                    **{slot: deepcopy(cell) for slot in SLOTS}}],
+        "requirement_comparisons": [
+            {
+                "requirement_id": "One supplied task_units ID; cover every ID once.",
+                **{slot: deepcopy(cell) for slot in SLOTS},
+            }
+        ],
         "action_format_check": {
             "requested_boundary": "What actions, terminal state and delivery format does the public Task request?",
-            **{slot: deepcopy(cell) for slot in SLOTS}},
+            **{slot: deepcopy(cell) for slot in SLOTS},
+        },
         "reason": "Brief decisive Task-grounded difference or equivalence after the paired facts.",
         "evidence_refs": body["response"]["evidence_refs"],
-        decision: body["response"][decision]}
+        decision: body["response"][decision],
+    }
     result["instruction"] += (
         " Return requirement_comparisons, action_format_check, reason, evidence_refs, then the final label."
         " Compare the same supplied public Task unit for both candidates in each row; keep each fact brief."
@@ -91,7 +114,8 @@ def prepare_matrix_request(body):
         " delivery forms are acceptable. Cite each candidate's own evidence aliases only, or [] for"
         " missing evidence. Then independently judge the complete Task outcome, not the number of rows,"
         " input position or obedience to a proposed method. A faithful tie is allowed; retain uncertainty."
-        " This is one response, not a request for another judge or any tool call.")
+        " This is one response, not a request for another judge or any tool call."
+    )
     return result
 
 
@@ -106,9 +130,15 @@ def _text(value, label):
 
 
 def _refs(value, allowed, label):
-    if (not isinstance(value, list) or any(not isinstance(ref, str) for ref in value)
-            or len(value) != len(set(value)) or not set(value) <= allowed):
-        raise ValueError(f"{label} must cite unique known evidence aliases from the correct candidate")
+    if (
+        not isinstance(value, list)
+        or any(not isinstance(ref, str) for ref in value)
+        or len(value) != len(set(value))
+        or not set(value) <= allowed
+    ):
+        raise ValueError(
+            f"{label} must cite unique known evidence aliases from the correct candidate"
+        )
 
 
 def normalize_matrix_reply(request, response):
@@ -116,17 +146,41 @@ def normalize_matrix_reply(request, response):
     protocol = request.get("outcome_comparison_protocol")
     if protocol is None:
         return response, []
-    if request.get("schema_version") not in SCHEMAS or protocol.get("id") != PROTOCOL_ID:
+    if (
+        request.get("schema_version") not in SCHEMAS
+        or protocol.get("id") != PROTOCOL_ID
+    ):
         raise ValueError("Unsupported Outcome comparison protocol")
     decision = "verdict" if "verdict" in request["response"] else "preference"
-    _fields(response, ("requirement_comparisons", "action_format_check", "reason",
-                       "evidence_refs", decision), "Outcome comparison")
+    _fields(
+        response,
+        (
+            "requirement_comparisons",
+            "action_format_check",
+            "reason",
+            "evidence_refs",
+            decision,
+        ),
+        "Outcome comparison",
+    )
     _text(response["reason"], "Outcome reason")
-    choices = {"first", "second", "tie", "unknown" if decision == "verdict" else "abstain"}
+    choices = {
+        "first",
+        "second",
+        "tie",
+        "unknown" if decision == "verdict" else "abstain",
+    }
     if response[decision] not in choices:
         raise ValueError("Invalid independent Outcome label")
-    aliases = {slot: {row["evidence_ref"] for row in request[slot]["evidence"]} for slot in SLOTS}
-    allowed = set(request.get("evidence_contract", {}).get("allowed_refs", request.get("evidence_refs", [])))
+    aliases = {
+        slot: {row["evidence_ref"] for row in request[slot]["evidence"]}
+        for slot in SLOTS
+    }
+    allowed = set(
+        request.get("evidence_contract", {}).get(
+            "allowed_refs", request.get("evidence_refs", [])
+        )
+    )
     _refs(response["evidence_refs"], allowed, "Outcome evidence_refs")
     rows = response["requirement_comparisons"]
     if not isinstance(rows, list):
@@ -136,7 +190,11 @@ def normalize_matrix_reply(request, response):
     for row in rows:
         _fields(row, ("requirement_id", *SLOTS), "Requirement comparison")
         requirement = row["requirement_id"]
-        if not isinstance(requirement, str) or requirement not in expected or requirement in seen:
+        if (
+            not isinstance(requirement, str)
+            or requirement not in expected
+            or requirement in seen
+        ):
             raise ValueError("Task matrix requires unique known requirement IDs")
         seen.add(requirement)
     if seen != expected:
@@ -149,6 +207,14 @@ def normalize_matrix_reply(request, response):
             _fields(row[slot], ("fact", "evidence_refs"), f"{slot} fact")
             _text(row[slot]["fact"], f"{slot} fact")
             _refs(row[slot]["evidence_refs"], aliases[slot], f"{slot} evidence_refs")
-    normalized = {"reason": json.dumps(response, ensure_ascii=False, separators=(",", ":")),
-                  "evidence_refs": deepcopy(response["evidence_refs"]), decision: response[decision]}
-    return normalized, [{"operation": "preserve_task_evidence_matrix_in_reason", "protocol_id": PROTOCOL_ID}]
+    normalized = {
+        "reason": json.dumps(response, ensure_ascii=False, separators=(",", ":")),
+        "evidence_refs": deepcopy(response["evidence_refs"]),
+        decision: response[decision],
+    }
+    return normalized, [
+        {
+            "operation": "preserve_task_evidence_matrix_in_reason",
+            "protocol_id": PROTOCOL_ID,
+        }
+    ]

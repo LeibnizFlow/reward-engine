@@ -49,7 +49,9 @@ def recent_real_failures(root, since):
                 and row.get("status") == "failed"
                 and row.get("error_type") != "CancelledError"
             ):
-                failures.append({"path": str(path), "error_type": row.get("error_type")})
+                failures.append(
+                    {"path": str(path), "error_type": row.get("error_type")}
+                )
     return failures
 
 

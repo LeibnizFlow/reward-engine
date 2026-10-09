@@ -30,15 +30,23 @@ from reward_engine.core.outcome.memory import Memory
 from reward_engine.core.outcome.runner import DeliveryReview
 
 REPO = Path(__file__).resolve().parents[3]
-SOURCE = Path(os.environ.get('CLAW_EVAL_ROOT', REPO / 'data/claw_eval/benchmark'))
-MANIFEST = Path(os.environ.get('CLAW_EVAL_TASK_MANIFEST', REPO / 'data/claw_eval/task_manifest.json'))
+SOURCE = Path(os.environ.get("CLAW_EVAL_ROOT", REPO / "data/claw_eval/benchmark"))
+MANIFEST = Path(
+    os.environ.get(
+        "CLAW_EVAL_TASK_MANIFEST", REPO / "data/claw_eval/task_manifest.json"
+    )
+)
 
 
 def install_public_fixtures(benchmark, task_ids, output):
     """Supplement only declared missing inputs from the verified official archive."""
     import yaml
 
-    overlay = Path(os.environ['CLAW_EVAL_FIXTURE_OVERLAY']) if os.environ.get('CLAW_EVAL_FIXTURE_OVERLAY') else None
+    overlay = (
+        Path(os.environ["CLAW_EVAL_FIXTURE_OVERLAY"])
+        if os.environ.get("CLAW_EVAL_FIXTURE_OVERLAY")
+        else None
+    )
     provenance = None
     added = {}
     for tid in task_ids:
@@ -58,11 +66,16 @@ def install_public_fixtures(benchmark, task_ids, output):
             if destination.exists() or (benchmark / relative).exists():
                 continue
             if overlay is None:
-                raise FileNotFoundError(f'Missing benchmark fixture {tid}/{relative}; set CLAW_EVAL_FIXTURE_OVERLAY to a verified upstream overlay')
+                raise FileNotFoundError(
+                    f"Missing benchmark fixture {tid}/{relative}; set CLAW_EVAL_FIXTURE_OVERLAY to a verified upstream overlay"
+                )
             if provenance is None:
-                provenance = read(overlay / 'SOURCE.json')
-                if file_hash(overlay.parent / 'fixtures.tar.gz') != provenance['archive_sha256']:
-                    raise ValueError('Official fixture archive hash differs')
+                provenance = read(overlay / "SOURCE.json")
+                if (
+                    file_hash(overlay.parent / "fixtures.tar.gz")
+                    != provenance["archive_sha256"]
+                ):
+                    raise ValueError("Official fixture archive hash differs")
             source = overlay / "tasks" / tid / relative
             if not source.is_file():
                 raise FileNotFoundError(source)
@@ -86,11 +99,18 @@ def verify_freeze(config):
             raise ValueError("Frozen file changed: " + relative)
 
 
-def prepare(output):
-    output.mkdir(parents=True, exist_ok=False)
+def prepare(output, *, task_ids=None):
     manifest = read(MANIFEST)
     if len(manifest["task_ids"]) != 104 or len(set(manifest["task_ids"])) != 104:
         raise ValueError("Expected exactly 104 unique task IDs")
+    selected = list(manifest["task_ids"] if task_ids is None else task_ids)
+    if (
+        not selected
+        or len(set(selected)) != len(selected)
+        or not set(selected) <= set(manifest["task_ids"])
+    ):
+        raise ValueError("Selected tasks must be unique members of the pinned Claw 104")
+    output.mkdir(parents=True, exist_ok=False)
     code = output / "code"
     code.mkdir()
     for name in ("reward_engine", "experiments"):
@@ -103,10 +123,14 @@ def prepare(output):
     shutil.copytree(
         SOURCE, benchmark, ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv")
     )
-    install_public_fixtures(benchmark, manifest["task_ids"], output)
-    binary = Path(os.environ.get('OPENCODE_BINARY', shutil.which('opencode') or 'opencode'))
+    install_public_fixtures(benchmark, selected, output)
+    binary = Path(
+        os.environ.get("OPENCODE_BINARY", shutil.which("opencode") or "opencode")
+    )
     if not binary.is_file():
-        raise FileNotFoundError('Install the pinned OpenCode binary and set OPENCODE_BINARY')
+        raise FileNotFoundError(
+            "Install the pinned OpenCode binary and set OPENCODE_BINARY"
+        )
     (output / "bin").mkdir()
     shutil.copy2(binary, output / "bin/opencode")
     import subprocess
@@ -142,7 +166,7 @@ def prepare(output):
         "output": str(output),
         "code": str(code),
         "benchmark_root": str(benchmark),
-        "task_ids": manifest["task_ids"],
+        "task_ids": selected,
         "groups": manifest["groups"],
         "rounds": 1,
         "seeds": 3,
@@ -160,7 +184,11 @@ def prepare(output):
         "task_concurrency": 3,
         "max_model_concurrency": 128,
         "per_model_concurrency": 128,
-        "credentials_file": str(Path(os.environ.get('REWARD_ENGINE_CREDENTIALS_FILE', REPO / '.env')).resolve()),
+        "credentials_file": str(
+            Path(
+                os.environ.get("REWARD_ENGINE_CREDENTIALS_FILE", REPO / ".env")
+            ).resolve()
+        ),
         "backend_key_env": "OPENLUX_API_KEY",
         "backend_url": "https://api.openlux.ai/v1",
         "auth_file": str(output / "campaign.auth"),
@@ -184,6 +212,7 @@ def prepare(output):
             "T096_pinbench_business_metrics_summary",
         ],
     }
+    cfg["canaries"] = [task for task in cfg["canaries"] if task in selected]
     cfg["identity"] = digest(cfg)
     (output / "campaign.auth").write_text(uuid4().hex + uuid4().hex)
     (output / "campaign.auth").chmod(0o600)
@@ -233,7 +262,9 @@ def prepare_web_rerun(output, source):
         spec = yaml.safe_load(
             (source / "benchmark/tasks" / task_id / "task.yaml").read_text()
         )
-        if any(service.get("name") == "web_real" for service in spec.get("services", [])):
+        if any(
+            service.get("name") == "web_real" for service in spec.get("services", [])
+        ):
             task_ids.append(task_id)
     if len(task_ids) != 19:
         raise ValueError(f"Expected 19 public-web tasks, found {len(task_ids)}")
@@ -241,7 +272,9 @@ def prepare_web_rerun(output, source):
         raise ValueError("Rerun output and source must be separate")
     output.mkdir(parents=True, exist_ok=False)
     shutil.copytree(source / "code", output / "code")
-    shutil.copy2(Path(__file__), output / "code/experiments/claw_eval/opencode/campaign.py")
+    shutil.copy2(
+        Path(__file__), output / "code/experiments/claw_eval/opencode/campaign.py"
+    )
     shutil.copytree(source / "benchmark", output / "benchmark")
     shutil.copytree(source / "bin", output / "bin")
     shutil.copy2(source / "fixture_overlay.json", output / "fixture_overlay.json")
@@ -371,7 +404,8 @@ def corrected_failure_retry_limit(task):
         # The prior provenance repair can expose this sibling legacy path.
         return 5
     if any(
-        message in {
+        message
+        in {
             "User expectation requires an actual user statement, not Actor narration",
             "Fewer than two usable independent expectations; keep raw failures",
         }
@@ -412,7 +446,8 @@ async def task_run(config, runtime, task_id):
                     and "Incomplete or mismatched role reply: finish=length"
                     in failure.get("error", "")
                 )
-                or failure.get("error_type") in {
+                or failure.get("error_type")
+                in {
                     "HTTPStatusError",
                     "ReadTimeout",
                     "TimeoutError",
@@ -546,12 +581,15 @@ def recover_failed_canary(root, task_id):
         for round_data in (result or {}).get("rounds", [])
         for arm, row in (round_data.get("arms") or {}).items()
         if row.get("error_type") == "RuntimeError"
-        and row.get("reason") == "Interrupted Actor slot needs inspection; not resampling"
+        and row.get("reason")
+        == "Interrupted Actor slot needs inspection; not resampling"
     }
     if result is not None and result.get("status") not in {"failed", "partial"}:
         return False
     if result is not None and result.get("completed_rounds") != 0:
-        raise RuntimeError("Refusing to recover a canary after a completed round: " + task_id)
+        raise RuntimeError(
+            "Refusing to recover a canary after a completed round: " + task_id
+        )
     failed_slots = []
     for slot in (task / "round_1/actors").glob("*"):
         if not slot.is_dir():
@@ -585,7 +623,10 @@ def recover_failed_canary(root, task_id):
         ):
             failed_slots.append(slot)
         else:
-            raise RuntimeError("Refusing to recover an inspected or unknown Actor failure: " + str(slot))
+            raise RuntimeError(
+                "Refusing to recover an inspected or unknown Actor failure: "
+                + str(slot)
+            )
     failed_seed_slots = []
     for slot in (task / "seeds").glob("*"):
         if not slot.is_dir() or (slot / "RESULT.json").exists():
@@ -603,7 +644,9 @@ def recover_failed_canary(root, task_id):
         ):
             failed_seed_slots.append(slot)
         else:
-            raise RuntimeError("Refusing to recover an unknown seed failure: " + str(slot))
+            raise RuntimeError(
+                "Refusing to recover an unknown seed failure: " + str(slot)
+            )
     if (
         result is None
         and not failed_slots
@@ -612,7 +655,13 @@ def recover_failed_canary(root, task_id):
     ):
         return False
     recovery_id = str(time.time_ns()) + "_" + uuid4().hex
-    archive = Path(root) / "implementation_revisions" / recovery_id / "task_recovery" / task_id
+    archive = (
+        Path(root)
+        / "implementation_revisions"
+        / recovery_id
+        / "task_recovery"
+        / task_id
+    )
     archived = []
     for relative in (
         "result.private.json",

@@ -47,18 +47,31 @@ INSTRUCTION = (
 def schema():
     return {
         "outcome_goal": "Concrete full-score result for this Task, not merely minimum compliance",
-        "full_score_gaps": [{"id": "stable gap ID", "gap": "Current shortfall from full quality",
-                             "evidence_refs": ["Task/current-work/knowledge refs supporting this opportunity"]}],
-        "improvements": [{"id": "stable action ID", "gap_ids": ["full_score_gaps IDs addressed"],
-                          "action": "Specific next change or verification; locate what to improve",
-                          "expected_gain": "Why this helps achieve the full-score Task outcome",
-                          "verification": "Observable evidence that would show the change helped",
-                          "evidence_refs": ["actual available refs"]}],
+        "full_score_gaps": [
+            {
+                "id": "stable gap ID",
+                "gap": "Current shortfall from full quality",
+                "evidence_refs": [
+                    "Task/current-work/knowledge refs supporting this opportunity"
+                ],
+            }
+        ],
+        "improvements": [
+            {
+                "id": "stable action ID",
+                "gap_ids": ["full_score_gaps IDs addressed"],
+                "action": "Specific next change or verification; locate what to improve",
+                "expected_gain": "Why this helps achieve the full-score Task outcome",
+                "verification": "Observable evidence that would show the change helped",
+                "evidence_refs": ["actual available refs"],
+            }
+        ],
     }
 
 
 def validate(row, evidence):
     """Require actionable grounded opportunities, not a new numeric self-judge."""
+
     def fail(field, reason):
         raise ResponseContractError(field, reason)
 
@@ -70,7 +83,9 @@ def validate(row, evidence):
         try:
             require_refs(value, evidence)
         except ValueError as error:
-            raise ResponseContractError(field, "Use supplied evidence references") from error
+            raise ResponseContractError(
+                field, "Use supplied evidence references"
+            ) from error
 
     string(row.get("outcome_goal"), "outcome_goal")
     gaps, actions = row.get("full_score_gaps"), row.get("improvements")
@@ -88,7 +103,10 @@ def validate(row, evidence):
         gap_ids.add(gap["id"])
         refs(gap.get("evidence_refs"), field + ".evidence_refs")
     if len(actions) > 3:
-        fail("improvements", "Prioritize at most three next actions; keep other gaps in the ledger")
+        fail(
+            "improvements",
+            "Prioritize at most three next actions; keep other gaps in the ledger",
+        )
     for i, action in enumerate(actions):
         field = f"improvements[{i}]"
         if not isinstance(action, dict):
@@ -99,11 +117,23 @@ def validate(row, evidence):
             fail(field + ".id", "Duplicate action ID")
         action_ids.add(action["id"])
         ids = action.get("gap_ids")
-        if not isinstance(ids, list) or not ids or any(not isinstance(g, str) or g not in gap_ids for g in ids):
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(g, str) or g not in gap_ids for g in ids)
+        ):
             fail(field + ".gap_ids", "Reference existing full-score gap IDs")
         refs(action.get("evidence_refs"), field + ".evidence_refs")
     if gaps and not actions:
-        fail("improvements", "Remaining full-score gaps need a next improvement or verification action")
-    if row.get("status") == "observe" and (gaps or actions or row.get("gaps") or row.get("verify")):
-        fail("status", "Remaining gaps or verification require suggest/clarify, not observe")
+        fail(
+            "improvements",
+            "Remaining full-score gaps need a next improvement or verification action",
+        )
+    if row.get("status") == "observe" and (
+        gaps or actions or row.get("gaps") or row.get("verify")
+    ):
+        fail(
+            "status",
+            "Remaining gaps or verification require suggest/clarify, not observe",
+        )
     return row

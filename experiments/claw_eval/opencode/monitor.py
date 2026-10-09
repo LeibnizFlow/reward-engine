@@ -11,14 +11,20 @@ from reward_engine.adapters.workbuddy.io import read, write
 def campaign_process_state(output, proc_root=Path("/proc")):
     process = output / "process.json"
     if (output / "acceptance.json").exists():
-        return {"status": "completed", "pid": read(process).get("pid") if process.exists() else None}
+        return {
+            "status": "completed",
+            "pid": read(process).get("pid") if process.exists() else None,
+        }
     if not process.exists():
         return {"status": "not_started", "pid": None}
     pid = read(process).get("pid")
     cmdline = proc_root / str(pid) / "cmdline" if type(pid) is int and pid > 0 else None
     try:
         command = cmdline.read_bytes().replace(b"\0", b" ").decode(errors="replace")
-        alive = "experiments.claw_eval.opencode.campaign" in command and str(output) in command
+        alive = (
+            "experiments.claw_eval.opencode.campaign" in command
+            and str(output) in command
+        )
     except (FileNotFoundError, NotADirectoryError, PermissionError, ProcessLookupError):
         alive = False
     return {"status": "running" if alive else "exited", "pid": pid}

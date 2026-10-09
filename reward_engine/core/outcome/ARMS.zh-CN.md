@@ -1,5 +1,7 @@
 # 四臂：分别比较 Hypothesis 与 Reward 反馈
 
+> 当前发行版的可运行命令见[原生烟测说明](../../../docs/native-smoke.md)。本页保留协议演变记录；历史验收记录未作为当前运行结果。
+
 协议名：`hypothesis_feedback_v1`。实现：`arms.py`，两个原生入口和 `loop.py` 共用，不另写一套算法。
 
 2026-09-11 新验证配置使用 `construction_strategy="counterexample_validated"`，不更换协议名。
@@ -37,9 +39,9 @@ B−A、C−A、D−A 是相应处理组的样本成绩差；其中混有生成�
 }
 ```
 
-- 完整初始化入口：`reward_engine.adapters.claw_eval.outcome_experiment`。
+- 完整初始化入口：`experiments.claw_eval.opencode.campaign`。
 - `construction_rounds=3` 仅扩展 Jury、Builder、Hypothesis 构建；搜索、Actor、C/D 审查频率及独立评分次数不乘三。未指定仍为单轮构建。
-- 已有同题 Pack／Hypothesis：`reward_engine.adapters.claw_eval.outcome_pack_trial`，传 `--config --pack --hypothesis --output`。
+- 已有同题 Pack／Hypothesis：历史 `outcome_pack_trial`（已归档；当前发行版使用上述 campaign 入口）。
 - 新协议默认四臂、一轮、`every_k_turns=1`；显式填写的历史 `every_k_turns=3` 仍使用 3，旧协议默认也仍为 3。若包含 D 却显式关闭 Critic，启动前报错。
 - C 默认最多两次修订，实际调用同一个 Actor 的 resume，不新开一次“重抽”。仍未解决就记录未解决，不能强称通过。
 - C 的“最多 3 条主张”是输出简洁性指导。额外主张完整保留、逐条校验并记录数量提示；实际执行检查仍由 `max_tests` 限制，超出部分待测。字段／证据契约错误记录具体位置，不因检查故障要求 Actor 任意重写；主结论统一针对满分 Outcome；任何质量差距都强制归为 `needs_improvement`，重要疑问待测归为 `needs_verification`。事实是否有缺陷单独记录，不能替代满分判断。只有满分差距与优先改进均为空、重要疑问已处理时才能正常结束。JSON／输出契约失败带原证据重做一次。
@@ -59,4 +61,4 @@ B−A、C−A、D−A 是相应处理组的样本成绩差；其中混有生成�
 `feedback_execution` 在原生产物记录、轮次摘要和最终状态中分别记录 `delivery_review` 与 `policy_critic`。状态包括 `disabled`、`completed`、`degraded`、`unavailable`、`unknown`；D 另有 `not_triggered`。C 保留实际审查结论、有效／不可用审查数、修订请求数与诊断；D 保留根回合数、检查点数、失败检查点数和实际注入次数。`completed` 指模块执行完成，不表示作品正确；Critic 有效 `observe` 也可以零注入。只有完整日志和正常交付能证明 D 未到周期检查点，缺失日志标 `unknown`。
 
 既有 `status`／`completed_rounds` 表示产物完成情况；反馈链路是否执行、是否有效需要查看 `feedback_execution`，不能由四份作品存在或 Critic 开关开启来推断。
-这些是受控模型的离线测试，不提供提分结论；实际付费四臂的进度、恢复和结果见 [T068 完整验收](../../../reports/claw_eval/outcome/flash_thinking_full_20260910.zh-CN.md)。
+这些是受控模型的离线测试，不提供提分结论；实际付费四臂的进度、恢复和结果见 T068 完整验收（历史归档，不包含在本发行版中）。

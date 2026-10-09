@@ -2,12 +2,12 @@
 
 from contextvars import ContextVar
 
-ACTIVE = ContextVar('outcome_call_budget', default=None)
+ACTIVE = ContextVar("outcome_call_budget", default=None)
 
 
 def consume():
     budget = ACTIVE.get()
     if budget is not None:
-        if budget['requests'] >= 6:
-            raise RuntimeError('Logical operation exhausted its six physical requests')
-        budget['requests'] += 1
+        if budget["requests"] >= 6:
+            raise RuntimeError("Logical operation exhausted its six physical requests")
+        budget["requests"] += 1

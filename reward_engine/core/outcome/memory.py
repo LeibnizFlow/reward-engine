@@ -43,10 +43,20 @@ class Memory:
         """Jury may write a grounded gap, NOT a made-up successful method."""
         for gap in jury.get("gaps", []):
             key = "\n".join(
-                [task["prompt"], "Outcome gap: " + gap["gap"], gap["expected"], gap["verification"]]
+                [
+                    task["prompt"],
+                    "Outcome gap: " + gap["gap"],
+                    gap["expected"],
+                    gap["verification"],
+                ]
             )
             previous = next(
-                (r for r in self.rows if r["task_id"] == task["task_id"] and r["key"] == key), None
+                (
+                    r
+                    for r in self.rows
+                    if r["task_id"] == task["task_id"] and r["key"] == key
+                ),
+                None,
             )
             entry = {
                 "memory_id": previous["memory_id"] if previous else uuid4().hex,
@@ -87,10 +97,17 @@ class Memory:
             for scope in ("standard", "inquiry"):
                 old, new = previous, row
                 if scope == "inquiry":
-                    if not row.get("measurement_inquiry") or row["measurement_inquiry"] != previous.get("measurement_inquiry"):
+                    if not row.get("measurement_inquiry") or row[
+                        "measurement_inquiry"
+                    ] != previous.get("measurement_inquiry"):
                         continue  # Different questions are not a comparable before/after pair.
                     old, new = previous.get("inquiry_result"), row.get("inquiry_result")
-                if not old or not new or old["status"] == "unknown" or new["status"] == "unknown":
+                if (
+                    not old
+                    or not new
+                    or old["status"] == "unknown"
+                    or new["status"] == "unknown"
+                ):
                     continue
                 changes.append(
                     {
@@ -101,8 +118,16 @@ class Memory:
                         "gap_after": new.get("gap") or "",
                         "before_evidence_refs": deepcopy(old["evidence_refs"]),
                         "after_evidence_refs": deepcopy(new["evidence_refs"]),
-                        **({"scope": "inquiry", "measurement_inquiry": deepcopy(row["measurement_inquiry"])}
-                           if scope == "inquiry" else {}),
+                        **(
+                            {
+                                "scope": "inquiry",
+                                "measurement_inquiry": deepcopy(
+                                    row["measurement_inquiry"]
+                                ),
+                            }
+                            if scope == "inquiry"
+                            else {}
+                        ),
                     }
                 )
         if not changes:
@@ -133,10 +158,16 @@ class Memory:
         self.rows.append(entry)
         return deepcopy(entry)
 
-    async def retrieve(self, context, *, top_k=3, embedding=None, cross_task=False, query_extra=None):
+    async def retrieve(
+        self, context, *, top_k=3, embedding=None, cross_task=False, query_extra=None
+    ):
         if type(top_k) is not int or top_k < 0:
             raise ValueError("top_k is a nonnegative hyperparameter")
-        candidates = [r for r in self.rows if cross_task or r["task_id"] == context["task"]["task_id"]]
+        candidates = [
+            r
+            for r in self.rows
+            if cross_task or r["task_id"] == context["task"]["task_id"]
+        ]
         if not candidates or top_k == 0:
             return []
         query = json.dumps(
@@ -151,13 +182,17 @@ class Memory:
         )
         if embedding:
             q = await embedding.embed([query], text_type="query")
-            keys = await embedding.embed([r["key"] for r in candidates], text_type="document")
+            keys = await embedding.embed(
+                [r["key"] for r in candidates], text_type="document"
+            )
             if len(q.vectors) != 1 or len(keys.vectors) != len(candidates):
                 raise ValueError("Embedding must preserve Query/Key count")
             scores = [cosine(q.vectors[0], key) for key in keys.vectors]
         else:
             scores = [cosine(tokens(query), tokens(r["key"])) for r in candidates]
-        chosen = sorted(((score, i) for i, score in enumerate(scores) if score > 0), reverse=True)[:top_k]
+        chosen = sorted(
+            ((score, i) for i, score in enumerate(scores) if score > 0), reverse=True
+        )[:top_k]
         return [
             {
                 "memory_id": candidates[i]["memory_id"],

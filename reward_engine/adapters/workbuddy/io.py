@@ -13,10 +13,17 @@ def role_model(config, role):
     """Resolve an explicit runtime role amendment without rebinding old samples."""
     path = Path(config["output"]) / "role_models.json"
     overrides = read(path)["roles"] if path.exists() else {}
-    if (not isinstance(overrides, dict) or not set(overrides) <= set(config["roles"])
-            or any(not isinstance(model, str) or model not in config["roles"].values()
-                   for model in overrides.values())):
-        raise ValueError("Role model amendments must use configured roles and gateway models")
+    if (
+        not isinstance(overrides, dict)
+        or not set(overrides) <= set(config["roles"])
+        or any(
+            not isinstance(model, str) or model not in config["roles"].values()
+            for model in overrides.values()
+        )
+    ):
+        raise ValueError(
+            "Role model amendments must use configured roles and gateway models"
+        )
     return overrides.get(role, config["roles"][role])
 
 
@@ -25,7 +32,9 @@ def role_timeout_s(config, default=STREAM_TIMEOUT_S):
     limits = read(path) if path.exists() else config
     value = limits.get("role_stream_timeout_s", default)
     if type(value) not in (int, float) or not 0 < value <= 3600:
-        raise ValueError("Role stream timeout must be positive and at most 3600 seconds")
+        raise ValueError(
+            "Role stream timeout must be positive and at most 3600 seconds"
+        )
     return value
 
 
@@ -37,12 +46,17 @@ def write(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str) + "\n")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str)
+        + "\n"
+    )
     os.replace(temporary, path)
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()
+    ).hexdigest()
 
 
 def file_hash(path):
@@ -58,4 +72,6 @@ def auth(config):
 
 
 def model_matches(config, requested, actual):
-    return actual == requested or actual in config.get("model_aliases", {}).get(requested, [])
+    return actual == requested or actual in config.get("model_aliases", {}).get(
+        requested, []
+    )

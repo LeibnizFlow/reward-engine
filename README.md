@@ -15,8 +15,9 @@
 - [数据字典](release/DATA_DICTIONARY.md) · [第三方许可](release/LICENSES.md)
 - [WorkBuddy 运行入口](experiments/workbuddy/README.md) · [Claw 运行入口](experiments/claw_eval/README.zh-CN.md)
 - [架构](docs/architecture.md) · [测试](tests/README.md)
+- [原生任务烟测与环境安装](docs/native-smoke.md)
 
-GitHub 源码导出不包含大数据。将 Zenodo 材料包全部解压至源码根目录后得到 `data/`，报告中的完整证据链接才能使用。
+GitHub 源码导出不包含大数据。附件在私有 [evidence release](https://github.com/TheLittleJimmy/reward-engine/releases/tag/evidence-v1.0.0) 中；下载到 `zenodo/` 后运行 `python -m release.restore --archives zenodo` 得到 `data/`，报告中的完整证据链接才能使用。恢复工具不会用历史源码包覆盖当前代码。
 本机 `archive/` 保存历史材料及回滚记录，不属于发布内容；公开版本不依赖它。
 
 ```sh

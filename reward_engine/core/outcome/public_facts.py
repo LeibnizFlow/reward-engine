@@ -28,9 +28,9 @@ def select(value, path):
 def bind_observations(context, evidence, descriptors):
     """Freeze adapter-declared scope/time/coverage against exact public inputs.
 
-Descriptors do not establish their own truth. In particular an intermediate
-tool response must not be marked terminal, or a partial event log complete.
-"""
+    Descriptors do not establish their own truth. In particular an intermediate
+    tool response must not be marked terminal, or a partial event log complete.
+    """
     if len(context.get("products", [])) != 1:
         raise ValueError("Independent reward requires exactly one candidate")
     if "public_reward_observations" in context:
@@ -45,15 +45,25 @@ tool response must not be marked terminal, or a partial event log complete.
         ids.add(row["id"])
         ref = row.get("source_ref")
         if ref not in allowed or ref not in evidence:
-            raise ValueError("Observation must reference this candidate's public source/environment")
-        if (not isinstance(row.get("object"), str) or not row["object"]
-                or not isinstance(row.get("property"), str) or not row["property"]
-                or row.get("phase") not in {"intermediate", "terminal", "history"}
-                or type(row.get("sequence")) is not int or row["sequence"] < 0
-                or type(row.get("complete")) is not bool
-                or row.get("status") not in {"observed", "error", "unavailable"}
-                or not isinstance(row.get("observed_at"), str) or not row["observed_at"]):
-            raise ValueError("Observation needs object, property, time, phase and explicit coverage")
+            raise ValueError(
+                "Observation must reference this candidate's public source/environment"
+            )
+        if (
+            not isinstance(row.get("object"), str)
+            or not row["object"]
+            or not isinstance(row.get("property"), str)
+            or not row["property"]
+            or row.get("phase") not in {"intermediate", "terminal", "history"}
+            or type(row.get("sequence")) is not int
+            or row["sequence"] < 0
+            or type(row.get("complete")) is not bool
+            or row.get("status") not in {"observed", "error", "unavailable"}
+            or not isinstance(row.get("observed_at"), str)
+            or not row["observed_at"]
+        ):
+            raise ValueError(
+                "Observation needs object, property, time, phase and explicit coverage"
+            )
         if datetime.fromisoformat(row["observed_at"]).tzinfo is None:
             raise ValueError("Observation timestamp requires a timezone")
         if row["status"] == "observed":
@@ -64,8 +74,13 @@ tool response must not be marked terminal, or a partial event log complete.
     refs = sorted(evidence)
     bound["public_reward_observations"] = {
         "input_refs": refs,
-        "candidate_digest": digest({"task": context["task"], "products": context["products"],
-                                    "evidence": {r: evidence[r] for r in refs}}),
+        "candidate_digest": digest(
+            {
+                "task": context["task"],
+                "products": context["products"],
+                "evidence": {r: evidence[r] for r in refs},
+            }
+        ),
         "rows": rows,
     }
     return bound
@@ -76,33 +91,54 @@ def validate_binding(context, evidence):
     if bundle is None:
         return []
     refs = bundle["input_refs"]
-    actual = digest({"task": context["task"], "products": context["products"],
-                     "evidence": {r: evidence.get(r) for r in refs}})
+    actual = digest(
+        {
+            "task": context["task"],
+            "products": context["products"],
+            "evidence": {r: evidence.get(r) for r in refs},
+        }
+    )
     if actual != bundle["candidate_digest"] or any(r not in evidence for r in refs):
         raise ValueError("Public observation candidate binding changed")
     return bundle["rows"]
 
 
 def validate_predicate(predicate):
-    if (not isinstance(predicate, dict)
-            or not all(isinstance(predicate.get(k), str) and predicate[k] for k in ("object", "property"))
-            or predicate.get("phase") not in {"terminal", "history"}
-            or predicate.get("op") not in {"equals", "contains", "forbids"}
-            or "expected" not in predicate):
-        raise ValueError("Fact check needs object/property, terminal/history, op and expected")
+    if (
+        not isinstance(predicate, dict)
+        or not all(
+            isinstance(predicate.get(k), str) and predicate[k]
+            for k in ("object", "property")
+        )
+        or predicate.get("phase") not in {"terminal", "history"}
+        or predicate.get("op") not in {"equals", "contains", "forbids"}
+        or "expected" not in predicate
+    ):
+        raise ValueError(
+            "Fact check needs object/property, terminal/history, op and expected"
+        )
     if predicate["phase"] == "history" and predicate["op"] != "forbids":
         raise ValueError("History checks support persistent prohibitions only")
 
 
 def unknown(reason, *, error=False, refs=()):
-    return {"status": "unknown", "reason": reason, "gap": "", "error": error,
-            "unknown_kind": "execution" if error else "evidence", "evidence_refs": list(refs)}
+    return {
+        "status": "unknown",
+        "reason": reason,
+        "gap": "",
+        "error": error,
+        "unknown_kind": "execution" if error else "evidence",
+        "evidence_refs": list(refs),
+    }
 
 
 def check_fact(predicate, context, evidence):
     validate_predicate(predicate)
-    rows = [r for r in validate_binding(context, evidence)
-            if (r["object"], r["property"]) == (predicate["object"], predicate["property"])]
+    rows = [
+        r
+        for r in validate_binding(context, evidence)
+        if (r["object"], r["property"]) == (predicate["object"], predicate["property"])
+    ]
     if not rows:
         return unknown("No candidate-bound public observation for the required fact")
     rows.sort(key=lambda r: (r["sequence"], r["id"]))
@@ -121,7 +157,11 @@ def check_fact(predicate, context, evidence):
         # recipient, table, or recorded action.
         if op in {"contains", "forbids"}:
             if not isinstance(actual, list):
-                return unknown("Membership check requires a structured list", error=True, refs=[ref])
+                return unknown(
+                    "Membership check requires a structured list",
+                    error=True,
+                    refs=[ref],
+                )
             present = any(digest(v) == digest(expected) for v in actual)
             passed = present if op == "contains" else not present
             determined = present or row["complete"]
@@ -129,12 +169,24 @@ def check_fact(predicate, context, evidence):
             passed = digest(actual) == digest(expected)
             determined = row["complete"]
         if not determined:
-            return unknown("Partial evidence cannot establish absence or complete equality", refs=[ref])
-        return {"status": "pass" if passed else "fail", "error": False,
-                "reason": "Public fact satisfies requirement" if passed else "Public fact contradicts requirement",
-                "gap": "" if passed else f"{predicate['object']} / {predicate['property']} violates {op}",
-                "evidence_refs": [ref], "observation_ids": [row["id"]],
-                "observed": deepcopy(actual), "expected": deepcopy(expected)}
+            return unknown(
+                "Partial evidence cannot establish absence or complete equality",
+                refs=[ref],
+            )
+        return {
+            "status": "pass" if passed else "fail",
+            "error": False,
+            "reason": "Public fact satisfies requirement"
+            if passed
+            else "Public fact contradicts requirement",
+            "gap": ""
+            if passed
+            else f"{predicate['object']} / {predicate['property']} violates {op}",
+            "evidence_refs": [ref],
+            "observation_ids": [row["id"]],
+            "observed": deepcopy(actual),
+            "expected": deepcopy(expected),
+        }
 
     if predicate["phase"] == "history":
         history = [r for r in rows if r["phase"] == "history"]
@@ -154,7 +206,11 @@ def check_fact(predicate, context, evidence):
     if row["phase"] != predicate["phase"]:
         return unknown("Only intermediate or stale terminal evidence is available")
     result = verdict(row)
-    if predicate["phase"] == "history" and result["status"] == "pass" and not row["complete"]:
+    if (
+        predicate["phase"] == "history"
+        and result["status"] == "pass"
+        and not row["complete"]
+    ):
         return unknown("Absence of prohibited actions requires complete history")
     return result
 
@@ -165,7 +221,9 @@ def install(registry):
         if registry.checkers[CHECKER][0] is not run:
             raise ValueError("Public fact checker cannot be replaced")
         return
-    registry.register(CHECKER, run, "Compare candidate-bound public terminal facts or action history.")
+    registry.register(
+        CHECKER, run, "Compare candidate-bound public terminal facts or action history."
+    )
 
 
 async def run(test, context, evidence):

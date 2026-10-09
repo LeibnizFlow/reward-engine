@@ -76,13 +76,29 @@ async def test_gateway_retries_retryable_http_twice_with_recorded_backoff(tmp_pa
     async def no_wait(seconds):
         waits.append(seconds)
 
-    config = {"output": str(tmp_path), "auth_file": str(token), "backend_url": "https://fake/v1",
-              "model_concurrency": 1, "roles": {"actor": "model"}}
-    app = application(config, backend_key="unused", retry_wait=no_wait,
-                      client_factory=lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(upstream), **kw))
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
-        response = await client.post("/roles/v1/chat/completions",
-            headers={"Authorization": "Bearer test"}, json={"model": "model", "messages": []})
+    config = {
+        "output": str(tmp_path),
+        "auth_file": str(token),
+        "backend_url": "https://fake/v1",
+        "model_concurrency": 1,
+        "roles": {"actor": "model"},
+    }
+    app = application(
+        config,
+        backend_key="unused",
+        retry_wait=no_wait,
+        client_factory=lambda **kw: httpx.AsyncClient(
+            transport=httpx.MockTransport(upstream), **kw
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://local"
+    ) as client:
+        response = await client.post(
+            "/roles/v1/chat/completions",
+            headers={"Authorization": "Bearer test"},
+            json={"model": "model", "messages": []},
+        )
     receipt = next(tmp_path.glob("transport/*/*/receipt.json"))
     recorded = json.loads(receipt.read_text())
     assert response.status_code == 200
@@ -106,13 +122,29 @@ async def test_gateway_retries_read_timeout_before_response_is_exposed(tmp_path)
     async def no_wait(seconds):
         waits.append(seconds)
 
-    config = {"output": str(tmp_path), "auth_file": str(token), "backend_url": "https://fake/v1",
-              "model_concurrency": 1, "roles": {"actor": "model"}}
-    app = application(config, backend_key="unused", retry_wait=no_wait,
-                      client_factory=lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(upstream), **kw))
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
-        response = await client.post("/roles/v1/chat/completions",
-            headers={"Authorization": "Bearer test"}, json={"model": "model", "messages": []})
+    config = {
+        "output": str(tmp_path),
+        "auth_file": str(token),
+        "backend_url": "https://fake/v1",
+        "model_concurrency": 1,
+        "roles": {"actor": "model"},
+    }
+    app = application(
+        config,
+        backend_key="unused",
+        retry_wait=no_wait,
+        client_factory=lambda **kw: httpx.AsyncClient(
+            transport=httpx.MockTransport(upstream), **kw
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://local"
+    ) as client:
+        response = await client.post(
+            "/roles/v1/chat/completions",
+            headers={"Authorization": "Bearer test"},
+            json={"model": "model", "messages": []},
+        )
     recorded = json.loads(next(tmp_path.glob("transport/*/*/receipt.json")).read_text())
     assert response.status_code == 200 and len(attempts) == 2 and waits == [5]
     assert recorded["attempts"] == 2
@@ -167,9 +199,7 @@ async def test_gateway_retries_temporary_provider_stream_error(tmp_path):
             json={"model": "model", "messages": [], "stream": True},
         )
 
-    recorded = json.loads(
-        next(tmp_path.glob("transport/*/*/receipt.json")).read_text()
-    )
+    recorded = json.loads(next(tmp_path.glob("transport/*/*/receipt.json")).read_text())
     assert response.status_code == 200 and "ok" in response.text
     assert len(attempts) == 2 and waits == [15]
     assert recorded["status"] == "completed"
@@ -224,9 +254,7 @@ async def test_gateway_retries_provider_incomplete_stream_error(tmp_path):
             json={"model": "model", "messages": [], "stream": True},
         )
 
-    recorded = json.loads(
-        next(tmp_path.glob("transport/*/*/receipt.json")).read_text()
-    )
+    recorded = json.loads(next(tmp_path.glob("transport/*/*/receipt.json")).read_text())
     assert response.status_code == 200 and "ok" in response.text
     assert len(attempts) == 2 and waits == [15]
     assert recorded["status"] == "completed"
@@ -278,9 +306,7 @@ async def test_gateway_retries_malformed_provider_stream_event(tmp_path):
             json={"model": "model", "messages": [], "stream": True},
         )
 
-    recorded = json.loads(
-        next(tmp_path.glob("transport/*/*/receipt.json")).read_text()
-    )
+    recorded = json.loads(next(tmp_path.glob("transport/*/*/receipt.json")).read_text())
     assert response.status_code == 200 and "ok" in response.text
     assert len(attempts) == 2 and waits == [15]
     assert recorded["status"] == "completed"
@@ -298,9 +324,7 @@ def test_capacity_requeues_only_recoverable_task_outcomes():
             "construction_failure": {"error_type": "ReadTimeout"},
         }
     )
-    assert not retryable_task_result(
-        {"status": "completed", "completed_rounds": 1}
-    )
+    assert not retryable_task_result({"status": "completed", "completed_rounds": 1})
     assert retryable_task_error(TimeoutError("actor timeout"))
     assert retryable_task_error(RuntimeError("docker exited 137"))
     assert retryable_task_error(
@@ -332,8 +356,14 @@ def test_pre_session_dependency_failure_is_recoverable_without_legacy_runner(tmp
     for arm in "ABC":
         slot = task / "round_1/actors" / arm
         write(slot / "STARTED.json", {"identity": arm})
-        write(slot / "FAILURE.json", {"error_type": "ModuleNotFoundError",
-              "reason": "No module named 'swarm_reward'", "session": None})
+        write(
+            slot / "FAILURE.json",
+            {
+                "error_type": "ModuleNotFoundError",
+                "reason": "No module named 'swarm_reward'",
+                "session": None,
+            },
+        )
     assert recover_failed_canary(tmp_path, "task")
     assert not (task / "round_1/actors/A").exists()
     archive = next((tmp_path / "implementation_revisions").glob("*/task_recovery/task"))
@@ -341,7 +371,10 @@ def test_pre_session_dependency_failure_is_recoverable_without_legacy_runner(tmp
 
     config = opencode_config("model", "http://gateway/channel", "secret", 200000, 32768)
     assert config["model"] == "campaign/model"
-    assert config["provider"]["campaign"]["options"]["baseURL"] == "http://gateway/channel/v1"
+    assert (
+        config["provider"]["campaign"]["options"]["baseURL"]
+        == "http://gateway/channel/v1"
+    )
     assert config["provider"]["campaign"]["models"]["model"]["limit"]["output"] == 32768
 
 
@@ -366,7 +399,11 @@ def test_failed_seed_docker_exit_is_archived_for_infrastructure_retry(tmp_path):
     task = tmp_path / "tasks/task"
     write(
         task / "state.json",
-        {"status": "failed", "error_type": "RuntimeError", "reason": "docker exited 1: "},
+        {
+            "status": "failed",
+            "error_type": "RuntimeError",
+            "reason": "docker exited 1: ",
+        },
     )
     write(task / "seeds/1/STARTED.json", {"identity": "seed"})
     write(
@@ -530,15 +567,23 @@ def test_operational_restarts_do_not_consume_model_retry_budget(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_task_run_retries_bounded_length_construction_failure(tmp_path, monkeypatch):
+async def test_task_run_retries_bounded_length_construction_failure(
+    tmp_path, monkeypatch
+):
     from experiments.claw_eval.opencode import campaign
 
     task = tmp_path / "tasks/task"
-    write(task / "result.private.json", {
-        "status": "failed", "completed_rounds": 0,
-        "construction_failure": {"error_type": "ValueError",
-            "error": "Incomplete or mismatched role reply: finish=length, models={'model'}"},
-    })
+    write(
+        task / "result.private.json",
+        {
+            "status": "failed",
+            "completed_rounds": 0,
+            "construction_failure": {
+                "error_type": "ValueError",
+                "error": "Incomplete or mismatched role reply: finish=length, models={'model'}",
+            },
+        },
+    )
     write(task / "state.json", {"status": "failed"})
 
     class StopAfterRecovery(Runtime):
@@ -547,7 +592,9 @@ async def test_task_run_retries_bounded_length_construction_failure(tmp_path, mo
 
     monkeypatch.setattr(campaign, "public_task", lambda *_: (None, {"task_id": "task"}))
     with pytest.raises(RuntimeError, match="reached resumed execution"):
-        await campaign.task_run({"output": str(tmp_path)}, StopAfterRecovery({}), "task")
+        await campaign.task_run(
+            {"output": str(tmp_path)}, StopAfterRecovery({}), "task"
+        )
     assert not (task / "result.private.json").exists()
     assert len(list((task / "recovery_events").glob("*.json"))) == 1
 
@@ -560,7 +607,12 @@ def test_monitor_distinguishes_running_exited_and_completed(tmp_path):
     assert campaign_process_state(output, proc)["status"] == "exited"
     (proc / "42").mkdir(parents=True)
     (proc / "42/cmdline").write_bytes(
-        ("python -m experiments.claw_eval.opencode.campaign run --output " + str(output)).replace(" ", "\0").encode()
+        (
+            "python -m experiments.claw_eval.opencode.campaign run --output "
+            + str(output)
+        )
+        .replace(" ", "\0")
+        .encode()
     )
     assert campaign_process_state(output, proc) == {"status": "running", "pid": 42}
     write(output / "acceptance.json", {"accepted": True})
@@ -595,7 +647,9 @@ async def test_actor_cache_uses_protocol_identity_across_operational_changes(tmp
 
 
 @pytest.mark.asyncio
-async def test_changed_actor_guidance_is_archived_before_resampling(tmp_path, monkeypatch):
+async def test_changed_actor_guidance_is_archived_before_resampling(
+    tmp_path, monkeypatch
+):
     from experiments.claw_eval.opencode import runtime as runtime_module
 
     runtime = Runtime(

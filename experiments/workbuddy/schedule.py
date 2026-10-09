@@ -13,12 +13,19 @@ async def run_tasks(config, state, names, *, one_task, check_space, record):
     active = set()
 
     def save():
-        state.update(current_tasks=sorted(active), current_task=next(iter(sorted(active)), None),
-                     finished=len(state["tasks"]), updated_at=time.time())
+        state.update(
+            current_tasks=sorted(active),
+            current_task=next(iter(sorted(active)), None),
+            finished=len(state["tasks"]),
+            updated_at=time.time(),
+        )
         record(state)
 
     async def one(name):
-        if state["tasks"].get(name, {}).get("status") == "completed" and state["tasks"][name].get("scored") == 9:
+        if (
+            state["tasks"].get(name, {}).get("status") == "completed"
+            and state["tasks"][name].get("scored") == 9
+        ):
             return
         async with gate:
             check_space(config)
@@ -30,7 +37,11 @@ async def run_tasks(config, state, names, *, one_task, check_space, record):
             try:
                 state["tasks"][name] = await one_task(config, name)
             except Exception as error:
-                state["tasks"][name] = {"status": "failed", "error_type": type(error).__name__, "reason": str(error)}
+                state["tasks"][name] = {
+                    "status": "failed",
+                    "error_type": type(error).__name__,
+                    "reason": str(error),
+                }
             finally:
                 active.discard(name)
                 save()

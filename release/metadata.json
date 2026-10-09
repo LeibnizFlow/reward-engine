@@ -2,10 +2,13 @@
   "title": "Reward Engine: WorkBuddy Office and Claw-Eval experimental evidence",
   "version": "1.0.0",
   "creators": null,
-  "github_repository": null,
+  "github_repository": "https://github.com/TheLittleJimmy/reward-engine",
   "license_for_original_data_and_reports": null,
   "code_license": "Apache-2.0",
-  "status": "awaiting_author_metadata",
-  "uploaded": false,
-  "description": "Two consolidated three-round experiments and frozen retrospective analyses; see attached third-party notices."
+  "status": "private_github_release_author_metadata_pending",
+  "uploaded": true,
+  "description": "Two consolidated three-round experiments and frozen retrospective analyses; see attached third-party notices.",
+  "github_visibility": "private",
+  "github_release": "https://github.com/TheLittleJimmy/reward-engine/releases/tag/evidence-v1.0.0",
+  "zenodo_uploaded": false
 }

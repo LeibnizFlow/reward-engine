@@ -1,8 +1,3 @@
-
-from tests.support.claw_outcome_builder_harness import (
-    build_context,
-    setup,
-)
 import asyncio
 from copy import deepcopy
 
@@ -10,8 +5,10 @@ import pytest
 
 from reward_engine.core.outcome.builder import build
 from reward_engine.core.outcome.harness import Registry, defaults, measure
-
-
+from tests.support.claw_outcome_builder_harness import (
+    build_context,
+    setup,
+)
 
 
 def test_build_and_execute_real_json():
@@ -74,36 +71,72 @@ def test_historical_artifact_argument_binds_new_product_not_old_answer():
     async def call(_):
         return reply
 
-    pack = asyncio.run(build(context, evidence, jury, defaults(call), call,
-                             record=lambda k, v: records.update({k: v})))
+    pack = asyncio.run(
+        build(
+            context,
+            evidence,
+            jury,
+            defaults(call),
+            call,
+            record=lambda k, v: records.update({k: v}),
+        )
+    )
     assert reply == original
-    assert records["builder_artifact_bindings/0"]["bindings"][0]["before"] == "product_6:artifact:final_response"
-    current, current_evidence = build_context(context["task"], [{"artifact": {"final_response": "{broken"}}])
+    assert (
+        records["builder_artifact_bindings/0"]["bindings"][0]["before"]
+        == "product_6:artifact:final_response"
+    )
+    current, current_evidence = build_context(
+        context["task"], [{"artifact": {"final_response": "{broken"}}]
+    )
     measured = asyncio.run(measure(pack, defaults(call), current, current_evidence))
     assert measured["results"][0]["status"] == "fail"
-    assert measured["results"][0]["evidence_refs"] == ["product_1:artifact:final_response"]
+    assert measured["results"][0]["evidence_refs"] == [
+        "product_1:artifact:final_response"
+    ]
 
 
 def test_semantic_argument_and_probe_bindings_keep_test_and_rubric():
     context, evidence, jury, reply = setup()
     test = reply["tests"][0]
-    test.update(checker="evidence.review", arguments={"evidence_refs": [
-        "task", "product_1:artifact:final_response", "product_2:artifact:final_response",
-        "product_6:artifact:final_response"]}, probes=[{"tool": "document.read", "arguments": {
-            "ref": "product_3:artifact:final_response", "offset": 0}}])
+    test.update(
+        checker="evidence.review",
+        arguments={
+            "evidence_refs": [
+                "task",
+                "product_1:artifact:final_response",
+                "product_2:artifact:final_response",
+                "product_6:artifact:final_response",
+            ]
+        },
+        probes=[
+            {
+                "tool": "document.read",
+                "arguments": {"ref": "product_3:artifact:final_response", "offset": 0},
+            }
+        ],
+    )
 
     async def call(_):
         return reply
 
     pack = asyncio.run(build(context, evidence, jury, defaults(call), call))
     bound = pack["tests"][0]
-    assert bound["arguments"]["evidence_refs"] == ["task", "product_1:artifact:final_response"]
-    assert bound["probes"][0]["arguments"] == {"ref": "product_1:artifact:final_response", "offset": 0}
+    assert bound["arguments"]["evidence_refs"] == [
+        "task",
+        "product_1:artifact:final_response",
+    ]
+    assert bound["probes"][0]["arguments"] == {
+        "ref": "product_1:artifact:final_response",
+        "offset": 0,
+    }
     assert bound["question"] == test["question"]
     assert pack["criteria"][0]["standard"] == jury["criteria"][0]["standard"]
 
 
-@pytest.mark.parametrize("ref", ["product_2:public:0", "product_2:source:4", "product_2:artifact:undeclared"])
+@pytest.mark.parametrize(
+    "ref", ["product_2:public:0", "product_2:source:4", "product_2:artifact:undeclared"]
+)
 def test_historical_user_source_and_unknown_artifacts_cannot_be_rebound(ref):
     context, evidence, jury, reply = setup()
     reply["tests"][0]["arguments"]["ref"] = ref
@@ -126,14 +159,19 @@ def test_historical_reference_in_question_is_not_rewritten():
         asyncio.run(build(context, evidence, jury, defaults(call), call))
 
 
-
 def test_compile_excludes_historical_handles_but_published_provenance_is_lossless():
     _, _, jury, reply = setup()
     task = {"task_id": "x", "prompt": "Deliver JSON"}
-    context, evidence = build_context(task, [
-        {"artifact": {"final_response": "old answer"}},
-        {"artifact": {"final_response": "another old answer"}, "source_documents": ["old manual"]},
-    ])
+    context, evidence = build_context(
+        task,
+        [
+            {"artifact": {"final_response": "old answer"}},
+            {
+                "artifact": {"final_response": "another old answer"},
+                "source_documents": ["old manual"],
+            },
+        ],
+    )
     jury["criteria"][0]["evidence_refs"] = ["task", "product_2:source:0"]
     original = deepcopy(jury)
     records = {}
@@ -141,30 +179,62 @@ def test_compile_excludes_historical_handles_but_published_provenance_is_lossles
     async def call(request):
         assert request["context"]["products"] == []
         assert request["jury"]["criteria"][0]["evidence_refs"] == ["task"]
-        assert request["jury"]["criteria"][0]["standard"] == original["criteria"][0]["standard"]
-        assert "product_1:artifact:final_response" in request["context"]["current_product_contract"]["artifact_refs"]
+        assert (
+            request["jury"]["criteria"][0]["standard"]
+            == original["criteria"][0]["standard"]
+        )
+        assert (
+            "product_1:artifact:final_response"
+            in request["context"]["current_product_contract"]["artifact_refs"]
+        )
         return reply
 
-    pack = asyncio.run(build(context, evidence, jury, defaults(call), call,
-                             record=lambda k, v: records.update({k: v})))
+    pack = asyncio.run(
+        build(
+            context,
+            evidence,
+            jury,
+            defaults(call),
+            call,
+            record=lambda k, v: records.update({k: v}),
+        )
+    )
     assert jury == original
     assert pack["criteria"][0]["evidence_refs"] == ["task", "product_2:source:0"]
-    assert records["builder_provenance_scope"]["excluded_from_executable_context"] == {"syntax": ["product_2:source:0"]}
+    assert records["builder_provenance_scope"]["excluded_from_executable_context"] == {
+        "syntax": ["product_2:source:0"]
+    }
 
 
 def test_compile_preserves_actual_scoped_user_requirements():
     _, _, jury, reply = setup()
-    context, evidence = build_context({"task_id": "x", "prompt": "Deliver JSON"}, [
-        {"artifact": {"final_response": "old"}},
-        {"artifact": {"final_response": "old", "public_consultation": {
-            "earlier_exchanges": [{"speaker": "user", "text": "Use UTF-8 for my file"}]}}},
-    ])
+    context, evidence = build_context(
+        {"task_id": "x", "prompt": "Deliver JSON"},
+        [
+            {"artifact": {"final_response": "old"}},
+            {
+                "artifact": {
+                    "final_response": "old",
+                    "public_consultation": {
+                        "earlier_exchanges": [
+                            {"speaker": "user", "text": "Use UTF-8 for my file"}
+                        ]
+                    },
+                }
+            },
+        ],
+    )
     jury["criteria"][0].update(origin="user", evidence_refs=["product_2:public:0"])
 
     async def call(request):
-        assert [p["product_id"] for p in request["context"]["products"]] == ["product_2"]
+        assert [p["product_id"] for p in request["context"]["products"]] == [
+            "product_2"
+        ]
         assert request["jury"]["criteria"][0]["evidence_refs"] == ["product_2:public:0"]
-        assert request["context"]["products"][0]["user_updates"][0]["text"] == "Use UTF-8 for my file"
+        assert (
+            request["context"]["products"][0]["user_updates"][0]["text"]
+            == "Use UTF-8 for my file"
+        )
         return reply
 
     pack = asyncio.run(build(context, evidence, jury, defaults(call), call))

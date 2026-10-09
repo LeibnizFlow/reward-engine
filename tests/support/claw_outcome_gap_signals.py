@@ -4,9 +4,16 @@ from reward_engine.core.outcome.context import build_context
 
 
 def fixture():
-    task = {"task_id": "generic", "prompt": "Produce the requested artifact without publishing it."}
+    task = {
+        "task_id": "generic",
+        "prompt": "Produce the requested artifact without publishing it.",
+    }
     candidates = [
-        {"artifact": {"final_response": "I finished"}, "environment": {"artifact": None}} for _ in range(3)
+        {
+            "artifact": {"final_response": "I finished"},
+            "environment": {"artifact": None},
+        }
+        for _ in range(3)
     ]
     context, evidence = build_context(task, candidates)
     gap = {

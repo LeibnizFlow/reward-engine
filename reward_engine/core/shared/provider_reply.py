@@ -6,7 +6,9 @@ def json_answer_text(text: str) -> str:
     # Some gateways split <think> into reasoning_content but leave its closing
     # marker plus the last reasoning fragment in content. Only an explicit
     # leading reasoning envelope may be removed; markers inside JSON are data.
-    if raw.startswith("<think>") or (not raw.startswith(("{", "[", '"', "```")) and "</think>" in raw):
+    if raw.startswith("<think>") or (
+        not raw.startswith(("{", "[", '"', "```")) and "</think>" in raw
+    ):
         _, marker, raw = raw.partition("</think>")
         if not marker:
             raise ValueError("Provider reasoning envelope is incomplete")

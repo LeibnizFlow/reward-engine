@@ -1,8 +1,3 @@
-
-from tests.support.claw_outcome_memory_runner import (
-    PACK,
-    TASK,
-)
 import asyncio
 from copy import deepcopy
 from types import SimpleNamespace
@@ -13,7 +8,10 @@ from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.harness import defaults
 from reward_engine.core.outcome.memory import Memory
 from reward_engine.core.outcome.runner import DeliveryReview, run_delivery
-
+from tests.support.claw_outcome_memory_runner import (
+    PACK,
+    TASK,
+)
 
 
 def test_same_actor_revises_and_rechecks_not_fresh_resample():
@@ -33,7 +31,9 @@ def test_same_actor_revises_and_rechecks_not_fresh_resample():
         raise AssertionError("No LLM for JSON")
 
     actor, memory = Actor(), Memory()
-    review = DeliveryReview(TASK, PACK, defaults(forbidden), memory=memory, audit_mode="full")
+    review = DeliveryReview(
+        TASK, PACK, defaults(forbidden), memory=memory, audit_mode="full"
+    )
     result = asyncio.run(run_delivery(actor, review))
     assert actor.starts == 1 and len(actor.feedback) == 1
     assert "Invalid JSON" in actor.feedback[0]
@@ -47,7 +47,9 @@ def test_budget_and_missing_checker_do_not_pretend_success():
         raise AssertionError()
 
     pack = {**PACK, "tests": [{**PACK["tests"][0], "checker": "missing"}]}
-    review = DeliveryReview(TASK, pack, defaults(forbidden), max_revisions=1, audit_mode="full")
+    review = DeliveryReview(
+        TASK, pack, defaults(forbidden), max_revisions=1, audit_mode="full"
+    )
     candidate = {"artifact": {"final_response": "{}"}}
     assert "verify" in asyncio.run(review(candidate))
     assert asyncio.run(review(candidate)) is None
@@ -57,12 +59,19 @@ def test_budget_and_missing_checker_do_not_pretend_success():
 
 def test_retrieval_top_k_embedding_keys_only_and_task_scope():
     rows = [
-        {"memory_id": "1", "task_id": "x", "key": "JSON parsing", "value": {"secret_value": "V_ONLY"}},
+        {
+            "memory_id": "1",
+            "task_id": "x",
+            "key": "JSON parsing",
+            "value": {"secret_value": "V_ONLY"},
+        },
         {"memory_id": "2", "task_id": "other", "key": "JSON", "value": {}},
     ]
     bank = Memory(rows)
     context, _ = build_context(TASK)
-    assert [r["memory_id"] for r in asyncio.run(bank.retrieve(context, top_k=5))] == ["1"]
+    assert [r["memory_id"] for r in asyncio.run(bank.retrieve(context, top_k=5))] == [
+        "1"
+    ]
     assert asyncio.run(bank.retrieve(context, top_k=0)) == []
 
     class Embed:
@@ -81,11 +90,26 @@ def test_retrieval_top_k_embedding_keys_only_and_task_scope():
 @pytest.mark.parametrize("gap", [None, ""])
 def test_nullable_success_gap_does_not_abort_revision_memory(gap):
     memory = Memory()
-    before = {"pack_id": "v1", "results": [{"test_id": "x", "status": "pass",
-              "gap": gap, "evidence_refs": ["product_1:artifact:final_response"]}]}
+    before = {
+        "pack_id": "v1",
+        "results": [
+            {
+                "test_id": "x",
+                "status": "pass",
+                "gap": gap,
+                "evidence_refs": ["product_1:artifact:final_response"],
+            }
+        ],
+    }
     after = deepcopy(before)
-    entry = memory.record(TASK, "Verify uncertain checks", before, after,
-                          source={"before": "check1", "after": "check2"}, context_note="Revision")
+    entry = memory.record(
+        TASK,
+        "Verify uncertain checks",
+        before,
+        after,
+        source={"before": "check1", "after": "check2"},
+        context_note="Revision",
+    )
     assert isinstance(entry["key"], str)
     assert entry["value"]["observed_changes"][0]["gap_after"] == ""
     assert after["results"][0]["gap"] is gap
@@ -93,15 +117,29 @@ def test_nullable_success_gap_does_not_abort_revision_memory(gap):
 
 def test_real_review_recheck_handles_nullable_model_gap():
     async def call(request):
-        return {"status": "pass", "reason": "Valid answer", "gap": None,
-                "evidence_refs": ["product_1:artifact:final_response"],
-                "claims": [{"claim": "Valid answer", "claim_refs": ["task"],
-                            "evidence_refs": ["product_1:artifact:final_response"],
-                            "observation": "Answer is present", "judgment": "supported"}]}
+        return {
+            "status": "pass",
+            "reason": "Valid answer",
+            "gap": None,
+            "evidence_refs": ["product_1:artifact:final_response"],
+            "claims": [
+                {
+                    "claim": "Valid answer",
+                    "claim_refs": ["task"],
+                    "evidence_refs": ["product_1:artifact:final_response"],
+                    "observation": "Answer is present",
+                    "judgment": "supported",
+                }
+            ],
+        }
 
     pack = deepcopy(PACK)
-    pack["tests"].append({"test_id": "semantic", "criterion_id": "json", "checker": "evidence.review"})
-    review = DeliveryReview(TASK, pack, defaults(call), memory=Memory(), audit_mode="full")
+    pack["tests"].append(
+        {"test_id": "semantic", "criterion_id": "json", "checker": "evidence.review"}
+    )
+    review = DeliveryReview(
+        TASK, pack, defaults(call), memory=Memory(), audit_mode="full"
+    )
     assert asyncio.run(review({"artifact": {"final_response": "broken"}}))
     assert asyncio.run(review({"artifact": {"final_response": "{}"}})) is None
     assert review.status == "satisfied_under_estimator" and len(review.history) == 2

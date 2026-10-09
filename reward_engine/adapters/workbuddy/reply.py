@@ -17,22 +17,34 @@ def decode_role_reply(text):
             value = {}
             for key, item in pairs:
                 if key in value:
-                    raise json.JSONDecodeError("Duplicate key before trailing fence", raw, 0)
+                    raise json.JSONDecodeError(
+                        "Duplicate key before trailing fence", raw, 0
+                    )
                 value[key] = item
             return value
 
         def invalid_constant(_):
-            raise json.JSONDecodeError("Non-JSON constant before trailing fence", raw, 0)
+            raise json.JSONDecodeError(
+                "Non-JSON constant before trailing fence", raw, 0
+            )
 
-        value = json.loads(raw[:-4], object_pairs_hook=unique_object, parse_constant=invalid_constant)
-        return value, [{"operation": "remove_trailing_json_fence", "offset": len(raw) - 3}]
+        value = json.loads(
+            raw[:-4], object_pairs_hook=unique_object, parse_constant=invalid_constant
+        )
+        return value, [
+            {"operation": "remove_trailing_json_fence", "offset": len(raw) - 3}
+        ]
     try:
         return decode_completed_reply(text)
     except json.JSONDecodeError:
-        match = re.fullmatch(r"\{\s*(need_tools|need_evidence)\s*:\s*(\[.*\])\s*\}", text.strip(), re.S)
+        match = re.fullmatch(
+            r"\{\s*(need_tools|need_evidence)\s*:\s*(\[.*\])\s*\}", text.strip(), re.S
+        )
         if match is None:
             raise
         # The array still has to be strict, complete JSON. Core protocol checks
         # retain authority over tools, argument types, references, and budgets.
         values = json.loads(match.group(2))
-        return {match.group(1): values}, [{"operation": "quote_protocol_request_key", "key": match.group(1)}]
+        return {match.group(1): values}, [
+            {"operation": "quote_protocol_request_key", "key": match.group(1)}
+        ]

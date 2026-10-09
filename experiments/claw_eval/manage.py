@@ -1,4 +1,5 @@
 """Small, offline-first experiment record/launch helper; never a Reward Builder."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,13 +15,18 @@ from pathlib import Path
 if not __package__:  # Historical launch.sh invokes this file from arbitrary cwd.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from reward_engine.adapters.support import PYTHON, REPO, read_json, write_json
+from reward_engine.adapters.support import REPO, read_json, write_json
 
 
 def load_config(path: Path):
     config = read_json(path)
-    if not isinstance(config.get("python"), str) or not Path(config["python"]).is_absolute():
-        raise ValueError("Declare an absolute interpreter path in the experiment config.")
+    if (
+        not isinstance(config.get("python"), str)
+        or not Path(config["python"]).is_absolute()
+    ):
+        raise ValueError(
+            "Declare an absolute interpreter path in the experiment config."
+        )
     for role, profile_id in config["roles"].items():
         if profile_id not in config["model_profiles"]:
             raise ValueError(f"Unknown model profile for {role}: {profile_id}")
@@ -36,10 +42,19 @@ def load_config(path: Path):
         raise ValueError("Unsupported jury_comparison protocol")
     if mode != "pairwise":
         protocol = config["role_protocol"]
-        members, reducer = protocol["overall_jury_roles"], protocol["listwise_reducer_role"]
-        if (len(members) != 3 or len(set(members)) != 3 or reducer in members
-                or any(role not in config["roles"] for role in [*members, reducer])):
-            raise ValueError("Listwise needs three members and a separate configured reducer role")
+        members, reducer = (
+            protocol["overall_jury_roles"],
+            protocol["listwise_reducer_role"],
+        )
+        if (
+            len(members) != 3
+            or len(set(members)) != 3
+            or reducer in members
+            or any(role not in config["roles"] for role in [*members, reducer])
+        ):
+            raise ValueError(
+                "Listwise needs three members and a separate configured reducer role"
+            )
     return config
 
 
@@ -47,23 +62,41 @@ def resolved_plan(config):
     roles = {}
     for role, profile_id in config["roles"].items():
         profile = config["model_profiles"][profile_id]
-        roles[role] = {**profile, "provider_config": config["providers"][profile["provider"]]}
-    return {"experiment_id": config["experiment_id"], "status": "planned_not_executed",
-            "runtime": config["active_runtime"], "critic_enabled": config["critic_enabled"],
-            "six_arm_comparison_enabled": config["six_arm_comparison_enabled"],
-            "roles": roles, "algorithm": config["algorithm"],
-            "actual_model_calls": None, "actual_trajectories": None}
+        roles[role] = {
+            **profile,
+            "provider_config": config["providers"][profile["provider"]],
+        }
+    return {
+        "experiment_id": config["experiment_id"],
+        "status": "planned_not_executed",
+        "runtime": config["active_runtime"],
+        "critic_enabled": config["critic_enabled"],
+        "six_arm_comparison_enabled": config["six_arm_comparison_enabled"],
+        "roles": roles,
+        "algorithm": config["algorithm"],
+        "actual_model_calls": None,
+        "actual_trajectories": None,
+    }
 
 
 def readiness(config, root: Path):
     issues = []
-    if config["six_arm_comparison_enabled"] or config["active_runtime"] not in {"jiuwen_single", "opencode_single"}:
-        issues.append("Select one Jiuwen/OpenCode Single; six-arm launches are deferred.")
+    if config["six_arm_comparison_enabled"] or config["active_runtime"] not in {
+        "jiuwen_single",
+        "opencode_single",
+    }:
+        issues.append(
+            "Select one Jiuwen/OpenCode Single; six-arm launches are deferred."
+        )
     if not config["critic_enabled"]:
-        issues.append("The full-algorithm pilot requires Runtime Policy Critic enabled.")
+        issues.append(
+            "The full-algorithm pilot requires Runtime Policy Critic enabled."
+        )
     driver = config.get("driver_path")
     if not driver or not (root / driver).is_file():
-        issues.append("Full-pipeline driver is not bound; handwritten smoke is not a substitute.")
+        issues.append(
+            "Full-pipeline driver is not bound; handwritten smoke is not a substitute."
+        )
     for name, relative in config["inputs"].items():
         if not (root / relative).is_file():
             issues.append(f"Missing {name}: {relative}")
@@ -73,12 +106,16 @@ def readiness(config, root: Path):
         if pool.get("task_id") != config["task_id"]:
             issues.append("Seed pool belongs to a different Task.")
         if len(pool.get("candidates", [])) < 2:
-            issues.append("Fewer than two real seed candidates registered; no A/B evidence yet.")
+            issues.append(
+                "Fewer than two real seed candidates registered; no A/B evidence yet."
+            )
     return issues
 
 
 def _git(*args):
-    result = subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["git", *args], cwd=REPO, capture_output=True, text=True, check=False
+    )
     return result.stdout.strip() if result.returncode == 0 else None
 
 
@@ -88,8 +125,12 @@ def update_index(root: Path, target: Path, state):
         index = read_json(path)
         runtime = target.parent.name.removeprefix("pilot_")
         traces = list(target.parent.glob("attempt-*/trace.jsonl"))
-        entry = {"runtime": runtime, "status": state["status"], "latest_record": str(target.relative_to(root)),
-            "actual_trajectory_count": sum(p.stat().st_size > 0 for p in traces)}
+        entry = {
+            "runtime": runtime,
+            "status": state["status"],
+            "latest_record": str(target.relative_to(root)),
+            "actual_trajectory_count": sum(p.stat().st_size > 0 for p in traces),
+        }
         index.setdefault("single_pilots", {})[runtime] = entry
         # Preserve the original Jiuwen alias; an OpenCode attempt must not relabel it.
         if runtime == "jiuwen_single":
@@ -113,14 +154,24 @@ def prepare(config, root: Path):
             number += 1
     write_json(target / "CONFIG_SNAPSHOT.json", config)
     write_json(target / "RESOLVED_PLAN.json", resolved_plan(config))
-    write_json(target / "CODE_CONTEXT.json", {
-        "commit": _git("rev-parse", "HEAD"), "branch": _git("branch", "--show-current"),
-        "dirty_files": _git("status", "--short"), "python": os.environ.get("REWARD_ENGINE_PYTHON", config["python"]),
-        "cwd": str(REPO), "argv": None,
-        "note": "Dirty filenames are recorded; this is not a snapshot of uncommitted source contents."})
-    state = {"status": "prepared_not_started",
-        "prepared_at": datetime.now(timezone.utc).isoformat(), "model_calls_started": False,
-        "quality_status": "not_evaluated"}
+    write_json(
+        target / "CODE_CONTEXT.json",
+        {
+            "commit": _git("rev-parse", "HEAD"),
+            "branch": _git("branch", "--show-current"),
+            "dirty_files": _git("status", "--short"),
+            "python": os.environ.get("REWARD_ENGINE_PYTHON", config["python"]),
+            "cwd": str(REPO),
+            "argv": None,
+            "note": "Dirty filenames are recorded; this is not a snapshot of uncommitted source contents.",
+        },
+    )
+    state = {
+        "status": "prepared_not_started",
+        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "model_calls_started": False,
+        "quality_status": "not_evaluated",
+    }
     write_json(target / "STATUS.json", state)
     update_index(root, target, state)
     return target
@@ -131,24 +182,42 @@ def watchdog_budgets(config):
     from reward_engine.core.batch import BatchPolicy
 
     resource = config["resource_policy"]
-    budgets = {"native_s": resource["watchdog_timeout_s"],
-        "terminal_jury_s": BatchPolicy(**config.get("map_reduce", {}).get("jury", {})).deadline_s,
+    budgets = {
+        "native_s": resource["watchdog_timeout_s"],
+        "terminal_jury_s": BatchPolicy(
+            **config.get("map_reduce", {}).get("jury", {})
+        ).deadline_s,
         "setup_cleanup_s": resource.get("driver_setup_cleanup_allowance_s", 60),
-        "termination_grace_s": resource.get("driver_termination_grace_s", 10)}
-    if config.get("role_protocol", {}).get("jury_comparison") in {"listwise-semantic-v1", "listwise-joint-v1"}:
-        budgets["terminal_jury_s"] += BatchPolicy(**config.get("map_reduce", {}).get("jury_reduce",
-            config.get("map_reduce", {}).get("jury", {}))).deadline_s
-    if any(isinstance(value, bool) or not isinstance(value, (int, float))
-           or not math.isfinite(value) or value <= 0 for value in budgets.values()):
+        "termination_grace_s": resource.get("driver_termination_grace_s", 10),
+    }
+    if config.get("role_protocol", {}).get("jury_comparison") in {
+        "listwise-semantic-v1",
+        "listwise-joint-v1",
+    }:
+        budgets["terminal_jury_s"] += BatchPolicy(
+            **config.get("map_reduce", {}).get(
+                "jury_reduce", config.get("map_reduce", {}).get("jury", {})
+            )
+        ).deadline_s
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+        for value in budgets.values()
+    ):
         raise ValueError("Driver watchdog budgets must be finite positive seconds")
-    budgets["driver_s"] = budgets["native_s"] + budgets["terminal_jury_s"] + budgets["setup_cleanup_s"]
+    budgets["driver_s"] = (
+        budgets["native_s"] + budgets["terminal_jury_s"] + budgets["setup_cleanup_s"]
+    )
     return budgets
 
 
 def _run_driver(command, *, stdout, stderr, timeout_s, termination_grace_s):
     """Own exactly this child session; permit cleanup before killing its tree."""
-    process = subprocess.Popen(command, cwd=REPO, stdout=stdout, stderr=stderr,
-        start_new_session=True)
+    process = subprocess.Popen(
+        command, cwd=REPO, stdout=stdout, stderr=stderr, start_new_session=True
+    )
     try:
         return process.wait(timeout=timeout_s)
     except BaseException:
@@ -181,24 +250,56 @@ def run(config, root: Path):
     budgets = watchdog_budgets(config)
     target = prepare(config, root)
     # Future driver must consume the snapshot, not a config being edited during the run.
-    command = [os.environ.get("REWARD_ENGINE_PYTHON", config["python"]), str((root / config["driver_path"]).resolve()),
-               "--experiment-config", str(target / "CONFIG_SNAPSHOT.json"),
-               "--experiment-root", str(root), "--output-root", str(target)]
+    command = [
+        os.environ.get("REWARD_ENGINE_PYTHON", config["python"]),
+        str((root / config["driver_path"]).resolve()),
+        "--experiment-config",
+        str(target / "CONFIG_SNAPSHOT.json"),
+        "--experiment-root",
+        str(root),
+        "--output-root",
+        str(target),
+    ]
     context = read_json(target / "CODE_CONTEXT.json")
-    write_json(target / "CODE_CONTEXT.json", {**context, "argv": command, "watchdog_budgets": budgets})
+    write_json(
+        target / "CODE_CONTEXT.json",
+        {**context, "argv": command, "watchdog_budgets": budgets},
+    )
     state = read_json(target / "STATUS.json")
     state.update(status="running", started_at=datetime.now(timezone.utc).isoformat())
     write_json(target / "STATUS.json", state)
     update_index(root, target, state)
     try:
-        with (target / "stdout.log").open("w") as stdout, (target / "stderr.log").open("w") as stderr:
-            returncode = _run_driver(command, stdout=stdout, stderr=stderr,
-                timeout_s=budgets["driver_s"], termination_grace_s=budgets["termination_grace_s"])
-        required = ("RUN_RECEIPT.json", "EFFECTIVE_CONFIG.json", "MODEL_CALLS.jsonl", "trace.jsonl")
-        missing = [name for name in required if not (target / name).is_file() or not (target / name).stat().st_size]
+        with (
+            (target / "stdout.log").open("w") as stdout,
+            (target / "stderr.log").open("w") as stderr,
+        ):
+            returncode = _run_driver(
+                command,
+                stdout=stdout,
+                stderr=stderr,
+                timeout_s=budgets["driver_s"],
+                termination_grace_s=budgets["termination_grace_s"],
+            )
+        required = (
+            "RUN_RECEIPT.json",
+            "EFFECTIVE_CONFIG.json",
+            "MODEL_CALLS.jsonl",
+            "trace.jsonl",
+        )
+        missing = [
+            name
+            for name in required
+            if not (target / name).is_file() or not (target / name).stat().st_size
+        ]
         receipt = read_json(target / "RUN_RECEIPT.json") if not missing else {}
-        status = ("failed" if returncode else "completed" if
-                  not missing and receipt.get("completed") is True else "incomplete_receipt")
+        status = (
+            "failed"
+            if returncode
+            else "completed"
+            if not missing and receipt.get("completed") is True
+            else "incomplete_receipt"
+        )
         state.update(status=status, returncode=returncode, missing_records=missing)
     except KeyboardInterrupt:
         state.update(status="interrupted")
@@ -218,13 +319,20 @@ def run(config, root: Path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("command", choices=("plan", "check", "prepare", "run"), nargs="?", default="plan")
+    parser.add_argument(
+        "command",
+        choices=("plan", "check", "prepare", "run"),
+        nargs="?",
+        default="plan",
+    )
     args = parser.parse_args()
     path = args.config.resolve()
     previous_sigterm = signal.getsignal(signal.SIGTERM)
     if args.command == "run":
+
         def interrupt_run(*_):
             raise KeyboardInterrupt("Manager received SIGTERM")
+
         signal.signal(signal.SIGTERM, interrupt_run)
     try:
         config, root = load_config(path), path.parent
@@ -232,18 +340,34 @@ def main():
             result = resolved_plan(config)
         elif args.command == "check":
             issues = readiness(config, root)
-            print(json.dumps({"ready_to_launch": not issues, "issues": issues}, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {"ready_to_launch": not issues, "issues": issues},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return 2 if issues else 0
         elif args.command == "prepare":
             result = {"prepared_record": str(prepare(config, root)), "executed": False}
         else:
             target, state = run(config, root)
-            print(json.dumps({"record": str(target), **state}, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {"record": str(target), **state}, ensure_ascii=False, indent=2
+                )
+            )
             return 0 if state["status"] == "completed" else 1
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError) as error:
-        print(json.dumps({"status": "not_launched", "reason": str(error)}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"status": "not_launched", "reason": str(error)},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 2
     finally:
         if args.command == "run":

@@ -10,14 +10,37 @@ from reward_engine.core.outcome.hypotheses import question_context
 
 
 def inputs():
-    context, evidence = build_context({"task_id": "generic", "prompt": "Explain the data"}, [
-        {"artifact": {"final_response": "Observed answer", "public_consultation": {
-            "earlier_exchanges": [{"speaker": "user", "text": "Use the corrected date"}]}}}])
-    jury = {"criteria": [{"id": "accuracy"}], "gaps": [{"gap": "Observed discrepancy"}],
-        "open_questions": [{"questions": [f"Question {i}: what is missing?"], "origin": "domain",
-            "status": "unverified_proposal", "why": "Detailed rationale " * 50,
-            "verification": "Concrete method " * 50, "evidence_refs": ["task"],
-            "source_expectation_ids": [str(i)]} for i in range(40)]}
+    context, evidence = build_context(
+        {"task_id": "generic", "prompt": "Explain the data"},
+        [
+            {
+                "artifact": {
+                    "final_response": "Observed answer",
+                    "public_consultation": {
+                        "earlier_exchanges": [
+                            {"speaker": "user", "text": "Use the corrected date"}
+                        ]
+                    },
+                }
+            }
+        ],
+    )
+    jury = {
+        "criteria": [{"id": "accuracy"}],
+        "gaps": [{"gap": "Observed discrepancy"}],
+        "open_questions": [
+            {
+                "questions": [f"Question {i}: what is missing?"],
+                "origin": "domain",
+                "status": "unverified_proposal",
+                "why": "Detailed rationale " * 50,
+                "verification": "Concrete method " * 50,
+                "evidence_refs": ["task"],
+                "source_expectation_ids": [str(i)],
+            }
+            for i in range(40)
+        ],
+    }
     return context, evidence, jury
 
 
@@ -32,7 +55,8 @@ def test_all_questions_preserved_with_lossless_details_and_no_input_mutation():
     for source, row in zip(jury["open_questions"], thin["open_questions"], strict=True):
         assert refs[row["details_ref"]] == source
         assert {k: v for k, v in row.items() if k != "details_ref"} == {
-            k: v for k, v in source.items() if k not in {"why", "verification"}}
+            k: v for k, v in source.items() if k not in {"why", "verification"}
+        }
         assert row["details_ref"] in view["available_evidence_refs"]
     before = len(json.dumps({"context": context, "jury": jury}))
     after = len(json.dumps({"context": view, "jury": thin}))
@@ -55,8 +79,16 @@ async def test_requested_detail_is_exact_and_uses_existing_followup():
         assert request["requested_evidence"] == {ref: evidence[ref]}
         return {"evidence_refs": [ref], "status": "unknown"}
 
-    result = await ask(model, "probe", context, evidence, "Inspect", {}, extra={"jury": jury},
-                       verify_used_previews=True)
+    result = await ask(
+        model,
+        "probe",
+        context,
+        evidence,
+        "Inspect",
+        {},
+        extra={"jury": jury},
+        verify_used_previews=True,
+    )
     assert len(calls) == 2 and result["status"] == "unknown"
 
 

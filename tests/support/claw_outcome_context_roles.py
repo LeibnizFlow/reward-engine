@@ -1,6 +1,8 @@
 """Shared fixtures and reusable scenarios extracted without changing assertions."""
 
-from reward_engine.core.outcome.context import SHARED, ask, build_context
+from reward_engine.core.outcome.context import SHARED as SHARED
+from reward_engine.core.outcome.context import ask as ask
+from reward_engine.core.outcome.context import build_context
 
 
 def sample():

@@ -4,15 +4,15 @@ import asyncio
 from copy import deepcopy
 
 import pytest
-from tests.support.claw_outcome_builder_harness import setup
-from tests.support.claw_outcome_context_roles import definition, sample
-from tests.support.claw_outcome_memory_runner import PACK, TASK
 
 from reward_engine.core.batch import BatchPolicy
 from reward_engine.core.outcome import hypotheses, jury
 from reward_engine.core.outcome.context import build_context, check_bundle
 from reward_engine.core.outcome.harness import Registry, defaults, measure
 from reward_engine.core.outcome.memory import Memory
+from tests.support.claw_outcome_builder_harness import setup
+from tests.support.claw_outcome_context_roles import definition, sample
+from tests.support.claw_outcome_memory_runner import PACK, TASK
 
 
 def test_check_evidence_rebound_and_experiment_labels_hidden():
@@ -27,8 +27,12 @@ def test_check_evidence_rebound_and_experiment_labels_hidden():
             }
         ],
     }
-    bundle = check_bundle("product_2", measurement, "round_1/SECRET_ARM_NAME/result.json")
-    context, evidence = build_context(TASK, [{"artifact": {}}, {"artifact": {}}], checks=[bundle])
+    bundle = check_bundle(
+        "product_2", measurement, "round_1/SECRET_ARM_NAME/result.json"
+    )
+    context, evidence = build_context(
+        TASK, [{"artifact": {}}, {"artifact": {}}], checks=[bundle]
+    )
     assert evidence["check:0:0"]["evidence_refs"] == ["product_2:environment"]
     assert "SECRET_ARM_NAME" not in str(context) + str(evidence)
     assert bundle["source"].endswith("result.json")  # Archive keeps original path.
@@ -89,7 +93,9 @@ def test_map_concurrent_partial_timeout_and_single_reduce():
         assert len(reductions[0]["proposals"]) == 2
         assert records["jury_expectations_map"]["items"][2]["status"] == "timeout"
         assert records["jury_map"]["succeeded"] == 2
-        assert records["jury_map"]["total"] == 2  # no review without a usable initial proposal
+        assert (
+            records["jury_map"]["total"] == 2
+        )  # no review without a usable initial proposal
 
     asyncio.run(scenario())
 
@@ -103,7 +109,9 @@ def test_optional_hypothesis_failure_is_explicit_not_semantic_keep():
     async def broken(request):
         raise TimeoutError("provider")
 
-    result = asyncio.run(hypotheses.propose(context, evidence, definition(), {"1": map_call}, broken))
+    result = asyncio.run(
+        hypotheses.propose(context, evidence, definition(), {"1": map_call}, broken)
+    )
     assert result["method"] == "" and result["availability"] == "unavailable"
     assert result["error_type"] == "TimeoutError"
 
@@ -112,7 +120,12 @@ def test_optional_hypothesis_failure_is_explicit_not_semantic_keep():
     "bad",
     [
         {"status": "pass", "reason": "guess", "evidence_refs": ["task"]},
-        {"status": "pass", "reason": "score", "evidence_refs": ["product_1:environment"], "score": 0.9},
+        {
+            "status": "pass",
+            "reason": "score",
+            "evidence_refs": ["product_1:environment"],
+            "score": 0.9,
+        },
         {
             "status": "fail",
             "reason": "broken",
@@ -139,10 +152,15 @@ def test_semantic_measurement_identified_and_coverage_not_quality():
 
     async def semantic(request):
         return {
-            "claims": [{"claim": "Output is valid JSON", "claim_refs": ["task"],
-                        "evidence_refs": ["product_1:artifact:final_response"],
-                        "observation": "Output is an unclosed malformed object.",
-                        "judgment": "contradicted"}],
+            "claims": [
+                {
+                    "claim": "Output is valid JSON",
+                    "claim_refs": ["task"],
+                    "evidence_refs": ["product_1:artifact:final_response"],
+                    "observation": "Output is an unclosed malformed object.",
+                    "judgment": "contradicted",
+                }
+            ],
             "status": "fail",
             "reason": "observed defect",
             "gap": "malformed",
@@ -186,5 +204,7 @@ def test_author_one_attempt_per_missing_key():
     async def call(request):
         return reply
 
-    pack = asyncio.run(build(context, evidence, definition_row, Registry(), call, author=author))
+    pack = asyncio.run(
+        build(context, evidence, definition_row, Registry(), call, author=author)
+    )
     assert len(attempts) == 1 and pack["status"] == "needs_implementation"

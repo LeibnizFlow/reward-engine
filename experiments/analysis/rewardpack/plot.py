@@ -15,19 +15,37 @@ def plot(output=OUTPUT):
         tasks = list(csv.DictReader(handle))
     summary = read(output / "summary.json")
     groups = ("workbuddy", "claw_eval")
-    values = {group: [float(row["tau_b"]) for row in tasks
-                      if row["benchmark"] == group and row["tau_b"]] for group in groups}
-    fig, axes = plt.subplots(1, 2, figsize=(8.2, 3.25), sharey=True, constrained_layout=True)
+    values = {
+        group: [
+            float(row["tau_b"])
+            for row in tasks
+            if row["benchmark"] == group and row["tau_b"]
+        ]
+        for group in groups
+    }
+    fig, axes = plt.subplots(
+        1, 2, figsize=(8.2, 3.25), sharey=True, constrained_layout=True
+    )
     bins = np.linspace(-1, 1, 11)
-    for axis, group, title, color in zip(axes, groups,
-                                         ("WorkBuddy", "claw-eval"),
-                                         ("#207a6e", "#bf6639"), strict=True):
-        axis.hist(values[group], bins=bins, color=color, edgecolor="white", linewidth=.8)
-        axis.axvline(0, color="#30363b", linewidth=.9)
+    for axis, group, title, color in zip(
+        axes, groups, ("WorkBuddy", "claw-eval"), ("#207a6e", "#bf6639"), strict=True
+    ):
+        axis.hist(
+            values[group], bins=bins, color=color, edgecolor="white", linewidth=0.8
+        )
+        axis.axvline(0, color="#30363b", linewidth=0.9)
         if values[group]:
-            axis.axvline(np.mean(values[group]), color="#30363b", linewidth=1.5, linestyle="--")
+            axis.axvline(
+                np.mean(values[group]), color="#30363b", linewidth=1.5, linestyle="--"
+            )
         else:
-            axis.text(.5, .5, "No defined correlations", ha="center", transform=axis.transAxes)
+            axis.text(
+                0.5,
+                0.5,
+                "No defined correlations",
+                ha="center",
+                transform=axis.transAxes,
+            )
         axis.set_title(f"{title}  (n={len(values[group])}/{summary[group]['tasks']})")
         axis.set_xlim(-1, 1)
         axis.set_xticks(np.linspace(-1, 1, 5))

@@ -8,10 +8,9 @@
 
 GitHub 导出包含当前代码、测试、轻量最终报告及说明，不包含 `.git`、`archive`、大数据或运行凭据。
 Zenodo 包含相同代码以及完整规范化数据。分卷编号仅用于打包，不表示实验批次。
-下载后验证 `SHA256SUMS`，把全部 `.tar.gz` 解压至同一个空目录，再执行下列校验。不要只解压其中一个数据卷。
+从私有 [evidence release](https://github.com/TheLittleJimmy/reward-engine/releases/tag/evidence-v1.0.0) 下载附件到 `zenodo/`。在当前源码根目录运行 `python -m release.restore --archives zenodo`，该命令先验证校验和，再恢复所有数据卷，不覆盖源码。`source-and-reports.tar.gz` 是原始历史快照，不应覆盖当前修复版。
 
 ```sh
-sha256sum -c SHA256SUMS
 python -m release.verify --data-root data --reports reports
 python -m release.report --experiment workbuddy_office --data-root data --output /tmp/workbuddy-report
 python -m release.report --experiment claw_eval --data-root data --output /tmp/claw-report
@@ -49,6 +48,7 @@ python -m release.package --root . --output dist/publication
 ```
 
 发布采用白名单导出。不要直接推送当前本机仓库的历史 Git 数据，也不要把 archive 打包。
+导出前要求四类完整数据及非空来源清单，并逐文件校验；缺失或损坏会在创建输出前报错。
 默认分卷目标为 4 GB；工具同时检查 Zenodo 默认单记录 50 GB、100 文件限制，并保留至少 10 GiB 磁盘空间。
 作者、正式仓库地址和自有数据/报告许可由作者补齐。本工具不上传、创建 DOI 或推送 GitHub。
 

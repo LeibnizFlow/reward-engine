@@ -13,8 +13,10 @@ from reward_engine.core.outcome.context import (
 
 
 def inputs():
-    return build_context({"task_id": "verify", "prompt": "Compare the actual source statements"},
-                         skills=[{"claim": "first source"}, {"claim": "second source"}])
+    return build_context(
+        {"task_id": "verify", "prompt": "Compare the actual source statements"},
+        skills=[{"claim": "first source"}, {"claim": "second source"}],
+    )
 
 
 @pytest.mark.asyncio
@@ -33,12 +35,22 @@ async def test_bad_evidence_handle_after_read_is_corrected_without_losing_existi
             assert request["requested_evidence"] == {"skill:0": evidence["skill:0"]}
             return {"need_evidence": ["skill:1"]}
         assert request["requested_evidence"] == {
-            "skill:0": evidence["skill:0"], "skill:1": evidence["skill:1"]}
+            "skill:0": evidence["skill:0"],
+            "skill:1": evidence["skill:1"],
+        }
         assert "response_recovery" not in request
         return {"status": "checked"}
 
-    output = await ask(model, "outcome_hypothesis_audit", context, evidence, "Inspect both sources", {},
-                       max_contract_retries=1, max_evidence_rounds=2)
+    output = await ask(
+        model,
+        "outcome_hypothesis_audit",
+        context,
+        evidence,
+        "Inspect both sources",
+        {},
+        max_contract_retries=1,
+        max_evidence_rounds=2,
+    )
     assert output == {"status": "checked"} and len(seen) == 4
     corrected = deepcopy(seen[2])
     corrected.pop("response_recovery")
@@ -59,8 +71,17 @@ async def test_persistently_bad_evidence_handle_retries_once_then_stops():
         return {"need_evidence": ["invented:source"]}
 
     with pytest.raises(ResponseContractError) as caught:
-        await ask(model, "outcome_builder_audit", context, evidence, "Inspect", {},
-                  max_contract_retries=1, max_evidence_rounds=2, close_evidence=True)
+        await ask(
+            model,
+            "outcome_builder_audit",
+            context,
+            evidence,
+            "Inspect",
+            {},
+            max_contract_retries=1,
+            max_evidence_rounds=2,
+            close_evidence=True,
+        )
     assert caught.value.details["field"] == "need_evidence"
     assert len(seen) == 3
     assert seen[-1]["response_recovery"]["attempt"] == 1
@@ -80,15 +101,30 @@ async def test_correcting_an_evidence_handle_does_not_reset_the_read_budget():
         return {"need_evidence": ["skill:1"]}
 
     with pytest.raises(EvidenceReadLimit):
-        await ask(model, "outcome_jury_audit", context, evidence, "Inspect", {},
-                  max_contract_retries=1, max_evidence_rounds=1)
+        await ask(
+            model,
+            "outcome_jury_audit",
+            context,
+            evidence,
+            "Inspect",
+            {},
+            max_contract_retries=1,
+            max_evidence_rounds=1,
+        )
     assert len(seen) == 3
-    assert all(row["requested_evidence"] == {"skill:0": evidence["skill:0"]} for row in seen[1:])
+    assert all(
+        row["requested_evidence"] == {"skill:0": evidence["skill:0"]}
+        for row in seen[1:]
+    )
 
 
-@pytest.mark.parametrize("invalid", [None, [], "skill:0", ["missing"], [{"ref": "skill:0"}]])
+@pytest.mark.parametrize(
+    "invalid", [None, [], "skill:0", ["missing"], [{"ref": "skill:0"}]]
+)
 @pytest.mark.asyncio
-async def test_no_retry_default_still_fails_on_first_malformed_evidence_request(invalid):
+async def test_no_retry_default_still_fails_on_first_malformed_evidence_request(
+    invalid,
+):
     context, evidence = inputs()
     seen = []
 
