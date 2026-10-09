@@ -60,13 +60,15 @@ async def compress(request, call, cap, record):
     result = deepcopy(request)
     fields = []
 
-    # Only explicit previews/summaries are navigation. Never rewrite canonical
-    # products, actual requested evidence, criteria, repair replies or case data.
+    # A field name alone cannot distinguish navigation from authored material.
+    # Require explicit preview metadata and never descend into canonical bodies,
+    # even when they contain their own preview_only/summary/preview/rationale keys.
     def visit(value, path=()):
         if isinstance(value, dict):
             for key, item in value.items():
                 if (
-                    key in {"preview", "summary", "rationale"}
+                    value.get("preview_only") is True
+                    and key in {"preview", "summary", "rationale"}
                     and isinstance(item, str)
                     and len(item.encode()) > 512
                 ):
@@ -74,9 +76,35 @@ async def compress(request, call, cap, record):
                     value[key] = (
                         "[navigation summary pending; canonical source remains available]"
                     )
+                elif (
+                    key == "content"
+                    and value.get("preview_only") is True
+                    and isinstance(value.get("ref"), str)
+                    and value["ref"].startswith("skill:task_review:")
+                    and isinstance(item, dict)
+                    and item.get("details_ref") == value["ref"]
+                ):
+                    # knowledge_navigation's generated index is optional; only
+                    # its passage previews may be shortened, not its conditions.
+                    visit(
+                        item.get("passage_previews", []),
+                        path + (key, "passage_previews"),
+                    )
                 elif key not in {
                     "task",
+                    "artifact",
+                    "environment",
+                    "source_documents",
+                    "evidence",
                     "requested_evidence",
+                    "content",
+                    "text",
+                    "result",
+                    "results",
+                    "checks",
+                    "user_updates",
+                    "earlier_public_deliveries",
+                    "material",
                     "cases",
                     "criteria",
                     "clauses",

@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 
 from reward_engine.core.batch import BatchPolicy, collect_batch
+from reward_engine.core.outcome.construction import fingerprint
 from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.coverage import expectations, final_test
 from reward_engine.core.outcome.harness import measure, measurement_context, unknown
@@ -48,12 +49,68 @@ class DeliveryReview:
             record,
         )
         self.history, self.artifacts, self.feedback = [], [], []
+        self._versions, self._retention = [], None
+        self._pack_sha256 = fingerprint(self.pack)
         self.previous = None
         self.status = "not_checked"
         self.source_prefix = source_prefix
         self.progress = TaskProgress(task, pack)
         self.draft_checks = {}
         self.hardened = pack.get("feedback_policy") == "evidence_admitted"
+
+    def export_session(self):
+        """Immutable review evidence; artifact retention never restores native state."""
+        return deepcopy(
+            {
+                "schema_version": "outcome.delivery_review.v1",
+                "status": self.status,
+                "pack_id": self.pack["pack_id"],
+                "pack_sha256": self._pack_sha256,
+                "task_sha256": fingerprint(self.task),
+                "versions": self._versions,
+                "latest_version_id": self._versions[-1]["candidate_id"]
+                if self._versions
+                else None,
+                "retention": self._retention,
+            }
+        )
+
+    def result_fields(self, native_candidate):
+        """Separate retained evidence from the candidate the native grader observes."""
+        session = self.export_session()
+        if not session["versions"] or session["versions"][-1][
+            "candidate_sha256"
+        ] != fingerprint(native_candidate):
+            raise ValueError(
+                "Native candidate differs from the terminal review version"
+            )
+        fields = {"review_session": session}
+        retention = session["retention"]
+        if retention and retention["status"] == "artifact_retained":
+            retained = next(
+                v
+                for v in session["versions"]
+                if v["candidate_id"] == retention["retained_version_id"]
+            )
+            fields.update(
+                retained_candidate=deepcopy(retained["candidate"]),
+                retained_measurement=deepcopy(retained["measurement"]),
+                retained_delivery={
+                    **{
+                        k: retained[k]
+                        for k in (
+                            "candidate_id",
+                            "artifact_sha256",
+                            "candidate_sha256",
+                            "measurement_sha256",
+                            "measurement_source",
+                        )
+                    },
+                    "native_state_restored": False,
+                    "official_evaluation": "not_run",
+                },
+            )
+        return fields
 
     def note_draft_measurement(self, candidate, measurement):
         """Trusted runtime receipts, not Actor-supplied completion claims or final passes."""
@@ -175,11 +232,26 @@ class DeliveryReview:
             raise
         self.progress.finish(result)
         self.artifacts.append(deepcopy(candidate))
-        self.history.append(result)
+        self.history.append(deepcopy(result))
         self.previous = (deepcopy(context), deepcopy(evidence), deepcopy(result))
+        from reward_engine.core.outcome.version_selection import review_scope
+
+        self._versions.append(
+            {
+                "candidate_id": f"delivery_{number}",
+                "candidate": deepcopy(candidate),
+                "artifact_sha256": fingerprint(candidate["artifact"]),
+                "candidate_sha256": fingerprint(candidate),
+                "measurement": deepcopy(result),
+                "measurement_sha256": fingerprint(result),
+                "measurement_source": f"{self.source_prefix}/delivery_{number}.json",
+                "requirements_sha256": review_scope(self.task, candidate),
+                "pack_sha256": fingerprint(self.pack),
+            }
+        )
         self.record(
             f"delivery_{len(self.history)}",
-            {"candidate": candidate, "measurement": result},
+            {"candidate": deepcopy(candidate), "measurement": deepcopy(result)},
         )
         if self.hardened:
             from reward_engine.core.outcome.admission import preservation
@@ -188,12 +260,41 @@ class DeliveryReview:
                 preserved, lost = preservation(self.history[-2], result, self.pack)
                 if not preserved:
                     self.status = "revision_regressed"
+                    before, after = self._versions[-2:]
+                    same_scope = (
+                        before["requirements_sha256"] == after["requirements_sha256"]
+                        and before["pack_sha256"]
+                        == after["pack_sha256"]
+                        == self._pack_sha256
+                    )
+                    self._retention = {
+                        "status": "artifact_retained"
+                        if same_scope
+                        else "retention_unavailable",
+                        "reason": "critical_check_regression"
+                        if same_scope
+                        else "task_or_pack_scope_changed",
+                        "retained_version_id": before["candidate_id"]
+                        if same_scope
+                        else None,
+                        "rejected_version_id": after["candidate_id"],
+                        "lost_checks": deepcopy(lost),
+                        "native_state_restored": False,
+                    }
                     self.progress.state["next_step"] = (
-                        "Keep the earlier candidate; revision lost verified correctness."
+                        "Retain the preceding immutable artifact and its measurement; "
+                        "native state was not restored."
+                        if same_scope
+                        else "Earlier artifact retention is unavailable across changed "
+                        "Task or Pack scope; native state was not restored."
                     )
                     self.record(
                         "revision_regression",
-                        {"lost_checks": lost, "candidate_number": len(self.history)},
+                        {
+                            "lost_checks": deepcopy(lost),
+                            "candidate_number": len(self.history),
+                            "retention": deepcopy(self._retention),
+                        },
                     )
                     self._save_progress()
                     return None
@@ -292,7 +393,12 @@ class DeliveryReview:
 
 
 async def run_delivery(actor, review=None, *, prompt=""):
-    """Small protocol also used by tests/custom runtimes: execute then resume, not fresh retry."""
+    """Return the actual terminal candidate; retention is separate review evidence.
+
+    Revisions continue the same Actor. Returning a historical dictionary would
+    not restore native workspace/services or rebind their official grade.
+    Generic callable reviews need only return feedback or None.
+    """
     candidate = await actor.start(prompt)
     while review:
         feedback = await review(candidate)
@@ -300,3 +406,12 @@ async def run_delivery(actor, review=None, *, prompt=""):
             break
         candidate = await actor.resume(feedback)
     return candidate
+
+
+def review_result_fields(review, native_candidate):
+    """Preserve generic transport callbacks without inventing review versions."""
+    return (
+        review.result_fields(native_candidate)
+        if isinstance(review, DeliveryReview)
+        else {}
+    )

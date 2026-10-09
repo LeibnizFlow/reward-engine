@@ -1,0 +1,35 @@
+{
+  "note": "Exact error events extracted from saved upstream SSE; model content omitted. No provider calls.",
+  "captures": [
+    {
+      "name": "workbuddy_upstream_error",
+      "source": "runs/full_workbuddy_20261010_v3/transport/roles/05c70874c04c4c338d1f329b55116219/response-1.sse",
+      "source_line": 33756,
+      "line_sha256": "fec8b4bf43f2c07d3d3d9699143386e313fe284609037dbc9036d4b7ff130cb0",
+      "sse_line": "data: {\"error\":{\"message\":\"Stream error occurred\",\"type\":\"upstream_error\",\"param\":\"\",\"code\":\"error\"}}",
+      "event": {
+        "error": {
+          "message": "Stream error occurred",
+          "type": "upstream_error",
+          "param": "",
+          "code": "error"
+        }
+      }
+    },
+    {
+      "name": "claw_api_error",
+      "source": "runs/full_claw_20261010_v3/transport/roles/e3e9faa0ec89493486baad7ec92ab773/response-1.sse",
+      "source_line": 1,
+      "line_sha256": "b2fbf33e59766269c2d519ac1412b5be8511d3040d5fc2870c28c18a913e7ae6",
+      "sse_line": "data: {\"error\":{\"message\":\"Service temporarily unavailable\",\"type\":\"api_error\",\"param\":\"\",\"code\":null}}",
+      "event": {
+        "error": {
+          "message": "Service temporarily unavailable",
+          "type": "api_error",
+          "param": "",
+          "code": null
+        }
+      }
+    }
+  ]
+}

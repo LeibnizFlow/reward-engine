@@ -593,6 +593,7 @@ async def one_task(config, task_id):
             policy=BatchPolicy(**config["batch"]),
             jury_reduce_max_bytes=Role.request_budget_bytes,
             continuation_policy="fixed_rounds",
+            full_audit=config.get("full_audit", False),
             record=record,
             **restored,
             **selection_kwargs,

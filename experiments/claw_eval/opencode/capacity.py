@@ -17,7 +17,7 @@ def retryable_task_result(result):
         and (
             result.get("stop_reason") in {"jury_unavailable", "incomplete_arms"}
             or failure.get("error_type")
-            in {"HTTPStatusError", "ReadTimeout", "TimeoutError"}
+            in {"HTTPStatusError", "ProviderStreamError", "ReadTimeout", "TimeoutError"}
             or (
                 failure.get("error_type") == "ValueError"
                 and "Incomplete or mismatched role reply: finish=length"
@@ -30,6 +30,7 @@ def retryable_task_result(result):
 def retryable_task_error(error):
     if type(error).__name__ in {
         "HTTPStatusError",
+        "ProviderStreamError",
         "ReadTimeout",
         "TimeoutError",
     }:

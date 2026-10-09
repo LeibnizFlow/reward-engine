@@ -2,13 +2,9 @@
 
 import argparse
 import asyncio
-import math
 from pathlib import Path
 
-from harbor.models.trial.config import TrialConfig
-from harbor.trial.trial import Trial
-
-from experiments.workbuddy.scoring import scoring_errors
+from experiments.workbuddy.scoring import native_contract, scoring_errors
 from reward_engine.adapters.workbuddy.io import auth, read, write
 
 
@@ -17,21 +13,21 @@ def official_result(spec, serialized, root):
     score = rewards.get("overall")
     trial_dir = root / "harbor" / spec["candidate_id"]
     score_path = trial_dir / "verifier/score.json"
-    detail = read(score_path) if score_path.exists() else {}
-    fatal = detail.get("test_status") in {"build_error", "judge_error"}
-    fatal = fatal or any(
-        r.get("status") in {"build_error", "judge_error"}
-        for r in detail.get("judges", [])
-    )
-    errors = scoring_errors(detail)
-    valid = (
-        type(score) in (int, float)
-        and math.isfinite(score)
-        and bool(detail)
-        and not fatal
-        and not errors
-        and not serialized.get("exception_info")
-    )
+    detail = {}
+    try:
+        detail = read(score_path) if score_path.exists() else {}
+        task_path = Path(spec["task_path"])
+        contract = native_contract(
+            spec["task"]["task_id"],
+            (task_path / "task.toml").read_bytes(),
+            (task_path / "tests/judge.yaml").read_bytes(),
+        )
+        errors = scoring_errors(detail, contract=contract, rewards=rewards)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        errors = [{"error_type": "native_grade_contract", "reason": str(error)}]
+    if not isinstance(detail, dict):
+        detail = {}
+    valid = not errors and not serialized.get("exception_info")
     return {
         "status": "not_run" if not spec["grade"] else "scored" if valid else "failed",
         "overall": score if valid and spec["grade"] else None,
@@ -46,6 +42,8 @@ def official_result(spec, serialized, root):
 
 
 def trial_config(spec, config):
+    from harbor.models.trial.config import TrialConfig
+
     channel = spec["candidate_id"]
     gateway = config["gateway_container"]
     limit = spec["actor_timeout_s"] + (6000 if spec.get("pack") else 300)
@@ -107,6 +105,8 @@ def trial_config(spec, config):
 
 
 async def run(spec_path):
+    from harbor.trial.trial import Trial
+
     spec = read(spec_path)
     spec["spec_path"] = str(spec_path.resolve())
     config = read(spec["campaign_config"])

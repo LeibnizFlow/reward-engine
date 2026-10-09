@@ -5,6 +5,7 @@ from copy import deepcopy
 from time import monotonic
 
 from reward_engine.core.batch import BatchPolicy, collect_batch
+from reward_engine.core.outcome.construction import fingerprint
 from reward_engine.core.outcome.context import (
     EvidenceReadLimit,
     ResponseContractError,
@@ -15,6 +16,8 @@ from reward_engine.core.outcome.context import (
     validate_current_product_refs,
 )
 from reward_engine.core.outcome.coverage import complete, expectations, report
+
+MEASUREMENT_INPUT_SCHEMA = "outcome-measurement-input/v1"
 
 
 def unknown(reason, *, error=False):
@@ -41,6 +44,7 @@ INFRASTRUCTURE_FAILURES = frozenset(
         "ConnectError",
         "RemoteProtocolError",
         "TransportError",
+        "ProviderStreamError",
         "APITimeoutError",
         "APIConnectionError",
         "InternalServerError",
@@ -679,6 +683,7 @@ def defaults(semantic_call, *, tools=None):
         # The specific question is a separate verdict. A malformed global claim
         # audit must not erase a well-formed, evidenced local correction (or vice versa).
         inquiry_result = None
+        inquiry_diagnostic = None
         if context.get("measurement_inquiry"):
             try:
                 inquiry_result = validate_result(
@@ -699,6 +704,18 @@ def defaults(semantic_call, *, tools=None):
                     **unknown("Specific inquiry validation failed", error=True),
                     "diagnostic": str(error)[:400],
                 }
+        elif "inquiry_result" in result:
+            # Unrequested metadata is not a local verdict. Preserve its exact
+            # value outside authoritative fields so malformed replies remain
+            # visible without breaking consumers of requested inquiry results.
+            inquiry_diagnostic = {
+                "reason": "no_measurement_inquiry_requested",
+                "authoritative": False,
+                "original_value": deepcopy(result["inquiry_result"]),
+            }
+            result = {
+                key: value for key, value in result.items() if key != "inquiry_result"
+            }
         try:
             result = validate_claims(claim_locations(result, evidence), evidence)
         except ValueError as error:
@@ -708,6 +725,8 @@ def defaults(semantic_call, *, tools=None):
             }
         if inquiry_result is not None:
             result["inquiry_result"] = inquiry_result
+        if inquiry_diagnostic is not None:
+            result["inquiry_result_diagnostic"] = inquiry_diagnostic
         # Never trust model-authored receipts; overwrite with executed observations.
         result["tool_observations"] = deepcopy(receipts)
         result["execution_usage"] = {
@@ -773,16 +792,18 @@ def measurement_context(pack, context, evidence):
             continue
         ref = "reference:validation:" + validation["validation_id"]
         evidence[ref] = deepcopy(validation)
-        context.setdefault("reference_documents", []).append(
-            {
-                "ref": ref,
-                "title": "Scoped counterexample evidence for "
-                + validation["target_id"],
-                "preview_only": True,
-                "preview": validation["status"]
-                + "; read cases and applicability before relying",
-            }
-        )
+        docs = context.setdefault("reference_documents", [])
+        if not any(document["ref"] == ref for document in docs):
+            docs.append(
+                {
+                    "ref": ref,
+                    "title": "Scoped counterexample evidence for "
+                    + validation["target_id"],
+                    "preview_only": True,
+                    "preview": validation["status"]
+                    + "; read cases and applicability before relying",
+                }
+            )
     for ref, source in pack.get("measurement_sources", {}).items():
         if ref in evidence and evidence[ref] != source:
             raise ValueError(
@@ -813,9 +834,35 @@ def measurement_context(pack, context, evidence):
     return context, evidence
 
 
+def _bound_measurement_inputs(pack, context, evidence):
+    context, evidence = measurement_context(pack, context, evidence)
+    input_sha256 = fingerprint(
+        {
+            "schema": MEASUREMENT_INPUT_SCHEMA,
+            "pack": pack,
+            "context": context,
+            "evidence": evidence,
+        }
+    )
+    return context, evidence, input_sha256
+
+
+def measurement_input_fingerprint(pack, context, evidence):
+    """Hash exact normalized inputs without executing checks or mutating callers.
+
+    Reconstruct from build_context(actual_task, [native_candidate]) and the actual
+    Pack. Already measurement_context-normalized inputs produce the same hash.
+    Preserve any additional measured context (such as inquiries) when rebuilding.
+    This binds input identity, not selected-check coverage, correctness or scores.
+    Missing historical bindings remain unbound; never synthesize one onto a receipt.
+    """
+    return _bound_measurement_inputs(pack, context, evidence)[2]
+
+
 async def measure(
     pack, registry, context, evidence, *, policy=None, test_ids=None, previous=None
 ):
+    pack = deepcopy(pack)
     if (
         context["task"]["task_id"] != pack["task_id"]
         or context["task"]["prompt"] != pack["task_prompt"]
@@ -830,7 +877,7 @@ async def measure(
             raise ValueError("Independent reward requires exactly one candidate")
         validate_binding(context, evidence)
         install(registry)
-    context, evidence = measurement_context(pack, context, evidence)
+    context, evidence, input_sha256 = _bound_measurement_inputs(pack, context, evidence)
     tests = pack["tests"]
     for test in tests:
         if test.get("execution_recipe") and test["checker"] != "evidence.review":
@@ -886,6 +933,8 @@ async def measure(
             )  # Keep the question even on batch timeout.
     summary = {
         **summarize_results(pack, results),
+        "measurement_input_schema": MEASUREMENT_INPUT_SCHEMA,
+        "measurement_input_sha256": input_sha256,
         "batch": batch.summary(),
         "execution_summary": {
             "selected_checks": len(tests),

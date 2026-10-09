@@ -60,6 +60,27 @@ def extract_archive(archive, target):
             bundle.extract(member, target, filter="data")
 
 
+def _pptx_shape(shape):
+    """Preserve native shape text/geometry and authored table/group contents."""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    content = {
+        "name": shape.name,
+        "text": getattr(shape, "text", ""),
+        "left": shape.left,
+        "top": shape.top,
+        "width": shape.width,
+        "height": shape.height,
+    }
+    if shape.has_table:
+        content["table"] = [
+            [cell.text for cell in row.cells] for row in shape.table.rows
+        ]
+    if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+        content["shapes"] = [_pptx_shape(child) for child in shape.shapes]
+    return content
+
+
 def inspect_file(path):
     suffix = path.suffix.lower()
     if suffix in TEXT or suffix == "":
@@ -112,17 +133,7 @@ def inspect_file(path):
             "slides": [
                 {
                     "slide": i,
-                    "shapes": [
-                        {
-                            "name": shape.name,
-                            "text": getattr(shape, "text", ""),
-                            "left": shape.left,
-                            "top": shape.top,
-                            "width": shape.width,
-                            "height": shape.height,
-                        }
-                        for shape in slide.shapes
-                    ],
+                    "shapes": [_pptx_shape(shape) for shape in slide.shapes],
                     "notes": slide.notes_slide.notes_text_frame.text
                     if slide.has_notes_slide
                     else "",

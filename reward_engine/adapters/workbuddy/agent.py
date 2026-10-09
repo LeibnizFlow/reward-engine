@@ -14,7 +14,11 @@ from reward_engine.adapters.workbuddy.opencode import (
 )
 from reward_engine.core.batch import BatchPolicy
 from reward_engine.core.outcome.memory import Memory
-from reward_engine.core.outcome.runner import DeliveryReview, run_delivery
+from reward_engine.core.outcome.runner import (
+    DeliveryReview,
+    review_result_fields,
+    run_delivery,
+)
 
 
 def final_reply(events):
@@ -239,6 +243,7 @@ class OutcomeOpenCodeAgent(OpenCodeTransport):
                         "turns": self.turn,
                     },
                     "official_verifier_observed": False,
+                    **review_result_fields(review, candidate),
                 },
             )
         except BaseException as error:

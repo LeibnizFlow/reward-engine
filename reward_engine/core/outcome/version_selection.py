@@ -11,6 +11,176 @@ from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.harness import measure
 
 
+def review_scope(task, candidate):
+    """Public requirements binding, independent of the proposed artifact's quality."""
+    context, _ = build_context(task, [candidate])
+    return fingerprint(
+        {
+            "task": task,
+            "user_updates": context["products"][0]["user_updates"],
+            "task_scope_sha256": candidate.get("task_scope_sha256"),
+            "artifact_task_scope_sha256": candidate["artifact"].get(
+                "task_scope_sha256"
+            ),
+        }
+    )
+
+
+def validate_review_session(row, task, pack):
+    """Reject incomplete retention evidence before any measurement or model call.
+
+    Historical/custom version lists keep their existing contract. Versioned
+    DeliveryReview exports and any regression claim require the complete binding.
+    """
+    session = row.get("review_session") or {}
+    if not isinstance(session, dict):
+        raise ValueError("Invalid review session")
+    retention = session.get("retention")
+    regressed = (
+        row.get("review_status") == "revision_regressed"
+        or session.get("status") == "revision_regressed"
+    )
+    retained_fields = {
+        "retained_candidate",
+        "retained_measurement",
+        "retained_delivery",
+    }
+    if not (
+        regressed
+        or retention is not None
+        or retained_fields & row.keys()
+        or "schema_version" in session
+    ):
+        return
+
+    def require(condition, reason):
+        if not condition:
+            raise ValueError("Invalid review session: " + reason)
+
+    try:
+        require(
+            session.get("schema_version") == "outcome.delivery_review.v1",
+            "missing or unsupported versioned history",
+        )
+        require(
+            session["pack_id"] == pack["pack_id"]
+            and session["pack_sha256"] == fingerprint(pack)
+            and session["task_sha256"] == fingerprint(task),
+            "Task or Pack binding mismatch",
+        )
+        require(
+            row.get("review_status", session["status"]) == session["status"],
+            "review status mismatch",
+        )
+        versions = session["versions"]
+        require(isinstance(versions, list) and bool(versions), "missing versions")
+        for number, version in enumerate(versions, 1):
+            candidate, measurement = version["candidate"], version["measurement"]
+            require(
+                version["candidate_id"] == f"delivery_{number}",
+                "missing, duplicate or reordered version",
+            )
+            require(
+                version["artifact_sha256"] == fingerprint(candidate["artifact"])
+                and version["candidate_sha256"] == fingerprint(candidate),
+                "immutable candidate binding mismatch",
+            )
+            require(
+                version["measurement_sha256"] == fingerprint(measurement)
+                and measurement["pack_id"] == pack["pack_id"]
+                and version["pack_sha256"] == session["pack_sha256"],
+                "measurement or Pack binding mismatch",
+            )
+            require(
+                isinstance(measurement["results"], list)
+                and all(
+                    isinstance(r, dict)
+                    and isinstance(r.get("test_id"), str)
+                    and r.get("status") in {"pass", "fail", "unknown"}
+                    for r in measurement["results"]
+                ),
+                "malformed measurement results",
+            )
+            require(
+                isinstance(version["measurement_source"], str)
+                and bool(version["measurement_source"].strip()),
+                "missing measurement source",
+            )
+            require(
+                version["requirements_sha256"] == review_scope(task, candidate),
+                "public requirements binding mismatch",
+            )
+        latest = versions[-1]
+        require(
+            session["latest_version_id"] == latest["candidate_id"]
+            and latest["candidate_sha256"] == fingerprint(row["candidate"]),
+            "native candidate differs from terminal version",
+        )
+        if "final_measurement" in row:
+            require(
+                fingerprint(row["final_measurement"]) == latest["measurement_sha256"],
+                "native measurement differs from terminal version",
+            )
+        if not regressed:
+            require(
+                retention is None and not retained_fields & row.keys(),
+                "retention without a regression decision",
+            )
+            return
+        require(
+            len(versions) >= 2 and isinstance(retention, dict),
+            "missing retention history",
+        )
+        retained = versions[-2]
+        require(
+            retention["status"] == "artifact_retained"
+            and retention["reason"] == "critical_check_regression"
+            and retention["native_state_restored"] is False
+            and retention["retained_version_id"] == retained["candidate_id"]
+            and retention["rejected_version_id"] == latest["candidate_id"],
+            "retention unavailable or references inconsistent versions",
+        )
+        require(
+            retained["requirements_sha256"] == latest["requirements_sha256"],
+            "cannot retain an earlier public Task scope",
+        )
+        preserved, lost = preservation(
+            retained["measurement"], latest["measurement"], pack
+        )
+        require(
+            not preserved and retention["lost_checks"] == lost,
+            "regression evidence mismatch",
+        )
+        if retained_fields & row.keys():
+            require(retained_fields <= row.keys(), "incomplete retained result")
+            require(
+                fingerprint(row["retained_candidate"]) == retained["candidate_sha256"]
+                and fingerprint(row["retained_measurement"])
+                == retained["measurement_sha256"],
+                "retained candidate/measurement mismatch",
+            )
+            receipt = row["retained_delivery"]
+            require(
+                all(
+                    receipt[k] == retained[k]
+                    for k in (
+                        "candidate_id",
+                        "artifact_sha256",
+                        "candidate_sha256",
+                        "measurement_sha256",
+                        "measurement_source",
+                    )
+                )
+                and receipt["native_state_restored"] is False
+                and receipt["official_evaluation"] == "not_run",
+                "retained receipt binding mismatch",
+            )
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError(
+            "Invalid review session: incomplete or malformed binding"
+        ) from error
+
+
 def choose(versions, ranking, pack):
     """Require strict preference and current critical evidence; otherwise keep prior."""
     selected = versions[0]
@@ -65,6 +235,14 @@ async def select_versions(
         TaskSequence,
         require_version_scope,
     )
+
+    # Validate every exported session before any arm can initiate model/tool work.
+    for row in rows.values():
+        current_task = row.get("effective_task") or task
+        current_pack = row.get("effective_pack") or (
+            TaskSequence(current_task).rebase(pack) if current_task != task else pack
+        )
+        validate_review_session(row, current_task, current_pack)
 
     if any(row.get("effective_task") for row in rows.values()):
         scoped = {}
@@ -224,7 +402,10 @@ async def select_versions(
         for version in versions:
             digest = version["artifact_sha256"]
             version.update(
-                product_id=products[digest], measurement=deepcopy(measured[digest])
+                product_id=products[digest],
+                measurement=deepcopy(measured[digest]),
+                measurement_sha256=fingerprint(measured[digest]),
+                measurement_source="version_checks/" + digest + ".json",
             )
         selected, decisions = choose(versions, ranking, pack)
         selection = {

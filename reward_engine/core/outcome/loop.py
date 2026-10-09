@@ -478,11 +478,27 @@ async def run_task(
             },
         )
 
+        # Only this controller-owned treatment decision removes an expected arm.
+        # Sampler failures or arbitrary skipped statuses still leave it required.
+        expected_arms = {
+            arm
+            for arm in enabled_arms
+            if not (
+                arm_protocol == FEEDBACK and arm == "B" and not has_hypothesis(method)
+            )
+        }
+
         async def one(
-            arm, number=number, prompts=prompts, pack=pack, save=save, method=method
+            arm,
+            number=number,
+            prompts=prompts,
+            pack=pack,
+            save=save,
+            method=method,
+            expected_arms=expected_arms,
         ):
             spec = arm_spec(arm_protocol, arm)
-            if arm_protocol == FEEDBACK and arm == "B" and not has_hypothesis(method):
+            if arm not in expected_arms:
                 row = {
                     "status": "skipped",
                     "reason": "No actionable Hypothesis; B would duplicate A",
@@ -533,7 +549,13 @@ async def run_task(
 
                 current_pack = TaskSequence(current_task).rebase(pack)
             measured = row.get("final_measurement")
-            if measured is None or measured["pack_id"] != current_pack["pack_id"]:
+            # Actor review may cover only targeted checks or an earlier artifact.
+            # Keep that receipt in the delivery row; audit the actual delivery anew.
+            if (
+                full_audit
+                or measured is None
+                or measured["pack_id"] != current_pack["pack_id"]
+            ):
                 measured = await inspect(
                     row["candidate"], pack=current_pack, current_task=current_task
                 )
@@ -669,7 +691,16 @@ async def run_task(
                 {"decision": "stop", "reason": "No supported important new gap"},
             )
         )
-        if len(valid) != len(enabled_arms):
+        # Retained artifacts can still belong to failed/skipped samplers. Keep
+        # them available for inspection without counting those arms as finished.
+        arms_complete = (
+            bool(valid)
+            and set(valid) == expected_arms
+            and all(
+                row.get("status", "completed") == "completed" for row in valid.values()
+            )
+        )
+        if not arms_complete:
             decision = {"decision": "stop", "reason": "incomplete_arms"}
         elif number >= start_round + rounds - 1:
             decision = {"decision": "stop", "reason": "round_limit"}
@@ -725,7 +756,7 @@ async def run_task(
             "selection": selection,
             "loop_decision": decision,
             "status": "completed"
-            if len(valid) == len(enabled_arms)
+            if arms_complete
             and all(
                 not hardened
                 or row.get("status") == "completed"

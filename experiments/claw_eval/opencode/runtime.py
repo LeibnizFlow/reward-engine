@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from reward_engine.adapters.workbuddy.evidence import collect
 from reward_engine.adapters.workbuddy.io import auth, digest, read, write
-from reward_engine.core.outcome.runner import run_delivery
+from reward_engine.core.outcome.runner import review_result_fields, run_delivery
 
 
 async def command(*args, timeout=120, stdout=None):
@@ -245,6 +245,7 @@ class Runtime:
                 "final_measurement": review.history[-1]
                 if review and review.history
                 else None,
+                **review_result_fields(review, candidate),
             }
             write(output / "RESULT.json", row)
             return row

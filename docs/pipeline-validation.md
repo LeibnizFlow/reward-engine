@@ -1,0 +1,109 @@
+# Pipeline validation
+
+A native actor smoke test does not validate Reward Engine construction or learning.
+`experiments.validate_pipeline` runs the production task runners with three fresh
+seeds, three fixed rounds, A/B/C treatments, full generated-check measurements,
+and native benchmark grading. It freezes the source, configuration and benchmark
+inputs before model calls. Historical benchmark outputs are not seed inputs.
+
+Complete the [native environment setup](native-smoke.md) first. The current
+validation configuration uses the recorded Yibu routes and the private root
+`.env`; credentials are never copied into the public report.
+
+```bash
+.venv/bin/python -m experiments.validate_pipeline \
+  --benchmark claw_eval --task-id T111zh_expense_email_check \
+  --role-thinking disabled \
+  --output runs/full_claw_validation
+
+.venv/bin/python -m experiments.validate_pipeline \
+  --benchmark workbuddy --task-id api-usage-explain-cli-l3-001 \
+  --role-thinking disabled \
+  --output runs/full_workbuddy_validation
+
+.venv/bin/python -m experiments.pipeline_audit runs/full_claw_validation
+.venv/bin/python -m experiments.pipeline_audit runs/full_workbuddy_validation
+```
+
+The examples explicitly request disabled thinking for structured roles only. Providers
+may still report reasoning tokens; inspect retained usage rather than assuming the
+request was honored. Native actor and grader parameters are unchanged by this flag.
+
+Use fresh output directories. For an explicitly inspected recoverable execution
+failure, the frozen driver accepts `--execute --output ABSOLUTE_RUN_DIRECTORY`
+when invoked from that run's `code` directory. Preserve the failed attempt and
+record the operational correction before resuming; a failed artifact must not be
+replaced because of its quality score.
+
+## What constitutes evidence
+
+The execution driver deliberately records `stage_audit: pending`, even after a
+zero exit. The separate deterministic auditor checks the native snapshots and
+session logs, Jury maps and criteria, generated packs, actual check results,
+hypothesis proposal/application, same-session feedback and revision, persistent
+memory/checkpoints, selected candidate, and all nine native grades. It preserves
+raw scores; it does not normalize them against the run's own outputs.
+
+The version-two auditor separates receipt validity from observed branch coverage.
+It requires valid B reviews in all three rounds and at least one bound, changed-artifact
+revision for the revision-coverage claim. A valid decision that no revision is needed
+is review evidence, but does not exercise the revision branch. An unavailable role,
+checker execution error, missing requested continuation, or incomplete round cannot
+silently become a passing stage. The engine itself permits a two-member Jury quorum; the
+strict validation audit additionally records failed panel seats rather than
+calling such a construction a clean three-member result.
+
+A checker may correctly find a product defect. That does not mean the checker
+failed to execute, and a valid native score need not be perfect. Conversely, a
+high native score does not prove that any Reward Engine stage ran. Official
+benchmark grading remains separate from Jury construction and learning inputs.
+
+`experiments.audit_deliveries --output RUN_DIRECTORY` can create separately
+labelled full measurements of exact delivered snapshots after an execution
+stops. This preserves original measurements, learning, selection, artifacts and
+grades. Supplements bind their source files, native candidate, effective pack,
+code and complete measurements. They cannot establish that the original loop
+used a later supplemental measurement.
+
+## Coverage boundaries
+
+The three-round runs exercise the default legacy A/B/C pipeline. Other paths
+require separate evidence: adversarial counterexample construction (which allows
+one outer round), runtime policy critic D, public fact/reward compilation, task
+research, task updates, independent pool selection, and regression-safe version
+selection. Controlled tests cover these modules; that is not a claim of live
+native integration for every optional combination. Native state rollback is not
+provided by retaining an earlier immutable artifact.
+
+Likewise, these two tasks cannot establish all benchmark tasks, document types,
+model providers, or GPU execution. Real generated XLSX, DOCX, PPTX and PDF files
+are tested separately through the document parsers. Mocked HTTP/model fixtures
+are identified as controlled tests, including the offline Docker/OpenCode test.
+
+## Current validation artifacts
+
+The 2026-10-10 validation ended with both strict pipeline audits failing.
+Claw completed two rounds before a third-round Jury failure; WorkBuddy completed
+three rounds. There are 15 validated native-grade receipts, but no clean full-pipeline
+pass. See [the final results and module limits](validation-2026-10-10.md).
+Local evidence lives under `runs/pipeline_validation_20261010/` and the fresh
+`runs/full_{claw,workbuddy}_20261010_v3/` directories. Earlier `v1` and `v2` directories are
+retained diagnostic attempts, stopped after code/protocol defects were confirmed
+and before any A/B/C actor result or native quality score was available.
+
+The final source revision bound to `payload_tests.json` passed 2,364 tests with no skips or xfails,
+including the real Docker/OpenCode integration against a scripted local provider.
+Source hashes remained unchanged during the suite. The latest native-payload validation fixes
+are included in this suite. An earlier Node log records 29 passes, but lacks independent source binding for
+that invocation. Controlled-test statement coverage
+is 88.81% for core code and 85.16% for adapters (branch coverage: 81.68% and 78.06%).
+All 62 Python implementation modules with function bodies have some body execution;
+this is not complete function/branch coverage or a correctness guarantee.
+
+An offline replay of the saved provider streams matched 194 successful structured
+Role replies against the current parser, with zero mismatches. The report separately
+retains failures, unavailable consumer-stream reconstruction and in-progress files.
+This is parser replay, not another live model experiment.
+
+For the final result, inspect the stage audit, raw receipts and module inventory
+rather than inferring success from a process exit or this document's test counts.

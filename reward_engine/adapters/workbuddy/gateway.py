@@ -273,6 +273,7 @@ def application(
                             None,
                         )
                         retry_reason = None
+                        provider_error = None
                         try:
                             with (root / f"response-{stream_attempt + 1}.sse").open(
                                 "w"
@@ -297,6 +298,54 @@ def application(
                                     if "error" in event:
                                         error = event["error"]
                                         if isinstance(error, dict):
+                                            provider_error = {
+                                                "attempt": record["attempts"],
+                                                "stream_attempt": stream_attempt + 1,
+                                                "code": error.get("code"),
+                                                "type": error.get("type"),
+                                                "message": error.get("message"),
+                                                "reason": "provider_stream_error",
+                                            }
+                                            record.setdefault(
+                                                "provider_errors", []
+                                            ).append(provider_error)
+                                            if (
+                                                error.get("code")
+                                                == "LITELLM_UNAVAILABLE"
+                                            ):
+                                                retry_reason = (
+                                                    "provider_litellm_unavailable"
+                                                )
+                                                break
+                                            observed_error = (
+                                                error.get("code"),
+                                                error.get("type"),
+                                                error.get("message"),
+                                            )
+                                            if observed_error == (
+                                                None,
+                                                "api_error",
+                                                "Service temporarily unavailable",
+                                            ):
+                                                retry_reason = (
+                                                    "provider_api_service_unavailable"
+                                                )
+                                                break
+                                            if observed_error == (
+                                                "error",
+                                                "upstream_error",
+                                                "Stream error occurred",
+                                            ):
+                                                retry_reason = (
+                                                    "provider_upstream_stream_error"
+                                                )
+                                                break
+                                            # Only the explicit code/observed tuples above
+                                            # override rejection of coded provider errors.
+                                            if error.get("code") is not None:
+                                                raise RuntimeError(
+                                                    "Provider stream error"
+                                                )
                                             error_type = error.get("type")
                                             message = str(
                                                 error.get("message", "")
@@ -342,6 +391,9 @@ def application(
                             "finish_reason": finish,
                             "done": completed,
                         }
+                        if provider_error is not None:
+                            provider_error["reason"] = retry_reason
+                            attempt_record["error_code"] = provider_error["code"]
                         record.setdefault("stream_attempts", []).append(attempt_record)
                         if not retry_reason and (not completed or not finish):
                             retry_reason = "incomplete_stream"
@@ -361,7 +413,17 @@ def application(
                         if stream_attempt == 5:
                             raise RuntimeError("Provider transport retries exhausted")
                         record.setdefault("retries", []).append(
-                            {"reason": retry_reason, "at": time.time()}
+                            {
+                                "reason": retry_reason,
+                                "attempt": record["attempts"],
+                                "stream_attempt": stream_attempt + 1,
+                                **(
+                                    {"error_code": provider_error["code"]}
+                                    if provider_error is not None
+                                    else {}
+                                ),
+                                "at": time.time(),
+                            }
                         )
                         write(root / "receipt.json", record)
                         await response.aclose()

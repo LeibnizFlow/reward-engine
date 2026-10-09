@@ -449,6 +449,7 @@ async def task_run(config, runtime, task_id):
                 or failure.get("error_type")
                 in {
                     "HTTPStatusError",
+                    "ProviderStreamError",
                     "ReadTimeout",
                     "TimeoutError",
                 }
@@ -472,6 +473,7 @@ async def task_run(config, runtime, task_id):
                     "CampaignInterrupted",
                     "CancelledError",
                     "HTTPStatusError",
+                    "ProviderStreamError",
                     "ReadTimeout",
                     "TimeoutError",
                 }
@@ -527,7 +529,7 @@ async def task_run(config, runtime, task_id):
         result = await run_task(
             task,
             [row["candidate"] for row in seeds],
-            rounds=1,
+            rounds=config.get("rounds", 1),
             construction_rounds=1,
             construction_strategy="legacy",
             adversarial_review_enabled=False,
@@ -542,6 +544,7 @@ async def task_run(config, runtime, task_id):
             enabled_arms=("A", "B", "C"),
             arm_protocol="legacy_abcd",
             continuation_policy="fixed_rounds",
+            full_audit=config.get("full_audit", False),
             memory=memory,
             record=record,
         )
@@ -608,6 +611,7 @@ def recover_failed_canary(root, task_id):
         transport_failure = row.get("error_type") in {
             "CancelledError",
             "HTTPStatusError",
+            "ProviderStreamError",
             "ReadTimeout",
             "TimeoutError",
         }
@@ -639,7 +643,13 @@ def recover_failed_canary(root, task_id):
         if (
             campaign_interrupted
             or row.get("error_type")
-            in {"CancelledError", "HTTPStatusError", "ReadTimeout", "TimeoutError"}
+            in {
+                "CancelledError",
+                "HTTPStatusError",
+                "ProviderStreamError",
+                "ReadTimeout",
+                "TimeoutError",
+            }
             or recoverable_runtime
         ):
             failed_seed_slots.append(slot)

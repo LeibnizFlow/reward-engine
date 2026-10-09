@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage_*
 htmlcov/
 .venv/
 .conda/
@@ -29,3 +30,7 @@ node_modules/
 
 # Large evidence archives are stored locally or attached to a GitHub release.
 /zenodo/
+
+# Local reviewer transcripts may contain private experiment evidence.
+/.aris/traces/
+/.aris/meta/events.jsonl

@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from reward_engine.core.batch import BatchPolicy, collect_batch
+from reward_engine.core.outcome.construction import fingerprint
 from reward_engine.core.outcome.context import (
     EvidenceReadLimit,
     ResponseContractError,
@@ -10,7 +11,7 @@ from reward_engine.core.outcome.context import (
     measurement_test_view,
     require_refs,
 )
-from reward_engine.core.outcome.harness import measure
+from reward_engine.core.outcome.harness import measure, measurement_context
 from reward_engine.core.outcome.hypotheses import question_context
 from reward_engine.core.outcome.improvement import INSTRUCTION, schema
 from reward_engine.core.outcome.improvement import validate as validate_improvements
@@ -167,6 +168,123 @@ def validate_review(row, evidence, tests):
     return row
 
 
+REVIEW_INPUT_SCHEMA = "targeted-review-input/v1"
+
+
+def prepare_review_inputs(pack, context, evidence):
+    context, evidence = measurement_context(pack, context, evidence)
+    return question_context(
+        context,
+        evidence,
+        {
+            "coverage": pack.get("expectation_coverage", []),
+            "independent_expectations": pack.get("independent_expectations", []),
+            "proposal_expectations": pack.get("proposal_expectations", []),
+        },
+    )
+
+
+def review_input_fingerprint(
+    pack, context, evidence, *, previous=None, max_tests=3, draft_checks=()
+):
+    """Bind the overview's actual public inputs and prior state, without inference."""
+    context, evidence, pending = prepare_review_inputs(pack, context, evidence)
+    return fingerprint(
+        {
+            "schema": REVIEW_INPUT_SCHEMA,
+            "pack": pack,
+            "context": context,
+            "evidence": evidence,
+            "open_questions": pending["open_questions"],
+            "previous": previous,
+            "max_tests": max_tests,
+            "draft_checks": list(draft_checks),
+        }
+    )
+
+
+def review_prior_rows(previous):
+    return (
+        {
+            r["test_id"]: r
+            for r in (previous[2].get("unresolved_checks", []) + previous[2]["results"])
+        }
+        if previous
+        else {}
+    )
+
+
+def unresolved(row):
+    return (
+        row["status"] != "pass"
+        or row.get("inquiry_result", {}).get("status", "pass") != "pass"
+    )
+
+
+def execution_error(row):
+    return row.get("error") or row.get("inquiry_result", {}).get("error")
+
+
+def measurement_plan(pack, overview_result, *, previous=None, max_tests=3):
+    """Reconstruct requested checks/questions from observed review and prior state."""
+    from reward_engine.core.outcome import admission
+
+    hardened = pack.get("feedback_policy") == "evidence_admitted"
+    prior_rows = review_prior_rows(previous)
+    # Retest unresolved checks against the NEW product, never inherit an earlier pass.
+    # Confirmed defects remain queued. Execution errors need an explicit new
+    # decision, not an automatic retry or an instruction to rewrite the product.
+    retry = [
+        r["test_id"]
+        for r in prior_rows.values()
+        if unresolved(r)
+        and (
+            not execution_error(r)
+            or r["status"] == "fail"
+            or r.get("inquiry_result", {}).get("status") == "fail"
+        )
+    ]
+    requested = list(
+        dict.fromkeys(retry + [t["test_id"] for t in overview_result["verify"]])
+    )
+    if hardened:
+        requested = list(
+            dict.fromkeys(
+                sorted(admission.critical_tests(pack))
+                + requested
+                + [
+                    t
+                    for a in overview_result.get("improvements", [])
+                    for t in a.get("verification_test_ids", [])
+                    if t in {test["test_id"] for test in pack["tests"]}
+                ]
+            )
+        )
+    inquiries = {
+        r["test_id"]: deepcopy(r["measurement_inquiry"])
+        for r in prior_rows.values()
+        if unresolved(r) and r.get("measurement_inquiry")
+    }
+    for item in overview_result["verify"]:
+        inquiry = inquiries.setdefault(
+            item["test_id"], {"questions": [], "claim_checks": []}
+        )
+        if item["reason"] not in inquiry["questions"]:
+            inquiry["questions"].append(item["reason"])
+        for claim in overview_result.get("claim_checks", []):
+            if (
+                claim.get("test_id") == item["test_id"]
+                and claim not in inquiry["claim_checks"]
+            ):
+                inquiry["claim_checks"].append(deepcopy(claim))
+    return {
+        "requested_tests": requested,
+        "selected_tests": requested[:max_tests],
+        "deferred_tests": requested[max_tests:],
+        "measurement_inquiries": inquiries,
+    }
+
+
 async def review(
     pack,
     registry,
@@ -181,23 +299,24 @@ async def review(
     hardened = pack.get("feedback_policy") == "evidence_admitted"
     from reward_engine.core.outcome import admission
 
-    context, evidence, pending = question_context(
-        context,
-        evidence,
-        {
-            "coverage": pack.get("expectation_coverage", []),
-            "independent_expectations": pack.get("independent_expectations", []),
-            "proposal_expectations": pack.get("proposal_expectations", []),
-        },
-    )
-    prior_rows = (
-        {
-            r["test_id"]: r
-            for r in (previous[2].get("unresolved_checks", []) + previous[2]["results"])
-        }
-        if previous
-        else {}
-    )
+    # Snapshot before any asynchronous role/checker call can mutate its inputs.
+    draft_checks = deepcopy(list(draft_checks))
+    input_receipt = {
+        "schema": REVIEW_INPUT_SCHEMA,
+        "sha256": review_input_fingerprint(
+            pack,
+            context,
+            evidence,
+            previous=previous,
+            max_tests=max_tests,
+            draft_checks=draft_checks,
+        ),
+        "max_tests": max_tests,
+        "draft_checks": deepcopy(draft_checks),
+        "previous_measurement_sha256": fingerprint(previous[2]) if previous else None,
+    }
+    context, evidence, pending = prepare_review_inputs(pack, context, evidence)
+    prior_rows = review_prior_rows(previous)
 
     async def overview():
         if registry.review_call is None:
@@ -340,69 +459,18 @@ async def review(
             reason="Review still relies on unread sources after the bounded follow-up; not a product defect or API failure",
         )
 
-    # Retest unresolved checks against the NEW product, never inherit an earlier pass.
-    def unresolved(row):
-        return (
-            row["status"] != "pass"
-            or row.get("inquiry_result", {}).get("status", "pass") != "pass"
-        )
-
-    def execution_error(row):
-        return row.get("error") or row.get("inquiry_result", {}).get("error")
-
-    # Confirmed defects remain queued. Execution errors need an explicit new
-    # decision, not an automatic retry or an instruction to rewrite the product.
-    retry = [
-        r["test_id"]
-        for r in prior_rows.values()
-        if unresolved(r)
-        and (
-            not execution_error(r)
-            or r["status"] == "fail"
-            or r.get("inquiry_result", {}).get("status") == "fail"
-        )
-    ]
-    requested = list(
-        dict.fromkeys(retry + [t["test_id"] for t in overview_result["verify"]])
+    overview_before_measurement = deepcopy(overview_result)
+    plan = measurement_plan(
+        pack, overview_result, previous=previous, max_tests=max_tests
     )
-    if hardened:
-        requested = list(
-            dict.fromkeys(
-                sorted(admission.critical_tests(pack))
-                + requested
-                + [
-                    t
-                    for a in overview_result.get("improvements", [])
-                    for t in a.get("verification_test_ids", [])
-                    if t in {test["test_id"] for test in pack["tests"]}
-                ]
-            )
-        )
-    inquiries = {
-        r["test_id"]: deepcopy(r["measurement_inquiry"])
-        for r in prior_rows.values()
-        if unresolved(r) and r.get("measurement_inquiry")
-    }
-    for item in overview_result["verify"]:
-        inquiry = inquiries.setdefault(
-            item["test_id"], {"questions": [], "claim_checks": []}
-        )
-        if item["reason"] not in inquiry["questions"]:
-            inquiry["questions"].append(item["reason"])
-        for claim in overview_result.get("claim_checks", []):
-            if (
-                claim.get("test_id") == item["test_id"]
-                and claim not in inquiry["claim_checks"]
-            ):
-                inquiry["claim_checks"].append(deepcopy(claim))
-    context = {**context, "measurement_inquiries": inquiries}
+    context = {**context, "measurement_inquiries": plan["measurement_inquiries"]}
     result = await measure(
         pack,
         registry,
         context,
         evidence,
         policy=policy,
-        test_ids=requested[:max_tests],
+        test_ids=plan["selected_tests"],
         previous=previous,
     )
     measured = {r["test_id"] for r in result["results"]}
@@ -413,7 +481,7 @@ async def review(
     ]
     result.update(
         review_mode="targeted",
-        deferred_tests=requested[max_tests:],
+        deferred_tests=plan["deferred_tests"],
         unresolved_checks=pending_checks,
     )
     result["delivery_clear"] = (
@@ -464,6 +532,11 @@ async def review(
         and not result["deferred_tests"]
         and not overview_result.get("improvements")
     )
+    result["review_input"] = {
+        **input_receipt,
+        "overview_before_measurement": overview_before_measurement,
+        "measurement_plan": deepcopy(plan),
+    }
     result["review_batch"] = batch.summary()
     if isinstance(overview_item.error, ResponseContractError):
         result["review_batch"]["items"][0]["error_details"] = deepcopy(
