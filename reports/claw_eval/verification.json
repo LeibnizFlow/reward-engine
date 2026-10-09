@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "tasks": 104,
+  "task_rounds": 312,
+  "valid_scores": 936,
+  "verified_evidence": 5932,
+  "input_sha256": "35c26ef27c26cf03f742ac927a644628729dac4f8399c9cb85b8ea132d8ca76d",
+  "model_calls": 0
+}

@@ -1,0 +1,151 @@
+task,name,round,A,B,C,selected_arm,selected_score
+analyst-forecast-extract-L3-018,分析师预测提取,1,72.8,81.6,80.26,B,81.6
+analyst-forecast-extract-L3-018,分析师预测提取,2,89.74,85.2,85.06,B,85.2
+analyst-forecast-extract-L3-018,分析师预测提取,3,92.26,85.2,87.46,B,85.2
+api-usage-explain-cli-l3-001,API 用法与 CLI 说明,1,97.38,96.06,93.44,B,96.06
+api-usage-explain-cli-l3-001,API 用法与 CLI 说明,2,93.44,97.38,94.75,B,97.38
+api-usage-explain-cli-l3-001,API 用法与 CLI 说明,3,94.75,97.38,94.75,B,97.38
+board-material-update-timeline-excel,董事会材料更新与 Excel 时间线,1,78.6,83.82,83.82,A,78.6
+board-material-update-timeline-excel,董事会材料更新与 Excel 时间线,2,82.97,84.45,73.18,B,84.45
+board-material-update-timeline-excel,董事会材料更新与 Excel 时间线,3,73.18,84.66,83.82,B,84.66
+calendar-dida-sync-state,日历与滴答清单同步状态,1,86.79,84.58,89.73,A,86.79
+calendar-dida-sync-state,日历与滴答清单同步状态,2,78.71,80.92,85.32,B,80.92
+calendar-dida-sync-state,日历与滴答清单同步状态,3,84.58,89.73,90.46,B,89.73
+channel-period-compare-L4-017,渠道周期对比,1,92.27,97.5,75.57,A,92.27
+channel-period-compare-L4-017,渠道周期对比,2,97.5,84.55,74.32,A,97.5
+channel-period-compare-L4-017,渠道周期对比,3,97.5,82.05,30.45,C,30.45
+cloudagent-sdk-doc-validation-report,CloudAgent SDK 文档验证报告,1,73.34,70.66,88.66,B,70.66
+cloudagent-sdk-doc-validation-report,CloudAgent SDK 文档验证报告,2,84.0,71.34,84.66,B,71.34
+cloudagent-sdk-doc-validation-report,CloudAgent SDK 文档验证报告,3,70.66,70.66,68.0,B,70.66
+contract-extract-L3-014,合同信息提取,1,90.73,96.73,80.93,B,96.73
+contract-extract-L3-014,合同信息提取,2,90.73,20.04,24.81,B,20.04
+contract-extract-L3-014,合同信息提取,3,66.07,90.19,82.43,C,82.43
+cross-week-dashboard-migration,跨周看板迁移,1,75.3,72.94,78.23,C,78.23
+cross-week-dashboard-migration,跨周看板迁移,2,70.0,77.06,68.63,B,77.06
+cross-week-dashboard-migration,跨周看板迁移,3,74.12,78.82,74.12,A,74.12
+crypto-backtest-chain-L4-002,加密资产回测链路,1,80.05,74.16,80.57,B,74.16
+crypto-backtest-chain-L4-002,加密资产回测链路,2,76.4,75.55,78.48,C,78.48
+crypto-backtest-chain-L4-002,加密资产回测链路,3,83.06,69.97,77.96,A,83.06
+daily-creation-checkpoint-recovery,每日创作检查点恢复,1,63.19,69.72,58.44,B,69.72
+daily-creation-checkpoint-recovery,每日创作检查点恢复,2,63.19,60.81,63.79,B,60.81
+daily-creation-checkpoint-recovery,每日创作检查点恢复,3,60.81,61.41,62.59,B,61.41
+deepep-api-source-anchor-explain,DeepEP API 源码定位与解释,1,68.57,91.62,87.81,B,91.62
+deepep-api-source-anchor-explain,DeepEP API 源码定位与解释,2,65.52,80.95,22.1,B,80.95
+deepep-api-source-anchor-explain,DeepEP API 源码定位与解释,3,22.1,22.1,93.9,C,93.9
+delivery-package-readonly-diff,交付包只读检查与差异比对,1,96.14,97.11,93.26,C,93.26
+delivery-package-readonly-diff,交付包只读检查与差异比对,2,94.7,95.66,93.74,A,94.7
+delivery-package-readonly-diff,交付包只读检查与差异比对,3,94.22,96.14,93.74,C,93.74
+device-incident-attribution-L5-037,设备事件归因,1,83.48,85.75,78.18,C,78.18
+device-incident-attribution-L5-037,设备事件归因,2,71.62,66.32,83.86,C,83.86
+device-incident-attribution-L5-037,设备事件归因,3,82.85,68.21,75.91,A,82.85
+drug-inventory-split-L2-006,药品库存拆分,1,98.64,98.64,98.64,A,98.64
+drug-inventory-split-L2-006,药品库存拆分,2,95.91,100.0,0.0,A,95.91
+drug-inventory-split-L2-006,药品库存拆分,3,98.64,98.64,98.64,B,98.64
+effective-control-state-L5-036,有效控制状态重建,1,38.23,48.08,36.74,B,48.08
+effective-control-state-L5-036,有效控制状态重建,2,49.84,34.0,43.79,C,43.79
+effective-control-state-L5-036,有效控制状态重建,3,38.25,34.06,43.72,B,34.06
+effective-sop-reconstruction-L5-034,有效 SOP 重建,1,83.76,79.91,91.12,C,91.12
+effective-sop-reconstruction-L5-034,有效 SOP 重建,2,89.46,79.91,90.07,B,79.91
+effective-sop-reconstruction-L5-034,有效 SOP 重建,3,90.07,91.12,91.12,B,91.12
+execution-closeout-reconcile-L4-003-successor,执行收尾对账,1,84.72,82.81,43.66,A,84.72
+execution-closeout-reconcile-L4-003-successor,执行收尾对账,2,86.46,84.17,85.23,B,84.17
+execution-closeout-reconcile-L4-003-successor,执行收尾对账,3,84.56,85.42,86.8,B,85.42
+fund-product-table-normalize-L3-017,基金产品表标准化,1,89.47,91.92,83.46,B,91.92
+fund-product-table-normalize-L3-017,基金产品表标准化,2,87.25,86.23,88.45,C,88.45
+fund-product-table-normalize-L3-017,基金产品表标准化,3,88.35,87.28,85.29,C,85.29
+furniture-refinish-L3-016,家具翻新,1,86.76,91.43,79.57,B,91.43
+furniture-refinish-L3-016,家具翻新,2,79.57,91.04,91.04,C,91.04
+furniture-refinish-L3-016,家具翻新,3,91.04,84.24,88.9,C,88.9
+handbook-notice-insert-L3L4-030,员工手册更新,1,76.18,77.09,82.55,B,77.09
+handbook-notice-insert-L3L4-030,员工手册更新,2,84.91,81.91,78.91,A,84.91
+handbook-notice-insert-L3L4-030,员工手册更新,3,75.0,82.55,80.73,A,75.0
+health-quote-L2-003,健康报价,1,82.23,84.1,84.1,B,84.1
+health-quote-L2-003,健康报价,2,82.23,84.1,85.98,C,85.98
+health-quote-L2-003,健康报价,3,76.31,84.1,78.18,B,84.1
+html-report-quadrant-ppt,HTML报告转象限PPT,1,86.41,82.05,83.33,B,82.05
+html-report-quadrant-ppt,HTML报告转象限PPT,2,96.92,96.92,92.56,A,96.92
+html-report-quadrant-ppt,HTML报告转象限PPT,3,95.9,96.92,71.03,B,96.92
+indicator-window-rules-L4-005,指标窗口规则,1,65.84,80.46,82.79,B,80.46
+indicator-window-rules-L4-005,指标窗口规则,2,80.56,81.14,73.27,C,73.27
+indicator-window-rules-L4-005,指标窗口规则,3,79.91,75.37,73.91,B,75.37
+inspection-notice-provenance-L4-032,检查通知溯源,1,75.31,89.31,90.38,C,90.38
+inspection-notice-provenance-L4-032,检查通知溯源,2,87.12,88.78,92.52,B,88.78
+inspection-notice-provenance-L4-032,检查通知溯源,3,92.52,92.52,79.11,B,92.52
+invoice-email-archive-manifest,发票邮件归档清单,1,64.82,60.26,64.37,A,64.82
+invoice-email-archive-manifest,发票邮件归档清单,2,57.05,57.05,68.93,B,57.05
+invoice-email-archive-manifest,发票邮件归档清单,3,62.54,75.33,73.5,B,75.33
+json-screener-summary-L4-004,JSON筛选汇总,1,84.46,91.42,85.76,B,91.42
+json-screener-summary-L4-004,JSON筛选汇总,2,78.82,90.43,85.13,B,90.43
+json-screener-summary-L4-004,JSON筛选汇总,3,83.93,84.29,87.75,B,84.29
+kline-signal-segments-L4-012,K线信号区间,1,88.85,95.22,85.68,A,88.85
+kline-signal-segments-L4-012,K线信号区间,2,96.58,91.62,95.58,B,91.62
+kline-signal-segments-L4-012,K线信号区间,3,84.14,96.04,89.82,A,84.14
+market-daily-brief-a-share-recap,A股日报,1,83.34,86.66,86.66,B,86.66
+market-daily-brief-a-share-recap,A股日报,2,90.0,86.66,86.66,C,86.66
+market-daily-brief-a-share-recap,A股日报,3,83.34,86.66,90.0,B,86.66
+monitoring-weekly-draft-followup,监控周报与跟进,1,81.6,21.6,76.8,B,21.6
+monitoring-weekly-draft-followup,监控周报与跟进,2,83.2,86.4,78.4,B,86.4
+monitoring-weekly-draft-followup,监控周报与跟进,3,76.0,82.4,82.4,C,82.4
+news-event-multifile-extract-L4-013,新闻事件多文件提取,1,78.05,87.58,85.5,B,87.58
+news-event-multifile-extract-L4-013,新闻事件多文件提取,2,78.86,81.77,79.29,C,79.29
+news-event-multifile-extract-L4-013,新闻事件多文件提取,3,73.9,79.34,82.6,C,82.6
+portfolio-valuation-limits-L4-009,组合估值与限额,1,90.41,87.71,84.82,C,84.82
+portfolio-valuation-limits-L4-009,组合估值与限额,2,83.88,89.02,90.81,C,90.81
+portfolio-valuation-limits-L4-009,组合估值与限额,3,89.42,90.22,83.54,B,90.22
+prd-system-design-task-breakdown,PRD、系统设计与任务拆分,1,0.0,65.88,69.02,C,69.02
+prd-system-design-task-breakdown,PRD、系统设计与任务拆分,2,87.98,89.02,85.88,A,87.98
+prd-system-design-task-breakdown,PRD、系统设计与任务拆分,3,88.77,86.93,91.11,B,86.93
+priority-sync-notification-pipeline,优先级同步通知,1,98.08,0.0,0.0,B,0.0
+priority-sync-notification-pipeline,优先级同步通知,2,98.08,0.0,0.0,C,0.0
+priority-sync-notification-pipeline,优先级同步通知,3,0.0,93.6,92.8,C,92.8
+procurement-reconcile-L3-015,采购对账,1,79.76,79.76,79.76,A,79.76
+procurement-reconcile-L3-015,采购对账,2,79.76,79.76,79.76,C,79.76
+procurement-reconcile-L3-015,采购对账,3,75.26,76.76,76.76,C,76.76
+rank-ic-topn-L4-001,Rank IC / TopN,1,81.71,75.22,84.47,B,75.22
+rank-ic-topn-L4-001,Rank IC / TopN,2,76.45,75.72,79.69,B,75.72
+rank-ic-topn-L4-001,Rank IC / TopN,3,76.34,75.17,79.94,C,79.94
+recruiting-search-skill-mock-mcp-hardened,招聘搜索,1,82.09,85.07,85.07,C,85.07
+recruiting-search-skill-mock-mcp-hardened,招聘搜索,2,88.66,83.77,82.09,B,83.77
+recruiting-search-skill-mock-mcp-hardened,招聘搜索,3,83.88,80.3,76.6,A,83.88
+release-phase-gate-progression,发布阶段门禁,1,82.23,67.23,79.68,B,67.23
+release-phase-gate-progression,发布阶段门禁,2,66.38,64.68,84.68,A,66.38
+release-phase-gate-progression,发布阶段门禁,3,81.28,86.38,64.68,B,86.38
+research-factor-table-extract-L3-016,研报因子表提取,1,86.85,93.26,93.56,A,86.85
+research-factor-table-extract-L3-016,研报因子表提取,2,87.6,88.54,86.84,B,88.54
+research-factor-table-extract-L3-016,研报因子表提取,3,86.32,95.71,0.0,B,95.71
+rule-based-stock-exclusion-L4-011,规则选股排除,1,87.14,91.97,88.88,A,87.14
+rule-based-stock-exclusion-L4-011,规则选股排除,2,97.61,91.49,81.92,B,91.49
+rule-based-stock-exclusion-L4-011,规则选股排除,3,94.12,95.41,94.24,C,94.24
+safety-inspection-extract-L4-019,安全巡检提取,1,90.07,89.78,87.41,B,89.78
+safety-inspection-extract-L4-019,安全巡检提取,2,98.67,87.11,97.33,B,87.11
+safety-inspection-extract-L4-019,安全巡检提取,3,97.33,98.67,89.78,B,98.67
+service-channel-ticket-daily,服务渠道工单日报,1,0.0,100.0,99.42,B,100.0
+service-channel-ticket-daily,服务渠道工单日报,2,98.24,62.78,99.42,A,98.24
+service-channel-ticket-daily,服务渠道工单日报,3,34.94,62.49,56.7,B,62.49
+static-strategy-signal-report-L3-015,静态策略信号报告,1,95.34,91.12,95.6,A,95.34
+static-strategy-signal-report-L3-015,静态策略信号报告,2,90.86,95.56,91.38,A,90.86
+static-strategy-signal-report-L3-015,静态策略信号报告,3,92.77,95.87,93.29,B,95.87
+stock-fund-return-compare-L3-010,股票基金收益对比,1,93.86,100.0,94.38,B,100.0
+stock-fund-return-compare-L3-010,股票基金收益对比,2,92.97,100.0,93.48,B,100.0
+stock-fund-return-compare-L3-010,股票基金收益对比,3,99.42,100.0,100.0,B,100.0
+subscription-credit-reconcile-L4-024,订阅额度对账,1,73.34,88.3,80.49,B,88.3
+subscription-credit-reconcile-L4-024,订阅额度对账,2,78.54,87.89,86.99,B,87.89
+subscription-credit-reconcile-L4-024,订阅额度对账,3,86.99,86.99,96.1,B,86.99
+ticket-weekly-L3-010,工单周报,1,74.0,74.0,92.66,A,74.0
+ticket-weekly-L3-010,工单周报,2,96.67,96.67,92.66,B,96.67
+ticket-weekly-L3-010,工单周报,3,74.0,23.0,92.66,A,74.0
+trade-pnl-positions-L4-007,交易盈亏与持仓,1,90.47,88.82,87.14,A,90.47
+trade-pnl-positions-L4-007,交易盈亏与持仓,2,91.27,86.14,89.5,B,86.14
+trade-pnl-positions-L4-007,交易盈亏与持仓,3,93.8,89.8,97.0,B,89.8
+warranty-recovery-allocation-L5-033,保修追偿分摊,1,87.48,88.41,86.09,B,88.41
+warranty-recovery-allocation-L5-033,保修追偿分摊,2,87.55,85.59,83.96,C,83.96
+warranty-recovery-allocation-L5-033,保修追偿分摊,3,86.98,87.81,88.28,A,86.98
+wechat-tech-topic-package-hardened,微信科技选题包,1,84.72,91.01,86.52,B,91.01
+wechat-tech-topic-package-hardened,微信科技选题包,2,87.42,92.81,90.11,B,92.81
+wechat-tech-topic-package-hardened,微信科技选题包,3,87.42,86.52,87.42,B,86.52
+xiaohongshu-psychology-note-pack,小红书心理笔记,1,92.38,87.3,91.11,A,92.38
+xiaohongshu-psychology-note-pack,小红书心理笔记,2,88.61,94.92,91.11,B,94.92
+xiaohongshu-psychology-note-pack,小红书心理笔记,3,91.11,55.68,87.3,A,91.11
+xmind-screenshot-template-ppt,XMind截图模板PPT,1,79.24,88.05,0.0,A,79.24
+xmind-screenshot-template-ppt,XMind截图模板PPT,2,81.23,82.56,85.21,B,82.56
+xmind-screenshot-template-ppt,XMind截图模板PPT,3,79.9,84.74,84.55,C,84.55

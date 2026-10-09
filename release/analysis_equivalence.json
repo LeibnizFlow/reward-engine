@@ -1,0 +1,6 @@
+{
+  "score_gap": "all_numeric_statistics_match",
+  "midpoint": "all_numeric_statistics_match",
+  "joint": "task_correlations_means_and_confidence_intervals_match",
+  "bootstrap_iterations": 20000
+}

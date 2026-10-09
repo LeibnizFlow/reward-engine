@@ -1,0 +1,142 @@
+{
+  "workbuddy": {
+    "tasks": 50,
+    "trajectories": 150,
+    "eligible_trajectories": 150,
+    "reward_complete_trajectories": 103,
+    "official_valid_trajectories": 150,
+    "complete_paired_trajectories": 103,
+    "complete_trajectory_coverage": 0.6866666666666666,
+    "tasks_with_three_complete": 20,
+    "task_coverage_three_complete": 0.4,
+    "correlations_defined": 12,
+    "constant_tasks": {
+      "reward_constant": 8
+    },
+    "mean_tau_b": 0.10970804841064384,
+    "median_tau_b": 0.24999999999999997,
+    "tau_b_quantiles": [
+      -0.816496580927726,
+      -0.816496580927726,
+      0.24999999999999997,
+      0.816496580927726,
+      0.816496580927726
+    ],
+    "mean_spearman_rho": 0.1138354503153699,
+    "strict_pair_accuracy": 0.22077922077922077,
+    "certain_interval_accuracy": 0.7777777777777778,
+    "pair_counts": {
+      "official_strict_pairs": 77,
+      "official_tie_pairs": 2,
+      "correct_strict_pairs": 17,
+      "reward_tie_on_official_strict": 45,
+      "certain_interval_pairs": 18,
+      "correct_certain_interval_pairs": 14,
+      "overlapping_interval_pairs": 53
+    },
+    "bootstrap": {
+      "iterations": 20000,
+      "seed": 20260929,
+      "clusters": 50,
+      "defined_replicates": 20000,
+      "ci95": [
+        -0.3265986323710904,
+        0.5195887333176439
+      ]
+    },
+    "spearman_bootstrap": {
+      "iterations": 20000,
+      "seed": 20260929,
+      "clusters": 50,
+      "defined_replicates": 20000,
+      "ci95": [
+        -0.34641016151377546,
+        0.5511070751355519
+      ]
+    },
+    "protocol_sha256": "73e89f70a80f5c6d9419ab8bce45563af138a75dc5ee8cbe7a9ce5bf8c7d2be0",
+    "evaluation_method": "joint",
+    "execution": {
+      "completed_receipts": 150,
+      "elapsed_s_total": 514.8253008339088,
+      "criteria_total": 1683,
+      "unknown_criteria": 177,
+      "wire_requests": 22,
+      "logged_model_calls": 22,
+      "failed_model_calls": 0,
+      "prompt_tokens": 1483133,
+      "completion_tokens": 15169
+    }
+  },
+  "claw_eval": {
+    "tasks": 104,
+    "trajectories": 312,
+    "eligible_trajectories": 312,
+    "reward_complete_trajectories": 294,
+    "official_valid_trajectories": 312,
+    "complete_paired_trajectories": 294,
+    "complete_trajectory_coverage": 0.9423076923076923,
+    "tasks_with_three_complete": 89,
+    "task_coverage_three_complete": 0.8557692307692307,
+    "correlations_defined": 53,
+    "constant_tasks": {
+      "reward_constant": 27,
+      "both_constant": 7,
+      "official_constant": 2
+    },
+    "mean_tau_b": 0.24334487977692357,
+    "median_tau_b": 0.33333333333333337,
+    "tau_b_quantiles": [
+      -0.816496580927726,
+      -0.33333333333333337,
+      0.33333333333333337,
+      0.816496580927726,
+      0.816496580927726
+    ],
+    "mean_spearman_rho": 0.26144163133115134,
+    "strict_pair_accuracy": 0.31223628691983124,
+    "certain_interval_accuracy": 0.7333333333333333,
+    "pair_counts": {
+      "official_strict_pairs": 237,
+      "official_tie_pairs": 44,
+      "correct_strict_pairs": 74,
+      "reward_tie_on_official_strict": 121,
+      "certain_interval_pairs": 15,
+      "correct_certain_interval_pairs": 11,
+      "overlapping_interval_pairs": 16
+    },
+    "bootstrap": {
+      "iterations": 20000,
+      "seed": 20260929,
+      "clusters": 68,
+      "defined_replicates": 20000,
+      "ci95": [
+        0.08330173754502318,
+        0.40290123340483647
+      ]
+    },
+    "spearman_bootstrap": {
+      "iterations": 20000,
+      "seed": 20260929,
+      "clusters": 68,
+      "defined_replicates": 20000,
+      "ci95": [
+        0.09244689306986191,
+        0.43010021067014176
+      ]
+    },
+    "protocol_sha256": "73e89f70a80f5c6d9419ab8bce45563af138a75dc5ee8cbe7a9ce5bf8c7d2be0",
+    "evaluation_method": "joint",
+    "execution": {
+      "completed_receipts": 312,
+      "elapsed_s_total": 353.9128584517166,
+      "criteria_total": 2544,
+      "unknown_criteria": 21,
+      "wire_requests": 23,
+      "logged_model_calls": 24,
+      "failed_model_calls": 1,
+      "prompt_tokens": 612427,
+      "completion_tokens": 7308
+    }
+  }
+}

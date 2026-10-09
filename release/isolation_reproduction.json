@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "summary_numeric_values_compared": 34206,
+  "task_statistics_identical": true,
+  "main_report_score_tables_identical": true,
+  "bootstrap_iterations": 20000,
+  "network_access": "forbidden",
+  "original_repository_access": "forbidden",
+  "model_calls": 0
+}

@@ -1,0 +1,51 @@
+task,name,round,A,B,C,selected_arm,selected_score
+analyst-forecast-extract-L3-018,分析师预测提取,3,92.26,85.2,87.46,B,85.2
+api-usage-explain-cli-l3-001,API 用法与 CLI 说明,3,94.75,97.38,94.75,B,97.38
+board-material-update-timeline-excel,董事会材料更新与 Excel 时间线,3,73.18,84.66,83.82,B,84.66
+calendar-dida-sync-state,日历与滴答清单同步状态,3,84.58,89.73,90.46,B,89.73
+channel-period-compare-L4-017,渠道周期对比,3,97.5,82.05,30.45,C,30.45
+cloudagent-sdk-doc-validation-report,CloudAgent SDK 文档验证报告,3,70.66,70.66,68.0,B,70.66
+contract-extract-L3-014,合同信息提取,3,66.07,90.19,82.43,C,82.43
+cross-week-dashboard-migration,跨周看板迁移,3,74.12,78.82,74.12,A,74.12
+crypto-backtest-chain-L4-002,加密资产回测链路,3,83.06,69.97,77.96,A,83.06
+daily-creation-checkpoint-recovery,每日创作检查点恢复,3,60.81,61.41,62.59,B,61.41
+deepep-api-source-anchor-explain,DeepEP API 源码定位与解释,3,22.1,22.1,93.9,C,93.9
+delivery-package-readonly-diff,交付包只读检查与差异比对,3,94.22,96.14,93.74,C,93.74
+device-incident-attribution-L5-037,设备事件归因,3,82.85,68.21,75.91,A,82.85
+drug-inventory-split-L2-006,药品库存拆分,3,98.64,98.64,98.64,B,98.64
+effective-control-state-L5-036,有效控制状态重建,3,38.25,34.06,43.72,B,34.06
+effective-sop-reconstruction-L5-034,有效 SOP 重建,3,90.07,91.12,91.12,B,91.12
+execution-closeout-reconcile-L4-003-successor,执行收尾对账,3,84.56,85.42,86.8,B,85.42
+fund-product-table-normalize-L3-017,基金产品表标准化,3,88.35,87.28,85.29,C,85.29
+furniture-refinish-L3-016,家具翻新,3,91.04,84.24,88.9,C,88.9
+handbook-notice-insert-L3L4-030,员工手册更新,3,75.0,82.55,80.73,A,75.0
+health-quote-L2-003,健康报价,3,76.31,84.1,78.18,B,84.1
+html-report-quadrant-ppt,HTML报告转象限PPT,3,95.9,96.92,71.03,B,96.92
+indicator-window-rules-L4-005,指标窗口规则,3,79.91,75.37,73.91,B,75.37
+inspection-notice-provenance-L4-032,检查通知溯源,3,92.52,92.52,79.11,B,92.52
+invoice-email-archive-manifest,发票邮件归档清单,3,62.54,75.33,73.5,B,75.33
+json-screener-summary-L4-004,JSON筛选汇总,3,83.93,84.29,87.75,B,84.29
+kline-signal-segments-L4-012,K线信号区间,3,84.14,96.04,89.82,A,84.14
+market-daily-brief-a-share-recap,A股日报,3,83.34,86.66,90.0,B,86.66
+monitoring-weekly-draft-followup,监控周报与跟进,3,76.0,82.4,82.4,C,82.4
+news-event-multifile-extract-L4-013,新闻事件多文件提取,3,73.9,79.34,82.6,C,82.6
+portfolio-valuation-limits-L4-009,组合估值与限额,3,89.42,90.22,83.54,B,90.22
+prd-system-design-task-breakdown,PRD、系统设计与任务拆分,3,88.77,86.93,91.11,B,86.93
+priority-sync-notification-pipeline,优先级同步通知,3,0.0,93.6,92.8,C,92.8
+procurement-reconcile-L3-015,采购对账,3,75.26,76.76,76.76,C,76.76
+rank-ic-topn-L4-001,Rank IC / TopN,3,76.34,75.17,79.94,C,79.94
+recruiting-search-skill-mock-mcp-hardened,招聘搜索,3,83.88,80.3,76.6,A,83.88
+release-phase-gate-progression,发布阶段门禁,3,81.28,86.38,64.68,B,86.38
+research-factor-table-extract-L3-016,研报因子表提取,3,86.32,95.71,0.0,B,95.71
+rule-based-stock-exclusion-L4-011,规则选股排除,3,94.12,95.41,94.24,C,94.24
+safety-inspection-extract-L4-019,安全巡检提取,3,97.33,98.67,89.78,B,98.67
+service-channel-ticket-daily,服务渠道工单日报,3,34.94,62.49,56.7,B,62.49
+static-strategy-signal-report-L3-015,静态策略信号报告,3,92.77,95.87,93.29,B,95.87
+stock-fund-return-compare-L3-010,股票基金收益对比,3,99.42,100.0,100.0,B,100.0
+subscription-credit-reconcile-L4-024,订阅额度对账,3,86.99,86.99,96.1,B,86.99
+ticket-weekly-L3-010,工单周报,3,74.0,23.0,92.66,A,74.0
+trade-pnl-positions-L4-007,交易盈亏与持仓,3,93.8,89.8,97.0,B,89.8
+warranty-recovery-allocation-L5-033,保修追偿分摊,3,86.98,87.81,88.28,A,86.98
+wechat-tech-topic-package-hardened,微信科技选题包,3,87.42,86.52,87.42,B,86.52
+xiaohongshu-psychology-note-pack,小红书心理笔记,3,91.11,55.68,87.3,A,91.11
+xmind-screenshot-template-ppt,XMind截图模板PPT,3,79.9,84.74,84.55,C,84.55

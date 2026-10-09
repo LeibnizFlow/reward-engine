@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "data_archive_members": 308529,
+  "archive_paths_unique": true,
+  "archive_members_match_manifest": true,
+  "isolated_commands": {
+    "verify": 0,
+    "main_workbuddy": 0,
+    "main_claw": 0,
+    "six_baseline": 0,
+    "claw_continuation": 0,
+    "joint_offline": 0,
+    "known_reward": 0,
+    "frozen_gap": 0,
+    "tie_credit": 0,
+    "jury_gap": 0,
+    "reward_agreement": 0,
+    "claw_agreement": 0,
+    "task_local": 0,
+    "utility": 0,
+    "win_tie_loss": 0,
+    "thresholds": 0
+  },
+  "main_score_tables_identical": true,
+  "supplementary_numeric_values_compared": 15093,
+  "verifier_raw_references_checked": 2102,
+  "model_calls": 0,
+  "network_access": "forbidden",
+  "original_repository_and_external_sources_access": "forbidden",
+  "wheel_built_from_extracted_source": true
+}

@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jiuwenswarm-criterion-loop"
+version = "0.1.0"
+description = "Minimal Criterion, Harness, Jury, and Battle-Attention research loop"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "JiuwenSwarm Criterion Loop contributors"}]
+keywords = ["reward", "pairwise", "agent", "jiuwenswarm", "opencode"]
+dependencies = []
+
+[project.optional-dependencies]
+office = ["openpyxl>=3.1.5,<4"]
+analysis = ["numpy>=2,<3", "scipy>=1.14,<2", "matplotlib>=3.9,<4"]
+runtime = ["httpx>=0.27,<1", "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-dotenv>=1,<2", "PyYAML>=6,<7", "openpyxl>=3.1.5,<4"]
+dev = [
+  "openpyxl>=3.1.5,<4",
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.24,<2",
+  "ruff==0.15.9",
+  "numpy>=2,<3",
+  "scipy>=1.14,<2",
+]
+
+[project.urls]
+"JiuwenSwarm upstream" = "https://github.com/openjiuwen/jiuwenswarm"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["reward_engine*", "experiments", "experiments.claw_eval*", "experiments.workbuddy*", "experiments.analysis*", "release*"]
+exclude = ["experiments.archive*", "experiments.workbuddy.local*", "local*", "reports*", "archive*", "tests*"]
+
+[tool.setuptools.package-data]
+"reward_engine" = ["**/*.md", "adapters/*.mjs", "adapters/claw_eval/companion/*.patch"]
+"release" = ["*.json", "*.md", "third_party/*.txt"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests/unit"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["archive", "data", "local", "reports", "dist", "runs", ".runtime"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]

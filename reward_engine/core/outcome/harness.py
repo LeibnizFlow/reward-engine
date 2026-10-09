@@ -1,0 +1,673 @@
+"""Open checker registry. Keys are extensible; execution is real registered code."""
+
+import json
+from copy import deepcopy
+from time import monotonic
+
+from reward_engine.core.batch import BatchPolicy, collect_batch
+from reward_engine.core.outcome.context import (
+    EvidenceReadLimit,
+    ResponseContractError,
+    ask,
+    measurement_prior_view,
+    measurement_test_view,
+    require_refs,
+    validate_current_product_refs,
+)
+from reward_engine.core.outcome.coverage import complete, expectations, report
+
+
+def unknown(reason, *, error=False):
+    return {"status": "unknown", "reason": reason, "evidence_refs": [], "error": error, "gap": ""}
+
+
+# Provider/SDK transport, timeout and budget failures are physical: the check
+# never produced a semantic verdict. They must be retried or retained as
+# unknown, never treated as evidence of a defective standard or checker.
+INFRASTRUCTURE_FAILURES = frozenset({
+    'ReadTimeout', 'ConnectTimeout', 'WriteTimeout', 'PoolTimeout', 'TimeoutException',
+    'ReadError', 'ConnectError', 'RemoteProtocolError', 'TransportError',
+    'APITimeoutError', 'APIConnectionError', 'InternalServerError', 'RateLimitError',
+    'HTTPStatusError',
+    'TimeoutError', 'FrameworkError', 'BudgetExhausted', 'RequestBudgetExceeded',
+})
+
+
+def failure_layer(error):
+    """Separate a physical/infrastructure failure from an evaluator defect."""
+    return 'infrastructure' if type(error).__name__ in INFRASTRUCTURE_FAILURES else 'evaluation_execution'
+
+
+async def smoke(pack, registry):
+    """Zero-model infrastructure probe; deliberately NOT a product-quality verdict."""
+    from reward_engine.core.outcome.context import build_context
+
+    bindings = {t["test_id"]: t.get("binding_status", "unknown") for t in pack["tests"]}
+    receipt = None
+    if "json.parse" in registry.checkers:
+        context, evidence = build_context({"task_id": "infra-smoke", "prompt": "Parse fixture"},
+                                         [{"artifact": {"final_response": "{}"}}])
+        receipt = await registry.run({"test_id": "infra-parser", "criterion_id": "infra",
+                                      "checker": "json.parse", "arguments": {
+                                          "ref": "product_1:artifact:final_response"}}, context, evidence)
+    return {"bindings": bindings, "receipt": receipt,
+            "status": "receipt_path_checked" if receipt and receipt["status"] == "pass" else "binding_only",
+            "boundary": "Synthetic parser receipt only; per-check semantic quality and GPU execution NOT validated."}
+
+
+def validate_result(row, evidence):
+    if row.get("status") not in {"pass", "fail", "unknown"} or not row.get("reason"):
+        raise ValueError("Check needs a typed status and explanation")
+    if "score" in row:
+        raise ValueError("Outcome checks return facts/defects, not absolute quality grades")
+    if row.get("error") and row["status"] != "unknown":
+        raise ValueError("An execution error is not a product pass or fail")
+    if row.get("gap") is None and row["status"] != "fail":
+        row = {**row, "gap": ""}
+    if not isinstance(row.get("gap", ""), str):
+        raise ValueError("Check gap must be text; failure requires a concrete gap")
+    if row["status"] != "unknown":
+        require_refs(row.get("evidence_refs"), evidence)
+        if row["status"] == "fail" and not row.get("gap"):
+            raise ValueError("Failure needs an actionable gap")
+    return row
+
+
+def has_product_evidence(refs, evidence, receipts):
+    """Follow only trusted, executed read receipts to their product sources.
+
+    This establishes observation, not correctness or complete-file coverage.
+    Caller-supplied model JSON must never populate ``receipts``.
+    """
+    for ref in refs:
+        if ref in evidence and ref.startswith('product_'):
+            return True
+        receipt = receipts.get(ref, {})
+        if receipt.get('tool') != 'workspace.read' or receipt.get('status') != 'observed':
+            continue
+        result = receipt.get('result', {})
+        if result.get('text') and any(
+                source in evidence and source.startswith('product_')
+                for source in result.get('observed_product_refs', [])):
+            return True
+    return False
+
+
+def validate_claims(row, evidence):
+    """Validate an inspectable audit, not the truth of the model's reasoning."""
+    claims = row.get("claims")
+    if not isinstance(claims, list) or (row.get("status") != "unknown" and not claims):
+        raise ValueError("Semantic verdict needs a claim/evidence audit")
+    material_claims = 0
+    for claim in claims:
+        relevance = claim.get('verdict_relevance', 'material')
+        if relevance not in {'material', 'advisory'}:
+            raise ValueError('Claim verdict_relevance must be material or advisory')
+        if relevance == 'advisory' and not (
+                isinstance(claim.get('relevance_reason'), str) and claim['relevance_reason'].strip()):
+            raise ValueError('Advisory findings need a reason tied to the supplied standard')
+        material_claims += relevance == 'material'
+        if not claim.get("claim") or not claim.get("observation"):
+            raise ValueError("Each claim needs its observed support or gap")
+        require_refs(claim.get("claim_refs"), evidence)
+        refs = claim.get("evidence_refs")
+        if not isinstance(refs, list):
+            raise ValueError("Declare evidence refs, even when unavailable")
+        if refs:
+            require_refs(refs, evidence)
+        if claim.get("judgment") not in {"supported", "contradicted", "unverified"}:
+            raise ValueError("Invalid claim judgment")
+        if claim["judgment"] != "unverified" and not refs:
+            raise ValueError("Supported/contradicted needs observed evidence")
+        if row.get("status") == "pass" and relevance == 'material' and claim["judgment"] != "supported":
+            raise ValueError("Unresolved material claims cannot silently become pass")
+    if row.get('status') == 'pass' and not material_claims:
+        raise ValueError('A pass needs supported material claims, not only advisory findings')
+    return row
+
+
+def claim_locations(row, evidence):
+    """Separate a known source handle from an unverified human-readable locator.
+
+    This resolves document identity, never the truth/existence of the quoted
+    section. Unknown documents and ambiguous parent handles still fail validation.
+    """
+    row = deepcopy(row)
+    for claim in row.get("claims", []):
+        refs = claim.get("claim_refs")
+        if not isinstance(refs, list):
+            continue
+        resolved, locations = [], []
+        for ref in refs:
+            matches = [key for key in evidence if isinstance(ref, str) and ref not in evidence
+                       and any(ref.startswith(key + sep) for sep in (": ", " (", "#"))]
+            if len(matches) == 1:
+                parent = matches[0]
+                locations.append({"original_ref": ref, "source_ref": parent,
+                                  "annotation": ref[len(parent):], "location_verified": False})
+                ref = parent
+            resolved.append(ref)
+        claim["claim_refs"] = resolved
+        if locations:
+            claim["location_resolution"] = locations
+    return row
+
+
+def unresolved_measurements(result, receipts):
+    """A failed attempt can be superseded only by later executed, cited evidence.
+
+    This validates provenance/coverage, not the model's semantic interpretation.
+    All failed receipts remain in the audit; no arbitrary waiver is accepted.
+    A request rejected before execution (invalid refs/paths or oversized input)
+    is a correctable request error, not an unavailable measurement, so it does
+    not by itself force the check to unknown.
+    """
+    failed = {ref for ref, value in receipts.items()
+              if value['status'] != 'observed' and not value.get('request_rejected')}
+    cited = set(result.get('evidence_refs', []))
+    cited.update(ref for claim in result.get('claims', []) for ref in claim.get('evidence_refs', []))
+    order = {ref: index for index, ref in enumerate(receipts)}
+    recoveries = result.get('measurement_recovery', [])
+    if not isinstance(recoveries, list):
+        return failed
+    for recovery in recoveries:
+        if not isinstance(recovery, dict):
+            continue
+        ref, replacements = recovery.get('failed_ref'), recovery.get('replacement_refs')
+        if (not isinstance(ref, str) or ref not in failed or not recovery.get('reason') or not isinstance(replacements, list)
+                or not replacements or any(not isinstance(key, str) for key in replacements)):
+            continue
+        old = receipts[ref]
+        if not isinstance(old.get('arguments'), dict):
+            continue
+        if any(key not in receipts or key not in cited
+               or receipts[key]['status'] != 'observed' or receipts[key]['tool'] != old['tool']
+               for key in replacements):
+            continue
+        # A cited earlier success may accompany the actual recovery. It cannot
+        # supply recovery coverage, but must not invalidate later successful
+        # probes that independently cover the failed operation's inputs.
+        replacements = [key for key in replacements if order[key] > order[ref]]
+        if not replacements:
+            continue
+        # Exact retry is always comparable. Revised numerical programs may
+        # split a large input into several probes over the same cited sources.
+        exact = any(receipts[key]['arguments'] == old['arguments'] for key in replacements)
+        raw_refs = old['arguments'].get('input_refs', [])
+        if not isinstance(raw_refs, list) or any(not isinstance(source, str) for source in raw_refs):
+            continue
+        old_refs = set(raw_refs)
+        new_refs = {source for key in replacements for source in receipts[key]['arguments'].get('input_refs', [])}
+        if exact or old['tool'] == 'code.run' and old_refs and old_refs <= new_refs:
+            failed.remove(ref)
+    return failed
+
+
+class Registry:
+    def __init__(self):
+        self.checkers = {}
+        self.kinds = {}
+        self.dependencies = {}
+        self.recipes = {}
+        self.tools = None
+        self.review_call = None
+
+    def bind_recipe(self, key, recipe):
+        validate_current_product_refs(recipe)
+        if key in self.checkers and self.recipes.get(key) != recipe:
+            raise ValueError("Recipe cannot replace an existing checker")
+        if key not in self.checkers:
+            self.register(key, self.semantic, "Tool-assisted generated measurement recipe", kind="model_assisted")
+        self.recipes[key] = deepcopy(recipe)
+
+    def register(self, key, run, description, *, kind="deterministic", dependencies=None):
+        if not isinstance(key, str) or not key.strip() or not callable(run) or not description:
+            raise ValueError("Checker requires key, executable async function and description")
+        if key in self.checkers:
+            raise ValueError("Do not silently replace an existing checker")
+        if kind not in {"deterministic", "model_assisted"}:
+            raise ValueError("Declare whether the check depends on model judgment")
+        if dependencies is not None and (kind != "deterministic" or not callable(dependencies)):
+            raise ValueError("Reuse dependencies must be trusted deterministic checker code")
+        self.checkers[key] = (run, description)
+        self.kinds[key] = kind
+        self.dependencies[key] = dependencies
+
+    def inputs(self, test, context, evidence):
+        dependency = self.dependencies.get(test["checker"])
+        if dependency is None:
+            return {"context": context, "evidence": evidence}
+        return {"task": context["task"], "users": [p["user_updates"] for p in context["products"]],
+                "input": dependency(test, context, evidence)}
+
+    def catalog(self):
+        return {key: description for key, (_, description) in self.checkers.items()}
+
+    async def run(self, test, context, evidence):
+        started = monotonic()
+        test = measurement_test_view(test)
+        key = test["checker"]
+        inquiry = deepcopy(context.get("measurement_inquiries", {}).get(test["test_id"]))
+        if key not in self.checkers:
+            return {
+                "test_id": test["test_id"],
+                "criterion_id": test["criterion_id"],
+                **unknown(f"Checker {key} needs implementation", error=True),
+                **({"measurement_inquiry": inquiry} if inquiry else {}),
+            }
+        try:
+            validate_current_product_refs({k: test.get(k) for k in ("arguments", "probes", "execution_recipe")})
+            observed = evidence
+            evidence, context = deepcopy(evidence), deepcopy(context)
+            context.pop("measurement_inquiries", None)
+            if inquiry:
+                context["measurement_inquiry"] = inquiry
+            # Supplied standards may be cited, but never count as observed product facts.
+            rubric = test.get("rubric", {})
+            for ref, value in ((test.get("test_id"), test), (rubric.get("id"), rubric)):
+                if ref:
+                    if ref in evidence:
+                        raise ValueError("Check/criterion ID collides with an evidence handle")
+                    evidence[ref] = deepcopy(value)
+            context["available_evidence_refs"] = list(evidence)
+            result = await self.checkers[key][0](deepcopy(test), deepcopy(context), deepcopy(evidence))
+            # Only trusted registered checker code may introduce measurement receipts.
+            receipts = result.pop("_tool_evidence", {})
+            evidence.update(receipts)
+            result = validate_result(result, evidence)
+            if result["status"] != "unknown" and not has_product_evidence(
+                    result["evidence_refs"], observed, receipts):
+                raise ValueError("Known check results need observed product evidence, not just the Task")
+        except Exception as error:
+            result = unknown(f"Checker failed: {type(error).__name__}", error=True)
+            result["diagnostic"] = str(error)[:400]
+            result["failure_layer"] = failure_layer(error)
+        return {
+            **result,
+            "test_id": test["test_id"],
+            "criterion_id": test["criterion_id"],
+            "checker": key,
+            "measurement_kind": self.kinds[key],
+            "elapsed_s": monotonic() - started,
+            **({"measurement_inquiry": inquiry} if inquiry else {}),
+        }
+
+
+def defaults(semantic_call, *, tools=None):
+    from reward_engine.core.outcome.measurement_tools import MeasurementTools
+
+    registry = Registry()
+    registry.review_call = semantic_call
+    registry.tools = tools or MeasurementTools()
+
+    async def semantic(test, context, evidence):
+        from reward_engine.core.outcome.clauses import INSTRUCTION as CLAUSE_INSTRUCTION
+        context = measurement_prior_view(context, evidence, test)
+        receipts = {}
+        model_requests = 0
+
+        def charged_tools():
+            # A probe rejected before execution (bad refs/paths, oversized input)
+            # is correctable feedback, not an executed measurement, so it does
+            # not consume the four-execution budget.
+            return sum(1 for row in receipts.values() if not row.get('request_rejected'))
+
+        async def execute(probes):
+            if (not isinstance(probes, list) or not 1 <= len(probes) <= 3
+                    or charged_tools() + len(probes) > 4 or len(receipts) + len(probes) > 8):
+                raise ValueError("Use at most four executed bounded measurements per check")
+            for probe in probes:
+                if not isinstance(probe, dict):
+                    raise ValueError("Malformed tool request")
+                ref = f"tool:{test['test_id']}:{len(receipts)}"
+                if ref in evidence:
+                    raise ValueError("Measurement receipt identity collision")
+                receipt = await registry.tools.run(probe, evidence)
+                receipts[ref] = receipt
+                evidence[ref] = receipt
+
+        recipe = test.get("execution_recipe", {})
+        if recipe.get("probes"):
+            await execute(recipe["probes"])
+
+        async def tool_call(request):
+            nonlocal model_requests
+            # Two measurement waves at most, then a final evidence-grounded verdict.
+            # A failed or rejected probe needs one correction wave before the
+            # final verdict; capping at one wave would drop that recovery.
+            for wave in range(3):
+                request["context"]["available_evidence_refs"] = list(evidence)
+                request["context"]["tool_observations"] = deepcopy(receipts)
+                request["measurement_budget"] = {
+                    "remaining_tool_calls": max(0, 4 - charged_tools()),
+                    "max_calls_per_wave": min(3, max(0, 4 - charged_tools())),
+                    "remaining_tool_waves": 2 - wave,
+                    "final_verdict_required": wave == 2 or charged_tools() == 4,
+                    "instruction": "Reuse recorded observations. Do not repeat completed reads/calculations. "
+                        "A request rejected before execution (invalid refs/paths, oversized input) is "
+                        "correctable and does not consume the executed budget; fix the cited refs/paths and "
+                        "retry within the cap. When no tool budget remains, give the required final verdict "
+                        "from existing evidence; return unknown for any material fact that still needs an "
+                        "unperformed measurement.",
+                }
+                model_requests += 1
+                result = await semantic_call(deepcopy(request))
+                if not isinstance(result, dict) or "need_tools" not in result:
+                    return result
+                if wave == 2:
+                    return {**unknown("Measurement wave budget exhausted; requested tools were not executed",
+                                      error=True), "claims": []}
+                probes = result["need_tools"]
+                if (not isinstance(probes, list) or not 1 <= len(probes) <= 3
+                        or charged_tools() + len(probes) > 4 or len(receipts) + len(probes) > 8
+                        or any(not isinstance(probe, dict) for probe in probes)):
+                    # Do not throw away actual receipts when the model asks for
+                    # too much. Use the next already-bounded model wave to close
+                    # with evidence or correct the request within the same cap.
+                    request["measurement_feedback"] = {
+                        "status": "request_not_executed",
+                        "reason": "Request exceeds remaining tool budget or has malformed need_tools",
+                        "instruction": "No tools in this rejected request ran. Use measurement_budget and "
+                            "recorded tool_observations; produce an evidence-grounded verdict or unknown.",
+                    }
+                    continue
+                request.pop("measurement_feedback", None)
+                await execute(probes)
+            raise ValueError("Missing final measurement verdict")
+
+        class MeasurementCall:
+            # Wrapping the role to execute probes must preserve its capacity,
+            # compression, policy overlay and bounded reply-repair protocol.
+            # Losing these silently restores a 160 KB / one-read / no-repair
+            # default even when the configured role supports more.
+            def __getattr__(self, name):
+                return getattr(semantic_call, name)
+
+            async def __call__(self, request):
+                return await tool_call(request)
+
+        async def ask_with_receipts(*args, **kwargs):
+            try:
+                return await ask(*args, **kwargs)
+            except EvidenceReadLimit as error:
+                return {**unknown("Evidence read allowance exhausted; final assessment unavailable", error=True),
+                        "diagnostic": str(error), "unresolved_evidence_refs": list(error.refs), "claims": []}
+            except (ResponseContractError, json.JSONDecodeError) as error:
+                # The bounded repair already ran. A rejected interpretation
+                # must not erase computations/reads that actually completed.
+                return {**unknown(f"Measurement reply rejected: {type(error).__name__}", error=True),
+                        "diagnostic": str(error)[:400], "claims": []}
+
+        def validate_reply(row):
+            # Validate the whole final verdict inside the bounded retry, not
+            # just its claim audit. Otherwise a well-explained `partial` or a
+            # missing reason escapes repair and is discarded by Registry.run.
+            row = validate_claims(claim_locations(validate_result(row, evidence), evidence), evidence)
+            if row['status'] != 'unknown' and not has_product_evidence(row['evidence_refs'], evidence, receipts):
+                raise ValueError('Known check results need observed product evidence, not just the Task')
+            return row
+
+        result = await ask_with_receipts(
+            MeasurementCall(),
+            "outcome_measure",
+            context,
+            evidence,
+            CLAUSE_INSTRUCTION + "Evaluate ONLY the supplied Outcome standard against current evidence and anchors. "
+            "Find factual contradictions, missing required outcomes and unsupported claims. "
+            "If measurement_inquiry is supplied, address that specific doubt using current evidence. "
+            "It is an unverified question, not an established defect or a replacement standard. "
+            "Answer it separately in inquiry_result: pass=no material issue found, fail=evidenced Task "
+            "defect, unknown=unresolved/out of scope. A rubric pass does not erase an inquiry defect. "
+            "Artifact existence/read success is not correctness. Compare technical claims against "
+            "available sources; request exact evidence if needed. Without enough evidence say unknown. "
+            "Historical user-specific standards apply only if THIS product's user actually required them. "
+            "A missing applicability fact is unknown, not failure; never impose another user's answers. "
+            "If test.knowledge is present: the Jury criterion is the standard; method_refs may define how to "
+            "measure; reference_refs illustrate and are not requirements. applicability_refs are related notes, "
+            "not mandatory preconditions merely because they share a source. Establish relevance to the chosen "
+            "method first; unrelated notes add no requirement. Essential unverified applicability prevents "
+            "that method from establishing a verdict, not other independent measurements. conditions_unstated "
+            "and unclassified_refs are uncertainties, not automatic product failures or verified methods. "
+            "Before the verdict, audit the material claims relevant to THIS standard across ALL "
+            "delivery channels, including saved artifacts and environment-held drafts, not just the "
+            "Actor's summary. For each claim list where it appears, what the evidence actually establishes, "
+            "and supported/contradicted/unverified. An artifact proves what was written, not that its "
+            "external assertions are true. Separate a proposed step, a confirmed arrangement, an executed "
+            "action and an outcome commitment. Non-execution does not establish the truth of a draft. "
+            "Do not infer confirmation from a person's role or a tool's availability. Missing support "
+            "is unverified, not proof the assertion is false. Explain whether that uncertainty violates "
+            "the standard (e.g. asserting certainty without support) or needs verification. "
+            "Use the evidence-access option when a preview is insufficient. Write claims first, then "
+            "claim_refs must contain exact supplied handles only; put chapter names or quotes in "
+            "claim_location, not inside a handle. The supplied rubric/test is a standard, not proof "
+            "that the product satisfies it. Audit only claims material to this test's standard. "
+            "summarize status/reason/gap; pass requires the audited material claims to be supported. "
+            "Keep ancillary improvement observations as advisory claims with verdict_relevance=advisory "
+            "and relevance_reason explaining why they do not affect THIS standard's verdict. "
+            "They may remain unverified without blocking supported required outcomes; do not delete "
+            "the uncertainty or relabel it supported. Missing required outcomes, contradictions of "
+            "required facts and unsupported claims that affect this standard remain material. "
+            "A pass must still have supported material claims; calling every claim advisory is invalid. "
+            "Give a localized gap for fail. Do not return an absolute score or official success claim.",
+            {
+                "claims": [{
+                    "claim": "material assertion or required outcome under this standard",
+                    "claim_refs": ["exact refs locating the assertion or requirement"],
+                    "claim_location": "optional chapter/quote; this locator is not independently verified",
+                    "evidence_refs": ["exact observed evidence refs; empty if unavailable"],
+                    "observation": "what the evidence establishes, does not establish, or contradicts",
+                    "judgment": "supported/contradicted/unverified",
+                    "verdict_relevance": "material/advisory; omitted means material",
+                    "relevance_reason": "for advisory: why the uncertainty does not affect the supplied standard",
+                }],
+                "status": "pass/fail/unknown",
+                "reason": "why",
+                "gap": "specific defect if fail",
+                "evidence_refs": ["exact refs"],
+                "measurement_recovery": [{"failed_ref": "optional failed tool receipt ref",
+                    "replacement_refs": ["later observed same-tool receipt refs covering the same inputs"],
+                    "reason": "why the cited successful measurements resolve the original required check"}],
+                **({"inquiry_result": {"status": "pass/fail/unknown", "reason": "answer to the specific question",
+                    "gap": "concrete Task defect if fail", "evidence_refs": ["exact observed product/source refs"]}}
+                   if context.get("measurement_inquiry") else {}),
+            },
+            extra={"test": test, "measurement_tools": registry.tools.catalog(),
+                   "tool_protocol": 'Before a verdict you may return ONLY {"need_tools":[{"tool":"catalog key","arguments":{}}]}. '
+                    "Use actual tools for numeric/code/source questions, not mental simulation. "
+                   "Receipts establish computations/reads, not automatically the claim's correctness or a Task pass. "
+                   "Cite actual artifact refs or executed read receipts carrying observed_product_refs. "
+                   "A receipt proves only its observed excerpt, not unseen pages. Missing tools are unknown, not product failure. "
+                   "If a failed probe was corrected, explicitly declare measurement_recovery with failed_ref, "
+                   "later successful replacement_refs over the same inputs, and reason. Cite those observed "
+                   "receipts in the verdict/claims; a failed attempt alone cannot be waived. "
+                    "At most three probes per request, four probes total and two probe waves; "
+                    "reuse supplied tool_observations instead of executing the same probe again. "
+                    "No obligation to execute GPU workloads for a report-only task."},
+            verify_used_previews=True,
+            **({'validate': validate_reply}
+               if getattr(semantic_call, 'bounded_stage', False) and not context.get('measurement_inquiry') else {}),
+        )
+        # The specific question is a separate verdict. A malformed global claim
+        # audit must not erase a well-formed, evidenced local correction (or vice versa).
+        inquiry_result = None
+        if context.get("measurement_inquiry"):
+            try:
+                inquiry_result = validate_result(result.get("inquiry_result") or unknown(
+                    "Specific inquiry was not explicitly answered; the rubric verdict is separate"), evidence)
+                if inquiry_result["status"] != "unknown" and not has_product_evidence(
+                        inquiry_result["evidence_refs"], evidence, receipts):
+                    raise ValueError("An inquiry conclusion needs actual product evidence")
+            except (ValueError, TypeError, AttributeError) as error:
+                inquiry_result = {**unknown("Specific inquiry validation failed", error=True),
+                                  "diagnostic": str(error)[:400]}
+        try:
+            result = validate_claims(claim_locations(result, evidence), evidence)
+        except ValueError as error:
+            result = {**unknown("Claim audit validation failed", error=True),
+                      "diagnostic": str(error)[:400]}
+        if inquiry_result is not None:
+            result["inquiry_result"] = inquiry_result
+        # Never trust model-authored receipts; overwrite with executed observations.
+        result["tool_observations"] = deepcopy(receipts)
+        result["execution_usage"] = {"model_requests": model_requests, "tool_calls": charged_tools()}
+        result["_tool_evidence"] = deepcopy(receipts)
+        unresolved = unresolved_measurements(result, receipts)
+        result['unresolved_measurement_refs'] = sorted(unresolved)
+        if unresolved:
+            result.update(status="unknown", gap="", reason="A requested measurement was unavailable; " + result["reason"])
+            if "inquiry_result" in result:
+                result["inquiry_result"] = unknown("A requested measurement was unavailable")
+        return result
+
+    async def json_valid(test, context, evidence):
+        ref = test.get("arguments", {}).get("ref")
+        if ref not in evidence or not isinstance(evidence[ref], str):
+            return unknown("No exact textual evidence at supplied ref")
+        try:
+            json.loads(evidence[ref])
+            return {
+                "status": "pass",
+                "reason": "Parses as JSON; no semantic claim",
+                "gap": "",
+                "evidence_refs": [ref],
+            }
+        except json.JSONDecodeError as error:
+            return {
+                "status": "fail",
+                "reason": "JSON parser rejected text",
+                "gap": f"Invalid JSON at line {error.lineno}",
+                "evidence_refs": [ref],
+            }
+
+    registry.register(
+        "evidence.review",
+        semantic,
+        "Grounded semantic Outcome check; pass/fail/unknown and evidence.",
+        kind="model_assisted",
+    )
+    registry.register(
+        "json.parse", json_valid, "Parse exact text at arguments.ref. Syntax only, not data accuracy.",
+        dependencies=lambda t, c, e: e.get(t.get("arguments", {}).get("ref")),
+    )
+    registry.semantic = semantic
+    return registry
+
+
+def measurement_context(pack, context, evidence):
+    """Carry published task-scoped sources into fresh delivery measurements."""
+    context, evidence = deepcopy(context), deepcopy(evidence)
+    for validation in pack.get('validation', {}).get('records', []):
+        if not validation.get('cases'):
+            continue
+        ref = 'reference:validation:' + validation['validation_id']
+        evidence[ref] = deepcopy(validation)
+        context.setdefault('reference_documents', []).append({
+            'ref': ref, 'title': 'Scoped counterexample evidence for ' + validation['target_id'],
+            'preview_only': True, 'preview': validation['status'] + '; read cases and applicability before relying'})
+    for ref, source in pack.get("measurement_sources", {}).items():
+        if ref in evidence and evidence[ref] != source:
+            raise ValueError("Published measurement source conflicts with current evidence")
+        evidence[ref] = deepcopy(source)
+        if ref.startswith('task_input:'):
+            from reward_engine.core.outcome.task_inputs import attach
+            context, evidence = attach(context, evidence, [source])
+        docs = context.setdefault("reference_documents", [])
+        if not any(d["ref"] == ref for d in docs):
+            docs.append({"ref": ref, "url": source.get("url"), "title": source.get("title"),
+                         "preview_only": True})
+    for prior in pack.get("measurement_priors", []):
+        if prior["ref"] in evidence and evidence[prior["ref"]] != prior["content"]:
+            raise ValueError("Published prior conflicts with current evidence")
+        if prior["ref"] not in evidence:
+            evidence[prior["ref"]] = deepcopy(prior["content"])
+            context.setdefault("skills", []).append(deepcopy(prior))
+    context["available_evidence_refs"] = list(evidence)
+    return context, evidence
+
+
+async def measure(pack, registry, context, evidence, *, policy=None, test_ids=None, previous=None):
+    if context["task"]["task_id"] != pack["task_id"] or context["task"]["prompt"] != pack["task_prompt"]:
+        raise ValueError("Cannot measure another Task with this Pack")
+    if pack.get("reward_protocol"):
+        from reward_engine.core.outcome.public_facts import install, validate_binding
+        from reward_engine.core.outcome.public_reward import validate_pack
+        validate_pack(pack)
+        if len(context.get("products", [])) != 1:
+            raise ValueError("Independent reward requires exactly one candidate")
+        validate_binding(context, evidence)
+        install(registry)
+    context, evidence = measurement_context(pack, context, evidence)
+    tests = pack["tests"]
+    for test in tests:
+        if test.get("execution_recipe") and test["checker"] != "evidence.review":
+            registry.bind_recipe(test["checker"], test["execution_recipe"])
+    if test_ids is not None:
+        if not set(test_ids) <= {t["test_id"] for t in tests}:
+            raise ValueError("Unknown test selection")
+        tests = [t for t in tests if t["test_id"] in test_ids]
+    reused = {}
+    if previous:
+        old_context, old_evidence, old_result = previous
+        old = {r["test_id"]: r for r in old_result["results"]}
+        for test in tests:
+            row = old.get(test["test_id"], {})
+            if (registry.dependencies.get(test["checker"]) is not None
+                    and not context.get("measurement_inquiries", {}).get(test["test_id"])
+                    and row.get("status") == "pass" and not row.get("error")
+                    and registry.inputs(test, context, evidence) ==
+                    registry.inputs(test, old_context, old_evidence)):
+                reused[test["test_id"]] = {**deepcopy(row), "reused_unchanged_input": True}
+    batch = await collect_batch(
+        {t["test_id"]: lambda t=t: registry.run(t, context, evidence)
+         for t in tests if t["test_id"] not in reused}, policy or BatchPolicy()
+    )
+    results = [
+        r.value
+        if r.status == "ok"
+        else {
+            "test_id": r.job_id,
+            "criterion_id": next(t["criterion_id"] for t in tests if t["test_id"] == r.job_id),
+            **unknown("Check timed out or failed", error=True),
+        }
+        for r in batch.items
+    ]
+    results.extend(reused.values())
+    for row in results:
+        inquiry = context.get("measurement_inquiries", {}).get(row["test_id"])
+        if inquiry:
+            row["measurement_inquiry"] = deepcopy(inquiry)  # Keep the question even on batch timeout.
+    summary = {
+        **summarize_results(pack, results),
+        "batch": batch.summary(),
+        "execution_summary": {
+            "selected_checks": len(tests), "submitted_checks": len(tests) - len(reused),
+            "reused_checks": len(reused),
+            "reported_model_requests": sum(r.get("execution_usage", {}).get("model_requests", 0)
+                                           for r in results if not r.get("reused_unchanged_input")),
+            "reported_tool_calls": sum(r.get("execution_usage", {}).get("tool_calls", 0)
+                                       for r in results if not r.get("reused_unchanged_input")),
+            "boundary": "Returned check receipts only; interrupted calls may be missing. See model request logs for usage.",
+        },
+    }
+    if pack.get("reward_protocol"):
+        from reward_engine.core.outcome.public_reward import score
+        summary["independent_reward"] = score(pack, results, context, evidence)
+    return summary
+
+
+def summarize_results(pack, results):
+    """Summarize actual receipts, including explicitly bound checkpoint reuse."""
+    criteria = []
+    for criterion in pack['criteria']:
+        rows = [r for r in results if r['criterion_id'] == criterion['id']]
+        expected = [t for t in pack['tests'] if t['criterion_id'] == criterion['id']]
+        known = bool(rows) and len(rows) == len(expected) and all(r['status'] != 'unknown' for r in rows)
+        criteria.append({'id': criterion['id'], 'known': known, 'kind': criterion['kind']})
+    outcome_coverage = report(pack, results)
+    return {'pack_id': pack['pack_id'], 'results': results, 'criteria': criteria,
+        'coverage': sum(c['known'] for c in criteria) / len(criteria) if criteria else 0,
+        'outcome_coverage': outcome_coverage,
+        'ready_under_estimator': bool(results) and len(results) == len(pack['tests'])
+            and all(r['status'] == 'pass' for r in results)
+            and (not expectations(pack) or complete(outcome_coverage)),
+        'interpretation': 'Check evidence and gaps only. Coverage is NOT quality. Ranking compares quality; official grader is separate.'}

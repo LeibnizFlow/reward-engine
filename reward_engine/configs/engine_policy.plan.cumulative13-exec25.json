@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "policy_version": "reward-engine-policy-v1",
+  "status": "in_progress",
+  "experiment_plan": "../../experiments/reward_engine_training/PLAN.zh-CN.md",
+  "progress_state": "../../experiments/reward_engine_training/STATE.json",
+  "runtime_enabled": false,
+  "purpose": "跨 benchmark 的组件更新与策略训练登记；本文件本身不启动 runner。共享策略与 Strategy Memory 已由累计六题统一更新；prepare_policy_trial.py 读取当前候选并写入新的冻结 manifest，qc_run 按该 manifest 执行。",
+  "benchmarks": [
+    "claw-eval",
+    "workbuddy"
+  ],
+  "training": {
+    "objective": [
+      "quality_band",
+      "ranking"
+    ],
+    "first_version_updates": [
+      "component_prompts",
+      "qc_decision_parameters"
+    ],
+    "fixed_in_v1": [
+      "base_model_weights",
+      "model_roster",
+      "hard_budget_limits",
+      "evidence_validation_rules",
+      "sandbox_permissions",
+      "actor_policy",
+      "experience_entries",
+      "experience_retrieval_parameters"
+    ],
+    "label_boundary": {
+      "training_labels": "官方 grader 的训练集标签仅供外层训练器监督策略更新。",
+      "validation_labels": "验证集标签仅用于外层评估与版本选择，不作为内层构建输入或经验条目。",
+      "test_labels": "测试集标签仅用于最终留出评估，不用于策略更新、经验入库或版本选择。",
+      "online_inputs": "线上组件使用公开 Task、实际用户补充、允许访问的证据和已发布经验；不读取当前题或测试集的隐藏 grader。",
+      "split_unit": "按任务族或模板划分；同题作品、多轮轨迹及翻译变体保持在同一分区。"
+    },
+    "next_policy_candidate": {
+      "path": "../../experiments/reward_engine_training/strategy_updates/20260913-cumulative-13/candidate_policy.json",
+      "policy_id": "c19a4d64595769426d800e7e1a0a7b887a1f9c47d0c42aef365047bc5344bf04",
+      "strategy_memory_path": "../../experiments/reward_engine_training/strategy_updates/20260913-cumulative-13/strategy_memory.json",
+      "strategy_memory_id": "66d1693bfa71855704ffb27f42f1b5343c4175222c2faabe85f6abf440bdc7c3",
+      "status": "local_checks_and_replays_passed_live_pending",
+      "review": "../../experiments/reward_engine_training/strategy_updates/20260913-cumulative-12/REVIEW.private.zh-CN.md",
+      "second_review": "../../experiments/reward_engine_training/strategy_updates/20260913-cumulative-12/SECOND_REVIEW.private.zh-CN.md",
+      "scope": "Shared development update across ten exposed tasks; six-case live acceptance",
+      "source_release_id": "bf8d47942da0f9bfb8668bbcd416dc47b170085b9303396ee0d0742ee41ebdce",
+      "parent_trial": "experiments/reward_engine_training/runs/20260913-shared-candidate12-train-01"
+    },
+    "update_semantics": "Jointly review accumulated training pairs. Rewrite or remove wrong guidance, merge repetition, update/revoke individual Strategy Memory units and bind the new snapshot to one shared policy. Historical versions remain immutable; no automatic prompt append.",
+    "current_updates": [
+      "component_prompts",
+      "qc_decision_parameters",
+      "versioned_strategy_units"
+    ],
+    "joint_update_contract": {
+      "targets": [
+        "shared_engine_policy",
+        "strategy_memory"
+      ],
+      "review_input": "All cumulative training Reward Pack / official Grader pairs plus construction trajectories, including failed and zero-Reward attempts. Absence of accuracy evidence is unknown; stability/efficiency can still inform updates.",
+      "unit_actions": [
+        "keep",
+        "add",
+        "rewrite",
+        "merge",
+        "revoke"
+      ],
+      "versioning": "Bind the selected memory snapshot hash into one shared policy; jointly validate. Unchanged units are allowed after review.",
+      "current_optimizer": "Codex direct outer review; legacy paid PolicyOptimizer remains prompt/parameter-only and is not the joint-update path.",
+      "label_boundary": "No held-out labels, hidden rubric text or per-task answer keys in inner memory."
+    },
+    "previous_policy_trial": {
+      "path": "../../experiments/reward_engine_training/strategy_updates/20260912-cumulative-05/candidate_policy.json",
+      "policy_id": "954b5d8cdf59b9469cfdd043d325baaa55c2873edd507bdeaf389b7bda244a5a",
+      "strategy_memory_path": "../../experiments/reward_engine_training/strategy_updates/20260912-cumulative-05/strategy_memory.json",
+      "strategy_memory_id": "cfa8975a2d65104da1b3758d659d2b47aa117ff3b385911a06ba3681282bf6ec",
+      "source_release_id": "b5cf4d386a139b9c421728095d91cd8d3155e2454666f004115ef33c5c1c9ebb",
+      "status": "completed_four_autonomous_two_stopped_unpublished",
+      "review": "../../experiments/reward_engine_training/strategy_updates/20260912-cumulative-05/REVIEW.private.zh-CN.md",
+      "second_review": "../../experiments/reward_engine_training/strategy_updates/20260912-cumulative-05/SECOND_REVIEW.private.zh-CN.md",
+      "scope": "One shared Engine policy plus Strategy Memory updated jointly from all six tasks, 42 version records / 40 unique Packs; no per-task policy patches.",
+      "live_trial": "experiments/reward_engine_training/runs/20260912-shared-candidate05-train-01",
+      "result": "../../experiments/reward_engine_training/runs/20260912-shared-candidate05-train-01/TRIAL_RESULT.json"
+    },
+    "optimization_goals": {
+      "accuracy": {
+        "name": "更准",
+        "evidence": [
+          "Task and actual-dialogue fidelity",
+          "direct outer Grader comparison",
+          "valid quality distinctions with grounded observations"
+        ],
+        "boundary": "Do not infer official scores from pass counts or inject hidden answers into inner guidance."
+      },
+      "robustness": {
+        "name": "更稳",
+        "evidence": [
+          "autonomous versus operator-assisted delivery",
+          "execution errors and useful recovery",
+          "honest unknowns and bounded unproductive actions"
+        ]
+      },
+      "efficiency": {
+        "name": "更快",
+        "evidence": [
+          "active wall seconds excluding audited user pauses",
+          "physical model requests and role/token usage",
+          "avoided redundant construction, reading and remeasurement"
+        ],
+        "boundary": "Do not gain speed by dropping required checks, weakening standards or relabeling unknown as pass."
+      }
+    },
+    "trial_preparation": {
+      "entrypoint": "../../experiments/reward_engine_training/prepare_policy_trial.py",
+      "selection": "Read next_policy_candidate and bind its policy, Strategy Memory and source hashes into every new manifest; no hardcoded candidate version.",
+      "scope": "Reuse parent trial public inputs, archives, models and budgets; historical manifests remain immutable.",
+      "execution": "Local preparation only; does not start workers or call models."
+    },
+    "release_acceptance": {
+      "applies_to": "Every shared policy, Strategy Memory or flow update; validate their exact combined source binding.",
+      "required": [
+        "Local execution regressions pass.",
+        "Known real failure trajectories replay without unbounded retries or loss of valid results.",
+        "Bounded live construction on representative tasks demonstrates autonomous delivery or justified bounded termination.",
+        "Report delivery failures, execution unknowns, operator intervention, requests and elapsed time separately from Reward accuracy."
+      ],
+      "promotion_rule": "Local tests alone do not establish stable operation. Operator intervention to stop an execution loop fails stability acceptance; successful bounded termination alone does not establish productive delivery.",
+      "quality_boundary": "This is Engine execution acceptance, not an additional semantic veto on publishing the best usable Reward.",
+      "current_candidate_stability": "not_passed: execution08 live validation pending; older execution06 T110 and PPT delivered autonomously, execution07 inventory running.",
+      "execution_evidence_audit": "../../experiments/reward_engine_training/audit_trial.py"
+    }
+  },
+  "components": {
+    "qc": {
+      "kind": "jiuwenswarm_control_agent",
+      "current_state": "真实 SDK 控制工具、磁盘会话、版本账本与固定预算已接生产构建。Claw 用户多轮及 Office 单步 Actor 工具实跑成功，完整 QC 尚有未发布和不确定结果。",
+      "runtime_monitor": {
+        "implementation": "reward_engine/core/engine/monitor.py",
+        "status": "automatic_stop_observed_in_paid_inventory_run",
+        "threshold_parameter": "qc_decision_parameters.max_stagnant_actions",
+        "default_threshold": 3,
+        "signals": [
+          "repeated_tool_failure",
+          "repeated_identical_operation",
+          "repeated_operation_cycle",
+          "repeated_read_without_progress",
+          "model_turns_without_progress"
+        ],
+        "diagnostic_file": "construction/QC_HEALTH.json",
+        "action": "stop_before_next_paid_request_preserve_receipts_and_unresolved_calls",
+        "extra_model_calls": 0,
+        "next_construction_model_request_budget": 512,
+        "verification_reserve_parameter": "qc_decision_parameters.verification_reserve_fraction",
+        "default_verification_reserve_fraction": 0.25,
+        "boundary": "未来 runner 使用新冻结 manifest；本登记不修改旧预算。监控检测执行循环，不证明 Reward 的语义质量。"
+      },
+      "implementation_changes": [
+        "通过工具调用 Jury、Builder、Quality Review、Hypothesis、Search、经验检索及沙箱 Actor。",
+        "控制 Reward 构建、局部修复与复测循环，保存候选版本和证据。",
+        "在硬预算内分配调用额度，决定继续、停止及是否发布；质量不足时保留问题与候选版本。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "control_prompt",
+          "tool_selection_prompt",
+          "loop_decision_parameters",
+          "budget_allocation_parameters",
+          "stop_and_publish_decision_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "agentic_search": {
+      "kind": "existing_agentic_research_tool",
+      "current_state": "已提供 QC 定向调查接口，问题与策略进入缓存身份；禁网保护、多次证据挂接和旧 Search 回归通过。",
+      "implementation_changes": [
+        "复用现有研究循环，提供 QC 按具体疑点调用的定向调查接口。",
+        "复用已读证据，围绕关键冲突追查来源，返回适用条件和未解决问题。",
+        "将查询、选材、阅读、停止与汇总提示词纳入策略版本，并接入 QC 共享预算。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "query_prompt",
+          "source_and_read_selection_prompt",
+          "conflict_investigation_prompt",
+          "stop_prompt",
+          "evidence_summary_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "jury": {
+      "kind": "map_reduce_tool",
+      "current_state": "已接入 QC 标准生成工具；运行时策略版本接线待完成。",
+      "implementation_changes": [
+        "以公开 Task 和实际用户补充为依据，提炼硬性要求、质量维度及相对重要性；知识和经验选择性参考。",
+        "根据 QC 提供的已核验反例校准标准，记录修订依据及适用范围。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "standards_proposal_prompt",
+          "standards_reduce_prompt",
+          "importance_assessment_prompt",
+          "calibration_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "reward_builder": {
+      "kind": "evaluation_builder_tool",
+      "current_state": "已接入 QC 构建与局部修复工具；完整 SDK 链验证尚未通过。",
+      "implementation_changes": [
+        "根据标准和可用证据选择检查方法，构建可执行检查器及其输入输出契约。",
+        "接收定位后的缺陷与目标标准，生成局部修复候选并交由 QC 安排复测。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "harness_construction_prompt",
+          "check_method_selection_prompt",
+          "local_repair_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "quality_review": {
+      "kind": "quality_review_tool",
+      "current_state": "已接入 QC 定向攻击、历史争议保留与修复复测工具；真实模型质量仍待实跑验证。",
+      "implementation_changes": [
+        "保留多模型攻击与独立参考机制，生成有针对性的反例并运行候选检查器。",
+        "区分标准错误、检查器实现错误和证据不足，返回定位信息与不确定性。",
+        "复测修订版本，检查原误判是否消失以及是否引入新的误判。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "counterexample_generation_prompt",
+          "independent_reference_prompt",
+          "misjudgment_diagnosis_prompt",
+          "repair_review_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "hypothesis": {
+      "kind": "reward_improvement_hypothesis_tool",
+      "current_state": "已增加内部 Reward 缺陷假设工具，输出预测及验证方案；不向 Actor 注入执行建议。",
+      "implementation_changes": [
+        "根据 Task、候选 Reward、质检缺口与相关经验提出改进 Reward 的假设。",
+        "输出可验证预测与验证方案，由 QC 决定是否补查、修订或调用 Actor。",
+        "假设用于内部构建循环，不直接作为 Actor 的任务执行建议。"
+      ],
+      "trainable_targets": {
+        "v1": [
+          "reward_improvement_prompt",
+          "verification_design_prompt"
+        ],
+        "later": []
+      },
+      "status": "in_progress"
+    },
+    "experience_memory": {
+      "kind": "strategy_memory",
+      "current_state": "QC先检索摘要再显式选择完整策略，0..8条/16KiB仅为当前工作集上限。10条heuristic保留；本地验证通过，尚无新付费实跑。",
+      "implementation_changes": [
+        "短常驻策略；长期经验独立成 MATCH/SUMMARY/STRATEGY/AVOID/VALIDATION 单元。",
+        "retrieve_strategy返回候选摘要；load_strategy由QC选择、替换或清空当前工作集。最多8条/16384字节，0条合法，不固定top-k加载。",
+        "后续模块仅使用QC选中且适用的策略，记录选择来源和任务作用域；恢复会话可复用，作用域变化后失效。",
+        "每轮外层训练同时审阅共享策略和Strategy Memory，新增、改写、合并或撤销单元，两者共同绑定版本和验证。",
+        "本地检索不调用模型；Agent选择仍消耗正常token，不将旧回执历史误称为16KiB以内。"
+      ],
+      "trainable_targets": {
+        "v1": [],
+        "later": [
+          "example_selection",
+          "retrieval_policy",
+          "retrieval_parameters"
+        ],
+        "current": [
+          "strategy_unit_content",
+          "strategy_unit_selection",
+          "strategy_unit_revision_and_revocation"
+        ]
+      },
+      "status": "local_checks_passed_awaiting_paid_validation",
+      "active_working_set_limits": {
+        "units": 8,
+        "bytes": 16384
+      },
+      "index_limits": {
+        "max_page_entries": 20,
+        "max_page_bytes": 12288
+      }
+    }
+  },
+  "support_components": {
+    "outer_trainer": {
+      "kind": "codex_direct_cumulative_review",
+      "responsibility": "使用训练集官方标签提出策略更新，在验证集选择版本；记录策略、经验库、数据分区与评估结果的版本对应关系。",
+      "trainable": false,
+      "status": "in_progress",
+      "current_state": "当前由Codex直接共同审阅全部训练Reward/官方Grader配对和失败轨迹，更新共享策略、Strategy Memory及flow代码；两轮六题实跑已完成。旧qc_train/PolicyExperiment付费优化器与三家readout仅为旧接口，不是当前联合更新入口。验证选版和留出实跑尚未完成。",
+      "current_evidence": "../../experiments/reward_engine_training/runs/20260913-shared-candidate08-train-01/JOINT_REVIEW.private.zh-CN.md"
+    },
+    "actor_runtime": {
+      "kind": "sandbox_actor_tool",
+      "responsibility": "复用已有 Runtime，在对应沙箱及 QC 分配的预算内生成真实作品、环境变化和公开轨迹，供 Reward 验证；Actor 策略固定。",
+      "trainable": false,
+      "status": "planned"
+    },
+    "benchmark_adapters": {
+      "kind": "claw_eval_and_workbuddy_adapters",
+      "responsibility": "复用两套 benchmark 接线并适配 QC；支持单轮及多轮的实际需求、作品和环境证据，将外层官方评分与内层构建输入隔离。",
+      "trainable": false,
+      "status": "planned"
+    }
+  },
+  "runtime_artifacts": {
+    "baseline_policy": "../../experiments/reward_engine_training/baseline_policy.json",
+    "configuration_example": "../../experiments/reward_engine_training/runtime.example.json",
+    "construction_library": "reward_engine.adapters.qc_runtime.construct",
+    "outer_training_library": "reward_engine.core.engine.training.PolicyExperiment",
+    "outer_training_library_boundary": "Legacy paid single-generation interface; do not use as the current Codex direct joint-update runner."
+  }
+}

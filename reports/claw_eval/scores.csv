@@ -1,0 +1,105 @@
+task,name,round,A,B,C,selected_arm,selected_score,A_mean_round1
+T039zh_onboarding_coordinator,Onboarding Coordinator,3,100.0,100.0,100.0,C,100.0,74.72
+T040_onboarding_coordinator,Onboarding Coordinator (English),3,88.8,92.0,88.16000000000001,A,88.8,90.0
+T041zh_scheduled_task_management,Scheduled Task Management,3,100.0,88.48,47.04,B,88.48,97.8
+T042_scheduled_task_management,Scheduled Task Management,3,98.8,92.88,100.0,A,98.8,93.96000000000001
+T043zh_service_outage_research,Third-Party Service Outage Research,3,95.08,98.08,95.52000000000001,B,98.08,87.45
+T044_service_outage_research,Third-Party Service Outage Research,3,80.08,95.48,46.94,C,46.94,89.61749999999999
+T045zh_cve_research,CVE安全漏洞研究,3,96.8,100.0,95.19999999999999,A,96.8,95.0
+T046_cve_research,CVE Security Vulnerability Research,3,92.80000000000001,97.6,84.8,B,97.6,98.8
+T047zh_oss_comparison,开源软件许可证变更评估,3,100.0,98.4,93.60000000000001,A,100.0,98.8
+T048_oss_comparison,Open Source License Change Evaluation,3,98.4,97.6,100.0,B,97.6,97.0
+T049zh_regulatory_research,AI监管法规合规研究,3,100.0,100.0,100.0,A,100.0,99.6
+T050_regulatory_research,AI Regulatory Compliance Research,3,88.8,100.0,97.6,A,88.8,91.6
+T053_finance_us_steel_merger,US Steel Merger Impact Analysis,3,70.0,78.4,74.0,A,70.0,76.3
+T054_finance_nflx_arppu_trend,Netflix ARPPU Trend 2019-2024,3,80.0,97.6,96.8,B,97.6,81.19999999999999
+T059_finance_abnb_cfo,Airbnb CFO Identification,3,100.0,100.0,100.0,B,100.0,88.4
+T060_finance_tko_endeavor_cost,TKO Endeavor Acquisition Cost,3,100.0,96.8,72.0,A,100.0,99.2
+T061_finance_mu_gm_beat,Micron Q3 2024 GAAP Gross Margin Beat,3,100.0,100.0,100.0,B,100.0,100.0
+T062_finance_pltr_cagr,Palantir 2-Year Revenue CAGR 2022-2024,3,100.0,100.0,76.0,B,100.0,88.0
+T063_finance_fnd_sssg,Floor & Decor Q4 2024 Same-Store Sales Growth,3,100.0,100.0,100.0,B,100.0,100.0
+T064_finance_nflx_cash_req,Netflix Total Projected Material Cash Requirements 2025,3,100.0,100.0,100.0,A,100.0,82.2
+T065_finance_x_inv_turnover,US Steel FY2024 Inventory Turnover,3,100.0,76.0,100.0,B,76.0,98.8
+T066_finance_bros_gross_profit,Dutch Bros 2026 Gross Profit Projection,3,100.0,100.0,100.0,B,100.0,100.0
+T067zh_synopsys_china_revenue,Synopsys中国区收入风险敞口分析,3,86.4,84.8,89.60000000000001,B,84.8,79.2
+T069_micron_capex_analysis,Micron FY2025 CapEx Cash Flow Analysis,3,84.39999999999999,88.0,92.0,A,84.39999999999999,91.0
+T071_video_mme_coauthor_papers,Video-MME Co-authored Papers Research,3,94.39999999999999,94.39999999999999,94.39999999999999,B,94.39999999999999,79.30000000000001
+T086_pinbench_calendar_event_creation,Pinbench Calendar Event Creation,3,100.0,100.0,100.0,A,100.0,100.0
+T087_pinbench_market_news_brief,Pinbench Market News Brief,3,100.0,100.0,73.6,A,100.0,100.0
+T088_pinbench_project_bootstrap_plan,Pinbench Project Bootstrap Plan,3,100.0,100.0,93.60000000000001,B,100.0,100.0
+T089_pinbench_config_workflow_notes,Pinbench Config Workflow Notes,3,80.0,0.0,80.0,C,80.0,80.0
+T090_pinbench_config_change_plan,Pinbench Config Change Plan,3,80.0,80.0,80.0,B,80.0,74.8
+T091_pinbench_humanize_blog,Pinbench Humanize Blog,3,72.0,67.2,81.6,B,67.2,70.6
+T092_pinbench_daily_research_brief,Pinbench Daily Research Brief,3,88.0,88.0,88.0,B,88.0,80.8
+T093_pinbench_email_triage_report,Pinbench Email Triage Report,3,96.0,96.0,84.0,B,96.0,96.0
+T094_pinbench_project_alpha_summary,Pinbench Project Alpha Summary,3,89.60000000000001,89.60000000000001,89.60000000000001,C,89.60000000000001,90.0
+T095_pinbench_apm_market_research,Pinbench APM Market Research,3,100.0,90.4,73.6,B,90.4,94.4
+T096_pinbench_business_metrics_summary,Pinbench Business Metrics Summary,3,100.0,100.0,100.0,B,100.0,100.0
+T097_pinbench_eli5_model_summary,Pinbench ELI5 Model Summary,3,100.0,100.0,100.0,B,100.0,96.8
+T098_pinbench_openclaw_facts,Pinbench OpenClaw Facts,3,91.2,91.2,91.2,A,91.2,91.2
+T099_pinbench_second_brain_recall,Pinbench Second Brain Recall,3,100.0,100.0,100.0,B,100.0,100.0
+T100_reverse_decoder,Reverse-Engineer Custom Encoder,3,100.0,100.0,100.0,A,100.0,100.0
+T101_wal_recovery,SQLite WAL File Recovery,3,100.0,100.0,100.0,B,100.0,100.0
+T102_xss_filter,HTML XSS Sanitization Filter,3,100.0,100.0,100.0,A,100.0,100.0
+T103_schema_migration,SQLite Schema Migration,3,86.4,32.0,84.0,A,86.4,66.0
+T104_packet_decoder,Binary Protocol Packet Decoder,3,93.60000000000001,93.60000000000001,93.60000000000001,B,93.60000000000001,93.6
+T105zh_job_failure_triage,定时任务故障与工单关联分析,3,97.6,91.60000000000001,98.6,B,91.60000000000001,98.75
+T106_job_failure_triage,Scheduled Job Failure and Ticket Correlation Analysis,3,83.8,98.6,77.8,B,98.6,97.2
+T107zh_ticket_routing,客户工单智能路由与升级,3,93.0,93.0,90.60000000000001,B,93.0,94.65
+T108_ticket_routing,Customer Ticket Intelligent Routing and Escalation,3,100.0,94.39999999999999,94.39999999999999,A,100.0,94.95
+T109zh_complaint_investigation,客户投诉多源调查与处理建议,3,97.39999999999999,96.7,96.7,B,96.7,94.925
+T110_complaint_investigation,Customer Complaint Multi-Source Investigation and Recommendations,3,95.3,96.7,83.96000000000001,B,96.7,95.825
+T111zh_expense_email_check,报销邮件核对,3,91.60000000000001,92.28,90.2,B,92.28,92.05
+T112_expense_email_check,Expense Email Verification,3,86.4,91.60000000000001,85.39999999999999,A,86.4,90.05000000000001
+T113zh_meeting_preparation,会议准备材料整理,3,88.4,84.39999999999999,89.60000000000001,C,89.60000000000001,90.75
+T114_meeting_preparation,Meeting Preparation Materials,3,90.0,91.0,82.39999999999999,B,91.0,73.3
+T115zh_ticket_kb_suggestion,工单解答建议,3,92.4,91.2,96.2,C,96.2,93.85
+T116_ticket_kb_suggestion,Ticket Resolution Suggestions,3,95.19999999999999,97.39999999999999,91.2,B,97.39999999999999,93.4
+T117zh_customer_followup,客户跟进提醒,3,82.19999999999999,80.80000000000001,80.80000000000001,A,82.19999999999999,81.95
+T118_customer_followup,Customer Follow-up Reminders,3,65.2,78.0,35.4,B,78.0,64.2
+T119zh_inventory_cost_analysis,库存成本分析,3,100.0,99.16,100.0,A,100.0,96.5
+T120_inventory_cost_analysis,Inventory Cost Analysis,3,95.8,100.0,91.2,B,100.0,89.7
+T121zh_industry_briefing,行业简报整理,3,94.39999999999999,96.2,92.60000000000001,B,96.2,93.0
+T122_industry_briefing,Industry Briefing Compilation,3,92.72,97.39999999999999,93.8,B,97.39999999999999,90.2
+T123zh_todo_calendar_conflict,待办与日历冲突检测,3,84.39999999999999,93.2,89.0,B,93.2,84.39
+T124_todo_calendar_conflict,Todo and Calendar Conflict Detection,3,73.6,89.2,83.39999999999999,B,89.2,83.94999999999999
+T125zh_meeting_action_items,会议行动项提取与去重,3,95.19999999999999,96.39999999999999,97.6,B,96.39999999999999,97.6
+T126_meeting_action_items,Meeting Action Item Extraction and Deduplication,3,97.6,97.6,97.6,B,97.6,96.1
+T127zh_ticket_assignment,工单归属分配,3,90.4,98.6,91.84,B,98.6,83.19
+T128_ticket_assignment,Ticket Assignment,3,90.0,68.0,92.4,B,68.0,83.28
+T129zh_business_trip_planning,出差规划,3,97.76,100.0,98.6,B,100.0,94.4
+T130_business_trip_planning,Business Trip Planning,3,90.2,93.0,91.60000000000001,B,93.0,98.25
+T131zh_order_profit_analysis,订单利润分析,3,89.60000000000001,97.2,89.2,A,89.60000000000001,98.15
+T132_order_profit_analysis,Order Profit Analysis,3,93.60000000000001,95.19999999999999,98.8,C,98.8,96.9
+T133zh_competitive_intelligence,竞品情报整理,3,82.19999999999999,91.08000000000001,47.599999999999994,A,82.19999999999999,75.255
+T134_competitive_intelligence,Competitive Intelligence Report,3,80.72,92.0,89.4,B,92.0,85.15
+T135zh_weekly_meeting_tracking,周会行动项跟踪,3,83.0,97.39999999999999,98.6,A,83.0,93.45
+T136_weekly_meeting_tracking,Weekly Meeting Action Item Tracking,3,96.0,100.0,92.4,B,100.0,84.5
+T137zh_restock_chain_check,补货链路检查,3,94.0,97.39999999999999,98.08,B,97.39999999999999,97.9
+T138_restock_chain_check,Restock Chain Check,3,92.80000000000001,96.39999999999999,95.19999999999999,C,95.19999999999999,98.08
+T139zh_customer_relationship_warning,客户关系到期预警与续约跟进,3,81.8,93.8,96.0,B,93.8,86.85
+T140_customer_relationship_warning,Customer Contract Expiry Warning and Renewal Follow-up,3,58.199999999999996,78.4,75.6,A,58.199999999999996,77.25
+T141zh_sla_compliance_audit,SLA合规审查与自动化诊断,3,95.19999999999999,89.8,68.60000000000001,C,68.60000000000001,88.31
+T142_sla_compliance_audit,SLA Compliance Audit and Automation Diagnosis,3,96.2,93.8,82.6,C,82.6,91.3
+T143zh_quarterly_business_insight,Q1季度业务洞察与趋势分析,3,97.6,96.2,83.0,B,96.2,90.95
+T144_quarterly_business_insight,Q1 Quarterly Business Insight and Trend Analysis,3,97.39999999999999,98.8,73.6,C,73.6,94.15
+T145zh_task_backtracking,催办邮件关联回溯与进展回复,3,97.39999999999999,91.0,88.4,B,91.0,92.5
+T146_task_backtracking,Follow-up Email Backtracking and Progress Reply,3,98.8,93.8,22.8,A,98.8,88.65
+T147zh_system_health_check,月度系统健康巡检,3,54.800000000000004,56.10000000000001,85.24000000000001,B,56.10000000000001,73.205
+T148_system_health_check,Monthly System Health Check,3,53.300000000000004,90.4,89.60000000000001,C,89.60000000000001,68.7
+T149zh_project_progress_report,并行项目进度汇报生成,3,85.6,97.6,85.6,B,97.6,86.8
+T150_project_progress_report,Parallel Project Progress Report Generation,3,84.39999999999999,92.80000000000001,45.800000000000004,B,92.80000000000001,88.95
+T151zh_supply_chain_investigation,供应链异常追查与问题链还原,3,94.8,93.60000000000001,80.24,B,93.60000000000001,79.7
+T152_supply_chain_investigation,Supply Chain Disruption Investigation and Problem Chain Reconstruction,3,76.8,93.8,73.8,B,93.8,83.85
+T153zh_market_research_report,综合市场研究报告,3,48.8,49.419999999999995,49.36,B,49.419999999999995,61.415
+T154_market_research_report,Comprehensive Market Research Report,3,93.4,96.24000000000001,84.8,A,93.4,94.0
+T155zh_onsite_support_dispatch,VIP客户紧急现场支持派遣,3,85.39999999999999,96.0,90.60000000000001,B,96.0,80.985
+T156_onsite_support_dispatch,VIP Customer Emergency Onsite Support Dispatch,3,66.75999999999999,86.8,87.8,C,87.8,66.515
+T157zh_month_end_reconciliation,月末全面对账,3,95.19999999999999,97.39999999999999,77.60000000000001,B,97.39999999999999,89.7
+T158_month_end_reconciliation,Month-End Comprehensive Reconciliation,3,91.2,92.4,76.6,B,92.4,87.6
+T159zh_vip_ticket_escalation,VIP客户紧急工单升级处理,3,44.5,87.0,93.0,A,44.5,67.3
+T160_vip_ticket_escalation,VIP Customer Critical Ticket Escalation Handling,3,91.2,87.83999999999999,80.0,C,80.0,90.7
+T161zh_automation_failure_recovery,多自动化任务连锁故障排查与恢复,3,97.39999999999999,100.0,98.08,B,100.0,99.35
+T162_automation_failure_recovery,Multi-Automation Cascade Failure Investigation and Recovery,3,75.16000000000001,100.0,95.19999999999999,B,100.0,93.1
+T163zh_quarterly_customer_review,Q1重点客户季度回顾报告,3,97.39999999999999,86.8,76.8,A,97.39999999999999,87.75
+T164_quarterly_customer_review,Q1 Key Customer Quarterly Review Report,3,89.60000000000001,90.8,85.0,A,89.60000000000001,92.15

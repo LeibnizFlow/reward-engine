@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "host_absolute_path",
+    "sha256": "8e4ac80fe535537e6ee03cee1a8e23af3d0da56db1ae0ce3fffad3ea188a1768",
+    "reason": "Upstream OpenCode executable: embedded documentation examples and compiler debug paths; reviewed binary content, not experiment host paths. Applies only to these exact bytes."
+  }
+]
