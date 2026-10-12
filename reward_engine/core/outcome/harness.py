@@ -114,7 +114,26 @@ def validate_result(row, evidence):
     if not isinstance(row.get("gap", ""), str):
         raise ValueError("Check gap must be text; failure requires a concrete gap")
     if row["status"] != "unknown":
-        require_refs(row.get("evidence_refs"), evidence)
+        try:
+            require_refs(row.get("evidence_refs"), evidence)
+        except ValueError as ref_error:
+            error = ResponseContractError(
+                "evidence_refs",
+                "Top-level evidence_refs of this verdict: " + str(ref_error),
+            )
+            error.details.update(
+                actual=deepcopy(row.get("evidence_refs")),
+                missing="evidence_refs" not in row,
+                repair_instruction=(
+                    "Repair only the invalid top-level evidence_refs field of this verdict "
+                    "with a nonempty list of exact supplied evidence handles supporting the "
+                    "existing assessment. Claim-level evidence_refs do not replace this root field. "
+                    "Preserve the claims, judgments, relevance, valid claim citations and summary; "
+                    "do not regenerate claims, invent handles/proof or change the verdict. "
+                    "The model must author the citations using the same evidence; the host does not fill them."
+                ),
+            )
+            raise error from ref_error
         if row["status"] == "fail" and not row.get("gap"):
             raise ValueError("Failure needs an actionable gap")
     return row
@@ -266,6 +285,23 @@ def claim_contract_issues(row, evidence):
         reject(
             "status",
             "A pass needs supported material claims, not only advisory findings",
+            actual=row["status"],
+            material_claim_count=0,
+            depends_on={
+                f"claims[{index}].verdict_relevance": claim.get(
+                    "verdict_relevance", "material"
+                )
+                for index, claim in enumerate(claims)
+                if isinstance(claim, dict)
+            },
+            repair_instruction=(
+                "For this all-advisory status contradiction only, minimally correct "
+                "status/reason/gap to be consistent with the preserved claim assessment "
+                "using the same evidence. The model must author that summary. Preserve claims, "
+                "judgments, relevance and valid evidence refs; do not promote advisory claims "
+                "to material, add/delete claims or invent support to force pass. "
+                "Only other fields separately reported invalid may also be repaired."
+            ),
         )
     return issues
 
@@ -323,6 +359,99 @@ def preserve_claim_assessment(original, issues, *, current):
         raise ResponseContractError(
             "status", "Structure repair must preserve the already consistent verdict"
         )
+
+
+def field_correction_targets(row, issues):
+    """Finite host-identified targets; model strings never drive path traversal."""
+    targets = {}
+    for issue in issues:
+        field = issue["field"]
+        if field == "status":
+            for name in ("status", "reason", "gap"):
+                targets[name] = (name,)
+        elif field == "evidence_refs":
+            targets[field] = (field,)
+        else:
+            index, name = issue.get("claim_index"), issue.get("claim_field")
+            claims = row.get("claims")
+            if not (
+                type(index) is int
+                and isinstance(claims, list)
+                and 0 <= index < len(claims)
+                and isinstance(claims[index], dict)
+                and name in ("claim_refs", "evidence_refs")
+                and field == f"claims[{index}].{name}"
+            ):
+                return {}  # Other repairs continue to require the full reply.
+            targets[field] = ("claims", index, name)
+    return targets
+
+
+def compose_field_correction(raw, state, evidence, attempt):
+    """Compose only explicit model replacements, retaining their source attempts."""
+    if state is None or set(raw) != {"field_corrections"}:
+        raise ResponseContractError(
+            "field_corrections",
+            "Field corrections require an advertised active repair and no sibling fields",
+        )
+    values = raw["field_corrections"]
+    targets = state["targets"]
+    if not isinstance(values, dict) or set(values) != set(targets):
+        raise ResponseContractError(
+            "field_corrections",
+            f"Provide exactly the advertised required fields: {sorted(targets)}; no extra fields or paths",
+        )
+    # A correction cannot exploit unknown's optional root citations or gap
+    # normalization. Every replacement must be explicitly authored and valid.
+    for field, target in targets.items():
+        value = values[field]
+        if target[-1] in ("evidence_refs", "claim_refs"):
+            if (
+                target != ("evidence_refs",)
+                and target[-1] == "evidence_refs"
+                and value == []
+            ):
+                continue  # The complete claim validator checks the judgment.
+            require_refs(value, evidence)
+        elif not isinstance(value, str) or (field != "gap" and not value.strip()):
+            raise ResponseContractError(
+                field, "Summary corrections require explicit text values"
+            )
+    composed = deepcopy(state["base"])
+    fields = {
+        key: {
+            "source_attempt": state["attempt"],
+            "source_field": key,
+            "kind": "preserved",
+        }
+        for key in composed
+        if key != "claims"
+    }
+    for index, claim in enumerate(composed.get("claims", [])):
+        if isinstance(claim, dict):
+            for name in claim:
+                path = f"claims[{index}].{name}"
+                fields[path] = {
+                    "source_attempt": state["attempt"],
+                    "source_field": path,
+                    "kind": "preserved",
+                }
+    for field, target in targets.items():
+        if len(target) == 1:
+            composed[target[0]] = deepcopy(values[field])
+        else:
+            composed["claims"][target[1]][target[2]] = deepcopy(values[field])
+        fields[field] = {
+            "source_attempt": attempt,
+            "source_field": f"field_corrections.{field}",
+            "kind": "replacement",
+        }
+    return composed, {
+        "base_attempt": state["attempt"],
+        "correction_attempt": attempt,
+        "claim_order_source_attempt": state["attempt"],
+        "fields": fields,
+    }
 
 
 def claim_locations(row, evidence):
@@ -577,6 +706,7 @@ def defaults(semantic_call, *, tools=None):
         requested_inquiry = bool(context.get("measurement_inquiry"))
         structure_repair = False
         claim_repair = None
+        correction_state = None
         request_context, attached_refs = context, set()
         pending_evidence, read_failure = {}, {}
 
@@ -618,7 +748,8 @@ def defaults(semantic_call, *, tools=None):
                 structure_repair, \
                 request_context, \
                 attached_refs, \
-                claim_repair
+                claim_repair, \
+                correction_state
             # Syntax recovery replaces response_recovery details. It cannot
             # reopen the tools/reads of an already active same-evidence repair.
             structure_repair = structure_repair or bool(
@@ -641,6 +772,19 @@ def defaults(semantic_call, *, tools=None):
                     selected_attempts.clear()
                     structure_repair = False
                     claim_repair = None
+                    correction_state = None
+            request.pop("field_correction_reply", None)
+            if correction_state is not None and structure_repair:
+                # Also survives syntax recovery replacing response_recovery.
+                request["field_correction_reply"] = deepcopy(correction_state["offer"])
+                if request.get("response_recovery"):
+                    request["response_recovery"]["instruction"] = (
+                        "Preferred repair reply: return ONLY field_corrections with every "
+                        "field_correction_reply.required_fields entry and model-authored values. "
+                        "Do not regenerate unchanged claims. The original full-response schema "
+                        "is a compatibility alternative under the same strict preservation checks. "
+                        + request["response_recovery"]["instruction"]
+                    )
             request_context = request["context"]
             attached_refs = set(request.get("requested_evidence", {}))
             # Two measurement waves at most, then a final evidence-grounded verdict.
@@ -814,7 +958,30 @@ def defaults(semantic_call, *, tools=None):
             return row
 
         def validate_reply(row):
-            nonlocal structure_repair, claim_repair
+            nonlocal structure_repair, claim_repair, correction_state
+            raw = deepcopy(row)
+            composition = {}
+            if "field_corrections" in row:
+                try:
+                    row, provenance = compose_field_correction(
+                        raw, correction_state, evidence, len(validation_attempts) + 1
+                    )
+                    composition = {
+                        "response_kind": "field_correction",
+                        "composed_response": deepcopy(row),
+                        "field_provenance": provenance,
+                    }
+                except (ValueError, TypeError, KeyError) as error:
+                    validation_attempts.append(
+                        {
+                            "response": raw,
+                            "response_kind": "field_correction",
+                            "errors": {"correction": str(error)},
+                        }
+                    )
+                    raise ResponseContractError(
+                        "field_corrections", str(error)
+                    ) from error
             errors = {}
             issues = []
             candidates = {}
@@ -865,7 +1032,8 @@ def defaults(semantic_call, *, tools=None):
                         selected_attempts[scope] = len(validation_attempts) + 1
             validation_attempts.append(
                 {
-                    "response": deepcopy(row),
+                    "response": raw,
+                    **composition,
                     "errors": errors,
                     **({"issues": deepcopy(issues)} if issues else {}),
                     **(
@@ -900,10 +1068,64 @@ def defaults(semantic_call, *, tools=None):
                     error.details["issues"] = [
                         issue for issue in issues if issue["scope"] in missing
                     ]
+                if (
+                    correction_state is None
+                    and getattr(semantic_call, "bounded_stage", False)
+                    and set(missing) == {"global"}
+                    and error.details.get("issues")
+                ):
+                    correction_issues = deepcopy(claim_repair[1])
+                    for issue in error.details["issues"]:
+                        detail = {
+                            key: value for key, value in issue.items() if key != "scope"
+                        }
+                        if detail not in correction_issues:
+                            correction_issues.append(detail)
+                    targets = field_correction_targets(raw, correction_issues)
+                    if targets:
+                        offer = {
+                            "schema": "measurement-field-correction/v1",
+                            "base_attempt": len(validation_attempts),
+                            "allowed_fields": sorted(targets),
+                            "required_fields": sorted(targets),
+                            "issues": deepcopy(correction_issues),
+                            "instruction": (
+                                "Preferred repair reply when this offer is present: return ONLY "
+                                '{"field_corrections": {"advertised field": "model-authored replacement value"}}. '
+                                "Supply every required field and no others. For a status conflict, author "
+                                "status, reason and gap together. Obey allowed_values when supplied; "
+                                "the model chooses the values, with no defaults. All unlisted values are copied exactly "
+                                "from the original rejected model response, never inferred. The composed "
+                                "response must pass all validators. Same evidence only; no tools/reads. "
+                                "After new evidence expansion return a fresh full assessment."
+                            ),
+                        }
+                        if "status" in targets and raw.get("status") == "pass":
+                            # These targets arise from existing pass/claim conflicts.
+                            # Expose that constraint; the validators still decide acceptance.
+                            offer["allowed_values"] = {"status": ["fail", "unknown"]}
+                            offer["instruction"] += (
+                                " For this locked assessment, pass is invalid. Author fail or unknown "
+                                "with consistent reason/gap; all existing verdict/evidence checks still apply."
+                            )
+                        correction_state = {
+                            "base": raw,
+                            "attempt": len(validation_attempts),
+                            "targets": targets,
+                            "offer": offer,
+                        }
+                        error.details["field_correction_reply"] = deepcopy(offer)
                 error.recovery_instruction = (
                     "Repair only the invalid response structure using the same evidence. "
                     "Preserve already valid global/inquiry verdicts; do not reassess them, "
-                    "change the standard, or seek a different semantic outcome."
+                    "change the standard, or seek a different semantic outcome. "
+                    "Copy already valid claim fields exactly from rejected_response, including "
+                    "claim text, observation, claim_location, relevance_reason, judgment, "
+                    "verdict_relevance and valid citation lists; preserve claim count/order "
+                    "wherever the claim structure is valid. Correct only fields identified as "
+                    "invalid by the reported errors. A status error does not authorize editing "
+                    "claims; depends_on fields are constraints to preserve, not repair targets. "
+                    "Do not paraphrase or clarify valid claim text or observations."
                 )
                 for issue in error.details.get("issues", []):
                     if "repair_instruction" in issue:
@@ -965,6 +1187,9 @@ def defaults(semantic_call, *, tools=None):
             "downgrade material to advisory, delete a claim or invent proof to make pass. "
             "Keep ancillary improvement observations as advisory claims with verdict_relevance=advisory "
             "and relevance_reason explaining why they do not affect THIS standard's verdict. "
+            "Material means needed to judge THIS criterion, including a soft criterion. "
+            "A soft criterion does not make its claims advisory; advisory is reserved for "
+            "ancillary observations outside what is needed to judge this criterion. "
             "They may remain unverified without blocking supported required outcomes; do not delete "
             "the uncertainty or relabel it supported. Missing required outcomes, contradictions of "
             "required facts and unsupported claims that affect this standard remain material. "

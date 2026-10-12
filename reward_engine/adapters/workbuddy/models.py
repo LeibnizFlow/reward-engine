@@ -174,6 +174,7 @@ class Role:
         write(root / "request_body.json", body)
         parts, finished, models, usage = [], None, set(), None
         tool_chunks, choice_indices, finish_reasons = [], [], []
+        function_chunks = []
         terminal_events, usage_events, stream_lines = [], [], []
         completion_ids = set()
         conflicting_terminal = False
@@ -214,9 +215,24 @@ class Role:
                         for choice in choices:
                             choice_indices.append(choice.get("index", 0))
                             delta = choice.get("delta", {})
+                            # GLM emits [] for no native calls, and an exact
+                            # empty legacy function placeholder on its stop.
+                            # Falsey malformed objects/fragments are NOT empty
+                            # call lists. Retain every raw non-null value below.
+                            tool_fragment = (
+                                delta.get("tool_calls") is not None
+                                and delta["tool_calls"] != []
+                            )
+                            function_fragment = delta.get(
+                                "function_call"
+                            ) is not None and delta["function_call"] != {
+                                "name": "",
+                                "arguments": "",
+                            }
                             if finished and (
                                 delta.get("content")
-                                or delta.get("tool_calls")
+                                or tool_fragment
+                                or function_fragment
                                 or delta.get("reasoning_content")
                             ):
                                 content_after_finish = True
@@ -225,6 +241,8 @@ class Role:
                                 and delta["tool_calls"] is not None
                             ):
                                 tool_chunks.append(delta["tool_calls"])
+                            if delta.get("function_call") is not None:
+                                function_chunks.append(delta["function_call"])
                             content = delta.get("content")
                             if content:
                                 parts.append(content)
@@ -265,9 +283,17 @@ class Role:
                 raise ValueError(
                     "Role replies require one unambiguous completed choice"
                 )
-            if tool_chunks or finished == "tool_calls":
+            if any(chunk != {"name": "", "arguments": ""} for chunk in function_chunks):
+                raise ValueError("Legacy function-call fragments are not supported")
+            # Filter only batches with zero records; never drop an incomplete
+            # call object or coerce malformed falsey fields into an empty list.
+            native_chunks = [chunk for chunk in tool_chunks if chunk != []]
+            if native_chunks or finished == "tool_calls":
                 result, notes = decode_native_tool_reply(
-                    request, tool_chunks, content="".join(parts), finish_reason=finished
+                    request,
+                    native_chunks,
+                    content="".join(parts),
+                    finish_reason=finished,
                 )
             else:
                 result, notes = decode_role_reply(
@@ -297,6 +323,7 @@ class Role:
                     "terminal_events": terminal_events,
                     "reference_resolution": resolution,
                     "native_tool_call_chunks": tool_chunks,
+                    "legacy_function_call_chunks": function_chunks,
                     "finish_reason": finished,
                 },
             )
@@ -313,6 +340,7 @@ class Role:
                     "usage_events": usage_events,
                     "terminal_events": terminal_events,
                     "native_tool_call_chunks": tool_chunks,
+                    "legacy_function_call_chunks": function_chunks,
                     "finish_reason": finished,
                     "choice_indices": choice_indices,
                     "finish_reasons": finish_reasons,
@@ -390,6 +418,12 @@ class Role:
             content = choices[0].get("message", {}).get("content")
             if choices[0].get("message", {}).get("tool_calls") is not None:
                 raise ValueError("Native nonstream tool replies are not supported")
+            function_call = choices[0].get("message", {}).get("function_call")
+            if function_call is not None and function_call != {
+                "name": "",
+                "arguments": "",
+            }:
+                raise ValueError("Legacy function-call fragments are not supported")
             if not isinstance(content, str):
                 raise ValueError("Nonstream role reply must contain text")
             result, notes = decode_role_reply(
