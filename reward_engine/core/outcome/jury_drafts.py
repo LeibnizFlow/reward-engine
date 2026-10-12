@@ -433,6 +433,79 @@ def reduction_inputs(proposals):
     return result
 
 
+def missing_draft_standards(rows):
+    """Locate absent definition text; diagnostics never supply a requirement."""
+    error = ResponseContractError(
+        "criteria",
+        "No substantive criterion proposal: add the literal JSON key standard with "
+        "nonempty model-authored requirement text at every listed criterion path. "
+        "why, measurement_question and subrequirements do not replace standard. "
+        "The existing alternative is clauses: a nonempty list of objects with nonempty text.",
+    )
+    issues = []
+    for index, row in enumerate(rows):
+        field = f"criteria[{index}]"
+        if not isinstance(row, dict):
+            issues.append(
+                {
+                    "field": field,
+                    "path": ["criteria", index],
+                    "reason": "Expected a criterion object with a literal standard key",
+                }
+            )
+            continue
+        issue = {
+            "field": field + ".standard",
+            "path": ["criteria", index, "standard"],
+            "criterion_id": deepcopy(row.get("id")),
+            "reason": "Missing literal standard key"
+            if "standard" not in row
+            else "standard must be a nonempty string",
+            "expected": "Model-authored text stating the proposed Task outcome requirement",
+            "clauses_alternative": field + ".clauses[*].text",
+        }
+        clauses = row.get("clauses")
+        if not isinstance(clauses, list) or not clauses:
+            issue["clause_issues"] = [
+                {
+                    "field": field + ".clauses",
+                    "reason": "No nonempty list of authored clause objects",
+                }
+            ]
+        else:
+            issue["clause_issues"] = [
+                {
+                    "field": f"{field}.clauses[{i}].text",
+                    "reason": "Expected nonempty authored text in a clause object",
+                }
+                for i, clause in enumerate(clauses)
+                if not isinstance(clause, dict)
+                or not isinstance(clause.get("text"), str)
+                or not clause["text"].strip()
+            ]
+        issues.append(issue)
+    error.details.update(
+        criteria_count=len(rows),
+        criterion_ids=[
+            deepcopy(row.get("id")) if isinstance(row, dict) else None for row in rows
+        ],
+        issues=issues,
+    )
+    error.recovery_instruction = (
+        "Correct this SAME rejected_response, not a new assessment. Return the complete criteria "
+        "object with the same criterion count, order and existing id values. For each listed "
+        "criteria[i].standard path, add/correct the literal standard key with your own nonempty "
+        "requirement text grounded in the unchanged Task/evidence. Do not invent an obligation "
+        "to fill the schema. Preserve every other existing field and its content, including why, "
+        "measurement_question, subrequirements, provenance and priority. Do not rename those "
+        "fields to standard, drop criteria, merge rows or change IDs. If retaining the existing "
+        "clauses alternative, it must contain actual authored clause objects with nonempty text; "
+        "a subrequirements list is not that alternative. These remain draft proposals for Reduce, "
+        "not accepted standards or proof of truth."
+    )
+    return error
+
+
 def keep_draft(raw, evidence, context, validator):
     rows = raw.get("criteria") if isinstance(raw, dict) else None
     if not isinstance(rows, list) or not 1 <= len(rows) <= 20:
@@ -470,12 +543,7 @@ def keep_draft(raw, evidence, context, validator):
         and r["standard"].strip()
     ]
     if not usable:
-        raise ResponseContractError(
-            "criteria",
-            "No substantive criterion proposal: each usable criterion needs nonempty standard "
-            "text or explicit clauses with nonempty text. Correct the supplied draft; do not "
-            "invent a requirement just to fill the schema.",
-        )
+        raise missing_draft_standards(rows)
     draft = deepcopy(raw)
     draft["criteria"] = deepcopy(usable)
     if len(usable) != len(rows):

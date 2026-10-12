@@ -9,6 +9,7 @@ No quality/grade interpretation, external provider/tool calls, or receipt writes
 import argparse
 import hashlib
 import json
+import stat
 from copy import deepcopy
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from reward_engine.core.outcome.public_delivery import (
 )
 
 SCHEMA = "public_delivery.strict_audit.v3"
+_COMPLETE_CODE_SCOPE = "all-regular-files-except-__pycache__-v1"
 
 
 def require(condition, message):
@@ -813,6 +815,114 @@ def audit_measurement(contract, candidate, measured, pack):
     return expected
 
 
+def _regular_file_names(root):
+    """Enumerate without importing frozen code or following links/special files."""
+    require(stat.S_ISDIR(root.lstat().st_mode), "Code root is not a regular directory")
+    names = set()
+
+    def visit(directory):
+        for path in sorted(directory.iterdir()):
+            mode = path.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                if path.name != "__pycache__":
+                    visit(path)
+            else:
+                name = path.relative_to(root).as_posix()
+                require(stat.S_ISREG(mode), "Nonregular code source: " + name)
+                names.add(name)
+
+    visit(root)
+    return names
+
+
+def audit_code_binding(reader, config, manifest):
+    """Keep complete freezes and historical listed-file provenance distinct."""
+    complete = "code_hash_scope" in config or "code_hash_scope" in manifest
+    if complete:
+        require(
+            config.get("code_hash_scope") == _COMPLETE_CODE_SCOPE
+            and manifest.get("code_hash_scope") == _COMPLETE_CODE_SCOPE,
+            "Frozen implementation hash scope missing or unsupported",
+        )
+    hashes = manifest["code_hashes"]
+    require(isinstance(hashes, dict) and hashes, "Missing frozen source hashes")
+    code = reader.path(reader.local(Path(config["code"])))
+    if complete:
+        actual = _regular_file_names(code)
+        require(actual == set(hashes), "Frozen code manifest omitted or added files")
+    for name, sha in hashes.items():
+        relative = reader.local(code / safe_path(name))
+        require(
+            stat.S_ISREG(reader.path(relative).lstat().st_mode),
+            "Nonregular code source: " + name,
+        )
+        require(
+            hashlib.sha256(reader.bytes(relative)).hexdigest() == sha,
+            "Frozen source changed: " + name,
+        )
+    # Reconstruct with the byte-bound package, including transitive helpers and,
+    # for complete freezes, package resources. External code is hashed, not imported.
+    package = Path(__file__).resolve().parents[2]
+    frozen_package = reader.path(reader.local(code / "reward_engine"))
+    declared = {name for name in hashes if name.startswith("reward_engine/")}
+    actual = (
+        {name for name in actual if name.startswith("reward_engine/")}
+        if complete
+        else {
+            "reward_engine/" + p.relative_to(frozen_package).as_posix()
+            for p in frozen_package.rglob("*.py")
+        }
+    )
+    require(actual == declared, "Frozen package manifest omitted or added modules")
+    if complete:
+        require(
+            {"reward_engine/" + name for name in _regular_file_names(package)}
+            == declared,
+            "Installed package file set differs from frozen source",
+        )
+    installed = Reader(package)
+    for name in sorted(declared):
+        relative = name.removeprefix("reward_engine/")
+        require(
+            stat.S_ISREG(installed.path(relative).lstat().st_mode),
+            "Nonregular installed package source: " + name,
+        )
+        require(
+            hashlib.sha256(installed.bytes(relative)).hexdigest() == hashes[name],
+            "Run frozen auditor: installed package differs from frozen source",
+        )
+    for module in (
+        "core/outcome/public_delivery.py",
+        "core/outcome/context.py",
+        "core/outcome/harness.py",
+        "core/outcome/delivery_triage.py",
+        "core/outcome/builder.py",
+        "core/outcome/loop.py",
+        "adapters/workbuddy/evidence.py",
+        "adapters/workbuddy/agent.py",
+        "adapters/workbuddy/public_delivery.py",
+        "adapters/workbuddy/public_delivery_audit.py",
+    ):
+        require(
+            "reward_engine/" + module in declared,
+            "Required frozen public-delivery module missing",
+        )
+    return {
+        "scope": _COMPLETE_CODE_SCOPE
+        if complete
+        else "legacy-listed-files-python-package",
+        "complete_file_set": complete,
+        "frozen_file_count": len(hashes),
+        "installed_package_root": str(package),
+        "installed_package_file_count": len(declared),
+        "limitation": (
+            "Byte binding only; no resource-execution or external-package import claim"
+            if complete
+            else "Legacy listed hashes and Python package only; no complete-resource or non-Python package-origin claim"
+        ),
+    }
+
+
 def audit_run(root, *, required_rounds=3):
     reader = Reader(root)
     report = {
@@ -853,52 +963,7 @@ def audit_run(root, *, required_rounds=3):
             "Quoted source is not actual public Task",
         )
         task["public_delivery_contract"] = contract
-        for name, sha in manifest["code_hashes"].items():
-            require(
-                hashlib.sha256(
-                    reader.bytes(reader.local(Path(config["code"]) / safe_path(name)))
-                ).hexdigest()
-                == sha,
-                "Frozen source changed: " + name,
-            )
-        # Reconstruct with the frozen package, including transitive pure helpers.
-        package = Path(__file__).resolve().parents[2]
-        frozen_package = reader.path(
-            reader.local(Path(config["code"]) / "reward_engine")
-        )
-        declared = {
-            name
-            for name in manifest["code_hashes"]
-            if name.startswith("reward_engine/")
-        }
-        actual = {
-            "reward_engine/" + p.relative_to(frozen_package).as_posix()
-            for p in frozen_package.rglob("*.py")
-        }
-        require(actual == declared, "Frozen package manifest omitted or added modules")
-        for name in declared:
-            installed = package / name.removeprefix("reward_engine/")
-            require(
-                hashlib.sha256(installed.read_bytes()).hexdigest()
-                == manifest["code_hashes"][name],
-                "Run frozen auditor: installed package differs from frozen source",
-            )
-        for module in (
-            "core/outcome/public_delivery.py",
-            "core/outcome/context.py",
-            "core/outcome/harness.py",
-            "core/outcome/delivery_triage.py",
-            "core/outcome/builder.py",
-            "core/outcome/loop.py",
-            "adapters/workbuddy/evidence.py",
-            "adapters/workbuddy/agent.py",
-            "adapters/workbuddy/public_delivery.py",
-            "adapters/workbuddy/public_delivery_audit.py",
-        ):
-            require(
-                "reward_engine/" + module in declared,
-                "Required frozen public-delivery module missing",
-            )
+        report["code_binding"] = audit_code_binding(reader, config, manifest)
         for name, sha in manifest["prepared_dataset_hashes"].items():
             data = reader.bytes(
                 reader.local(Path(config["tasks_root"]).parent / safe_path(name))

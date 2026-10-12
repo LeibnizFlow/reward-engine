@@ -1,0 +1,359 @@
+{
+  "schema": "measurement-wrapped-verdict-capture/v1",
+  "scope": "Exact retained model envelope and public contract errors only. Tests use synthetic evidence. No environment/provider configuration or private grade payload copied. Not native success.",
+  "provenance": {
+    "source_path": "runs/full_workbuddy_20261012_v8/tasks/api-usage-explain-cli-l3-001/round_1/construction_checks.json",
+    "source_sha256": "7230a4c7c73e8991c00657543e91232b57049e829d19572a7e4f361a6126d27a",
+    "measurement_index": 1,
+    "test_id": "examples_output_coverage_check",
+    "response_sha256": [
+      "3b3991fe0b27da147653ef2baf56ae2e054a50199b42c7668a03107f100006fb",
+      "3b3991fe0b27da147653ef2baf56ae2e054a50199b42c7668a03107f100006fb"
+    ],
+    "frozen_harness_path": "runs/full_workbuddy_20261012_v8/code/reward_engine/core/outcome/harness.py",
+    "frozen_harness_sha256": "3218f66593b284446eb62123595ea46ea4a4b7134b558d188b58205cc38b4211",
+    "provider_receipts": [
+      {
+        "response_path": "runs/full_workbuddy_20261012_v8/tasks/api-usage-explain-cli-l3-001/measurement/model/64f56a47569b4f3ebc32c048ebd345b2/response.json",
+        "response_sha256": "d4b7a1227b57dc4053871f3d159a3b866106ad1b5a3cfad8a58336777ab9fa99",
+        "request_path": "runs/full_workbuddy_20261012_v8/tasks/api-usage-explain-cli-l3-001/measurement/model/64f56a47569b4f3ebc32c048ebd345b2/request.json",
+        "request_sha256": "2e57620ba7b380118cf8b6c3e77dfd2572172d700122a6f5a9a90ba711c14965",
+        "raw_output_sha256": "b861624202dfa674833920c508535bb95eeee8e3d76aff28e828ce4a42a60c2a",
+        "answer_sha256": "3b3991fe0b27da147653ef2baf56ae2e054a50199b42c7668a03107f100006fb",
+        "finish_reason": "stop",
+        "recovery": null
+      },
+      {
+        "response_path": "runs/full_workbuddy_20261012_v8/tasks/api-usage-explain-cli-l3-001/measurement/model/326497818e554ebb9a11d6a4a2dd64bc/response.json",
+        "response_sha256": "928f037c56126f3944b070d4d190a6dad50f9c55afbbed9f8cb88811919ba7f5",
+        "request_path": "runs/full_workbuddy_20261012_v8/tasks/api-usage-explain-cli-l3-001/measurement/model/326497818e554ebb9a11d6a4a2dd64bc/request.json",
+        "request_sha256": "f794d6971b8d0d7a628d4ea5243f831f72f8fd94b90ecf9714816095fedfe12f",
+        "raw_output_sha256": "e8abb75f657b92a04706043996fc3f96ed997632cc25cb066b02cb3eadb782e6",
+        "answer_sha256": "3b3991fe0b27da147653ef2baf56ae2e054a50199b42c7668a03107f100006fb",
+        "finish_reason": "stop",
+        "recovery": {
+          "attempt": 1,
+          "error_type": "ResponseContractError",
+          "details": {
+            "field": "response",
+            "reason": "{'global': 'Check needs a typed status and explanation'}",
+            "invalid_fields": {
+              "global": "Check needs a typed status and explanation"
+            },
+            "preserved_fields": []
+          },
+          "instruction": "Repair only the invalid response structure using the same evidence. Preserve already valid global/inquiry verdicts; do not reassess them, change the standard, or seek a different semantic outcome. Copy already valid claim fields exactly from rejected_response, including claim text, observation, claim_location, relevance_reason, judgment, verdict_relevance and valid citation lists; preserve claim count/order wherever the claim structure is valid. Correct only fields identified as invalid by the reported errors. A status error does not authorize editing claims; depends_on fields are constraints to preserve, not repair targets. Do not paraphrase or clarify valid claim text or observations.",
+          "rejected_response": {
+            "response": {
+              "claims": [
+                {
+                  "claim": "文档必须描述示例输入、示例输出，以及输出字段/格式如何被确认。",
+                  "claim_refs": [
+                    "task"
+                  ],
+                  "claim_location": "任务重点项4「examples 与 output format：示例输入、示例输出、输出字段/格式如何确认」",
+                  "evidence_refs": [
+                    "task"
+                  ],
+                  "observation": "任务 prompt 明确要求覆盖示例输入、示例输出和输出字段/格式确认方式；这是硬性要求。",
+                  "judgment": "supported",
+                  "verdict_relevance": "material",
+                  "relevance_reason": "这是本次评判标准的核心要求。"
+                },
+                {
+                  "claim": "final_answer.md 引用了示例输入路径，包括 examples/data/sample-items.txt、examples/cli/scan_minimal.sh 或 scan_with_profile.sh、examples/python/use_client.py。",
+                  "claim_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:artifact:changed_files"
+                  ],
+                  "claim_location": "应位于 final_answer.md 的 examples 章节",
+                  "evidence_refs": [
+                    "product_1:source:2"
+                  ],
+                  "observation": "已提供的 source:2 仅显示 final_answer.md 开头若干行（总长度约 13542 字符，预览只到「总览」段），未显示 examples 部分的实际文本。无法确认是否引用这些具体路径。因此该断言未经验证。",
+                  "judgment": "unverified",
+                  "verdict_relevance": "material",
+                  "relevance_reason": "评判标准要求文档引用示例输入；缺少可读全文无法判断。"
+                },
+                {
+                  "claim": "final_answer.md 引用了示例输出路径 examples/output/scan_summary.jsonl。",
+                  "claim_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:artifact:changed_files"
+                  ],
+                  "claim_location": "应位于 final_answer.md 的 output format / examples 章节",
+                  "evidence_refs": [
+                    "product_1:source:2"
+                  ],
+                  "observation": "source:2 仅提供 final_answer.md 的前半段预览，未涵盖 examples/output 相关内容。无法确认该路径是否被引用。",
+                  "judgment": "unverified",
+                  "verdict_relevance": "material",
+                  "relevance_reason": "评判标准要求引用示例输出文件路径。"
+                },
+                {
+                  "claim": "final_answer.md 解释了输出字段/格式如何通过 schemas/scan-result.schema.json 或渲染层源码（render.py）被确认。",
+                  "claim_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:artifact:changed_files"
+                  ],
+                  "claim_location": "应位于 final_answer.md 的 output format 章节",
+                  "evidence_refs": [
+                    "product_1:source:2"
+                  ],
+                  "observation": "source:2 未展示 final_answer.md 的 output format/schema 论证部分，无法确认是否引用了 scan-result.schema.json 或 render.py。",
+                  "judgment": "unverified",
+                  "verdict_relevance": "material",
+                  "relevance_reason": "评判标准要求说明输出字段/格式确认方法；这是判断 full/partial 的关键。"
+                },
+                {
+                  "claim": "final_answer.md 声称未改动 input/sample_workspace/citrinectl/。",
+                  "claim_refs": [
+                    "product_1:artifact:final_response"
+                  ],
+                  "claim_location": "Actor 总结首句",
+                  "evidence_refs": [
+                    "product_1:environment"
+                  ],
+                  "observation": "environment 显示最终交付 inventory 中 final_answer.md 为 changed=true，其余 citrinectl 下 27 个文件均为 changed=false，无 deleted_files。因此该断言得到环境证据支持。",
+                  "judgment": "supported",
+                  "verdict_relevance": "advisory",
+                  "relevance_reason": "不直接属于 examples/output coverage 标准，但支持任务执行边界；非本评判标准核心。"
+                }
+              ],
+              "status": "unknown",
+              "reason": "available 的 final_answer.md 证据 source:2 仅为前约 400 字符的预览，该文件共 16783 字节（source:0，即 workspace inventory 中记录），关键 examples/output format 章节无法读取。因此无法判定是否引用了示例输入（examples/data/sample-items.txt、examples/cli/*.sh、examples/python/use_client.py）、示例输出（examples/output/scan_summary.jsonl），或是否借助 schemas/scan-result.schema.json/render.py 说明输出格式。未找到矛盾证据，但也不足以确认 full/partial。",
+              "gap": "无法确认文档是否覆盖示例输入引用、示例输出引用和输出字段/格式确认方法这三项子要求。需要读取 final_answer.md 完整内容或至少 examples/output format 章节。",
+              "evidence_refs": [
+                "task",
+                "product_1:artifact:final_response",
+                "product_1:artifact:changed_files",
+                "product_1:source:2",
+                "product_1:environment"
+              ]
+            },
+            "inquiry_result": {
+              "status": "unknown",
+              "reason": "检查文档是否引用 examples 输入输出并借助 schema/渲染层说明格式。已有证据仅提供 final_answer.md 的头部预览，无法读到 examples/output format 部分。",
+              "gap": "需要 final_answer.md 的完整只读内容才能判定。",
+              "evidence_refs": [
+                "product_1:source:2",
+                "product_1:artifact:final_response"
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "response_validation": {
+    "attempts": [
+      {
+        "response": {
+          "response": {
+            "claims": [
+              {
+                "claim": "文档必须描述示例输入、示例输出，以及输出字段/格式如何被确认。",
+                "claim_refs": [
+                  "task"
+                ],
+                "claim_location": "任务重点项4「examples 与 output format：示例输入、示例输出、输出字段/格式如何确认」",
+                "evidence_refs": [
+                  "task"
+                ],
+                "observation": "任务 prompt 明确要求覆盖示例输入、示例输出和输出字段/格式确认方式；这是硬性要求。",
+                "judgment": "supported",
+                "verdict_relevance": "material",
+                "relevance_reason": "这是本次评判标准的核心要求。"
+              },
+              {
+                "claim": "final_answer.md 引用了示例输入路径，包括 examples/data/sample-items.txt、examples/cli/scan_minimal.sh 或 scan_with_profile.sh、examples/python/use_client.py。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 examples 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "已提供的 source:2 仅显示 final_answer.md 开头若干行（总长度约 13542 字符，预览只到「总览」段），未显示 examples 部分的实际文本。无法确认是否引用这些具体路径。因此该断言未经验证。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求文档引用示例输入；缺少可读全文无法判断。"
+              },
+              {
+                "claim": "final_answer.md 引用了示例输出路径 examples/output/scan_summary.jsonl。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 output format / examples 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "source:2 仅提供 final_answer.md 的前半段预览，未涵盖 examples/output 相关内容。无法确认该路径是否被引用。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求引用示例输出文件路径。"
+              },
+              {
+                "claim": "final_answer.md 解释了输出字段/格式如何通过 schemas/scan-result.schema.json 或渲染层源码（render.py）被确认。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 output format 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "source:2 未展示 final_answer.md 的 output format/schema 论证部分，无法确认是否引用了 scan-result.schema.json 或 render.py。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求说明输出字段/格式确认方法；这是判断 full/partial 的关键。"
+              },
+              {
+                "claim": "final_answer.md 声称未改动 input/sample_workspace/citrinectl/。",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Actor 总结首句",
+                "evidence_refs": [
+                  "product_1:environment"
+                ],
+                "observation": "environment 显示最终交付 inventory 中 final_answer.md 为 changed=true，其余 citrinectl 下 27 个文件均为 changed=false，无 deleted_files。因此该断言得到环境证据支持。",
+                "judgment": "supported",
+                "verdict_relevance": "advisory",
+                "relevance_reason": "不直接属于 examples/output coverage 标准，但支持任务执行边界；非本评判标准核心。"
+              }
+            ],
+            "status": "unknown",
+            "reason": "available 的 final_answer.md 证据 source:2 仅为前约 400 字符的预览，该文件共 16783 字节（source:0，即 workspace inventory 中记录），关键 examples/output format 章节无法读取。因此无法判定是否引用了示例输入（examples/data/sample-items.txt、examples/cli/*.sh、examples/python/use_client.py）、示例输出（examples/output/scan_summary.jsonl），或是否借助 schemas/scan-result.schema.json/render.py 说明输出格式。未找到矛盾证据，但也不足以确认 full/partial。",
+            "gap": "无法确认文档是否覆盖示例输入引用、示例输出引用和输出字段/格式确认方法这三项子要求。需要读取 final_answer.md 完整内容或至少 examples/output format 章节。",
+            "evidence_refs": [
+              "task",
+              "product_1:artifact:final_response",
+              "product_1:artifact:changed_files",
+              "product_1:source:2",
+              "product_1:environment"
+            ]
+          },
+          "inquiry_result": {
+            "status": "unknown",
+            "reason": "检查文档是否引用 examples 输入输出并借助 schema/渲染层说明格式。已有证据仅提供 final_answer.md 的头部预览，无法读到 examples/output format 部分。",
+            "gap": "需要 final_answer.md 的完整只读内容才能判定。",
+            "evidence_refs": [
+              "product_1:source:2",
+              "product_1:artifact:final_response"
+            ]
+          }
+        },
+        "errors": {
+          "global": "Check needs a typed status and explanation"
+        }
+      },
+      {
+        "response": {
+          "response": {
+            "claims": [
+              {
+                "claim": "文档必须描述示例输入、示例输出，以及输出字段/格式如何被确认。",
+                "claim_refs": [
+                  "task"
+                ],
+                "claim_location": "任务重点项4「examples 与 output format：示例输入、示例输出、输出字段/格式如何确认」",
+                "evidence_refs": [
+                  "task"
+                ],
+                "observation": "任务 prompt 明确要求覆盖示例输入、示例输出和输出字段/格式确认方式；这是硬性要求。",
+                "judgment": "supported",
+                "verdict_relevance": "material",
+                "relevance_reason": "这是本次评判标准的核心要求。"
+              },
+              {
+                "claim": "final_answer.md 引用了示例输入路径，包括 examples/data/sample-items.txt、examples/cli/scan_minimal.sh 或 scan_with_profile.sh、examples/python/use_client.py。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 examples 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "已提供的 source:2 仅显示 final_answer.md 开头若干行（总长度约 13542 字符，预览只到「总览」段），未显示 examples 部分的实际文本。无法确认是否引用这些具体路径。因此该断言未经验证。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求文档引用示例输入；缺少可读全文无法判断。"
+              },
+              {
+                "claim": "final_answer.md 引用了示例输出路径 examples/output/scan_summary.jsonl。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 output format / examples 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "source:2 仅提供 final_answer.md 的前半段预览，未涵盖 examples/output 相关内容。无法确认该路径是否被引用。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求引用示例输出文件路径。"
+              },
+              {
+                "claim": "final_answer.md 解释了输出字段/格式如何通过 schemas/scan-result.schema.json 或渲染层源码（render.py）被确认。",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:artifact:changed_files"
+                ],
+                "claim_location": "应位于 final_answer.md 的 output format 章节",
+                "evidence_refs": [
+                  "product_1:source:2"
+                ],
+                "observation": "source:2 未展示 final_answer.md 的 output format/schema 论证部分，无法确认是否引用了 scan-result.schema.json 或 render.py。",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "评判标准要求说明输出字段/格式确认方法；这是判断 full/partial 的关键。"
+              },
+              {
+                "claim": "final_answer.md 声称未改动 input/sample_workspace/citrinectl/。",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Actor 总结首句",
+                "evidence_refs": [
+                  "product_1:environment"
+                ],
+                "observation": "environment 显示最终交付 inventory 中 final_answer.md 为 changed=true，其余 citrinectl 下 27 个文件均为 changed=false，无 deleted_files。因此该断言得到环境证据支持。",
+                "judgment": "supported",
+                "verdict_relevance": "advisory",
+                "relevance_reason": "不直接属于 examples/output coverage 标准，但支持任务执行边界；非本评判标准核心。"
+              }
+            ],
+            "status": "unknown",
+            "reason": "available 的 final_answer.md 证据 source:2 仅为前约 400 字符的预览，该文件共 16783 字节（source:0，即 workspace inventory 中记录），关键 examples/output format 章节无法读取。因此无法判定是否引用了示例输入（examples/data/sample-items.txt、examples/cli/*.sh、examples/python/use_client.py）、示例输出（examples/output/scan_summary.jsonl），或是否借助 schemas/scan-result.schema.json/render.py 说明输出格式。未找到矛盾证据，但也不足以确认 full/partial。",
+            "gap": "无法确认文档是否覆盖示例输入引用、示例输出引用和输出字段/格式确认方法这三项子要求。需要读取 final_answer.md 完整内容或至少 examples/output format 章节。",
+            "evidence_refs": [
+              "task",
+              "product_1:artifact:final_response",
+              "product_1:artifact:changed_files",
+              "product_1:source:2",
+              "product_1:environment"
+            ]
+          },
+          "inquiry_result": {
+            "status": "unknown",
+            "reason": "检查文档是否引用 examples 输入输出并借助 schema/渲染层说明格式。已有证据仅提供 final_answer.md 的头部预览，无法读到 examples/output format 部分。",
+            "gap": "需要 final_answer.md 的完整只读内容才能判定。",
+            "evidence_refs": [
+              "product_1:source:2",
+              "product_1:artifact:final_response"
+            ]
+          }
+        },
+        "errors": {
+          "global": "Check needs a typed status and explanation"
+        }
+      }
+    ],
+    "selected_attempts": {}
+  }
+}

@@ -9,6 +9,7 @@ import secrets
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -40,6 +41,29 @@ if __package__ in (None, ""):
 
 UPSTREAM = WORKBUDDY_ROOT / "upstream"
 PANEL = ["MiniMax-M3", "qwen3.8-max", "gemini-3.8-flash"]
+_CODE_HASH_SCOPE = "all-regular-files-except-__pycache__-v1"
+
+
+def _frozen_code_hashes(code):
+    """Bind copied resources as well as Python; never follow frozen symlinks."""
+    if not stat.S_ISDIR(code.lstat().st_mode):
+        raise ValueError("Frozen implementation root must be a regular directory")
+    hashes = {}
+
+    def visit(directory):
+        for path in sorted(directory.iterdir()):
+            mode = path.lstat().st_mode
+            name = path.relative_to(code).as_posix()
+            if stat.S_ISDIR(mode):
+                if path.name != "__pycache__":
+                    visit(path)
+            elif stat.S_ISREG(mode):
+                hashes[name] = file_hash(path)
+            else:
+                raise ValueError(f"Frozen implementation is not a regular file: {name}")
+
+    visit(code)
+    return hashes
 
 
 def role_mapping(*, include_final=False):
@@ -174,6 +198,7 @@ def prepare(
 
     config = {
         "schema": "workbuddy.outcome.office50.v1",
+        "code_hash_scope": _CODE_HASH_SCOPE,
         "repo": str(REPO),
         "code": str(code),
         "output": str(output),
@@ -329,7 +354,7 @@ def prepare(
     versions = {
         d.metadata["Name"]: d.version for d in importlib.metadata.distributions()
     }
-    sources = {str(p.relative_to(code)): file_hash(p) for p in code.rglob("*.py")}
+    sources = _frozen_code_hashes(code)
     write(
         output / "manifest.json",
         {
@@ -343,6 +368,7 @@ def prepare(
                 ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
             ).strip(),
             "code_hashes": sources,
+            "code_hash_scope": _CODE_HASH_SCOPE,
             "original_dataset_hashes": original_hashes,
             "prepared_dataset_hashes": {
                 str(p.relative_to(dataset)): file_hash(p)
@@ -400,8 +426,31 @@ def verify(config):
                 .decode("utf-8"),
             },
         )
-    for name, expected in manifest["code_hashes"].items():
-        if file_hash(Path(config["code"]) / name) != expected:
+    hashes = manifest["code_hashes"]
+    code = Path(config["code"])
+    if "code_hash_scope" in config or "code_hash_scope" in manifest:
+        if (
+            config.get("code_hash_scope") != _CODE_HASH_SCOPE
+            or manifest.get("code_hash_scope") != _CODE_HASH_SCOPE
+        ):
+            raise ValueError("Frozen implementation hash scope missing or unsupported")
+        if manifest.get("config_identity") != config["identity"]:
+            raise ValueError("Frozen manifest configuration identity mismatch")
+        if not isinstance(hashes, dict):
+            raise ValueError("Frozen implementation hashes must be a mapping")
+        actual = _frozen_code_hashes(code)
+        if set(actual) != set(hashes):
+            raise ValueError(
+                "Frozen implementation file set changed: "
+                f"missing={sorted(set(hashes) - set(actual))}; "
+                f"unexpected={sorted(set(actual) - set(hashes))}"
+            )
+    else:
+        # Historical manifests only bind listed files, usually Python. Do not
+        # retrospectively claim complete resource coverage for those runs.
+        actual = {name: file_hash(code / name) for name in hashes}
+    for name, expected in hashes.items():
+        if actual[name] != expected:
             raise ValueError(f"Frozen implementation changed: {name}")
     dataset = Path(config["tasks_root"]).parent
     for name, expected in manifest["prepared_dataset_hashes"].items():

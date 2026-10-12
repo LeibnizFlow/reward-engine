@@ -668,58 +668,18 @@ async def test_full_scripted_pipeline_and_additional_auditor(
     tmp_path, monkeypatch, scenario
 ):
     """Real Jury/Builder/controller/loop, actual collected snapshots, no parser mock."""
-    import shutil
-
     import httpx
 
     from reward_engine.adapters.workbuddy import models
-    from reward_engine.adapters.workbuddy.io import digest, file_hash
     from reward_engine.adapters.workbuddy.public_delivery_audit import audit_run
     from reward_engine.core.batch import BatchPolicy
     from reward_engine.core.outcome.loop import run_task
+    from tests.unit.test_public_delivery_manifest import prepare_public_run
 
     rounds = 3 if scenario in {"reuse", "partial_reuse"} else 1
     task, contract = task_and_contract()
-    root = tmp_path / "run"
-    root.mkdir()
-    taskroot = root / "dataset/tasks" / task["task_id"]
-    taskroot.mkdir(parents=True)
-    (taskroot / "instruction.md").write_text(task["prompt"])
-    supplied = tmp_path / "supplied.json"
-    write(supplied, contract)
-    binding = freeze_contract(supplied, root, taskroot.parent, [task["task_id"]])
-    repo = Path(__file__).resolve().parents[2]
-    code = root / "code"
-    hashes = {}
-    for source_file in (repo / "reward_engine").rglob("*.py"):
-        relative = source_file.relative_to(repo).as_posix()
-        target = code / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_file, target)
-        hashes[relative] = file_hash(target)
-    config = {
-        "output": str(root),
-        "code": str(code),
-        "tasks_root": str(taskroot.parent),
-        "task_ids": [task["task_id"]],
-        "public_delivery_contract": binding,
-        "role_bounded_stage": True,
-    }
-    config["identity"] = digest(config)
-    write(root / "config.json", config)
-    write(
-        root / "manifest.json",
-        {
-            "config_identity": config["identity"],
-            "public_delivery_contract": binding,
-            "code_hashes": hashes,
-            "prepared_dataset_hashes": {
-                f"tasks/{task['task_id']}/instruction.md": file_hash(
-                    taskroot / "instruction.md"
-                )
-            },
-        },
-    )
+    config = prepare_public_run(tmp_path, monkeypatch, task, contract)
+    root = Path(config["output"])
     taskdir = root / "tasks" / task["task_id"]
     modes = []
 
@@ -930,7 +890,7 @@ async def test_full_scripted_pipeline_and_additional_auditor(
         return models.Role(
             {
                 **config,
-                "roles": {role: model},
+                "roles": {**config["roles"], role: model},
                 "gateway_local": "http://offline.invalid",
             },
             role,
@@ -1004,6 +964,11 @@ async def test_full_scripted_pipeline_and_additional_auditor(
     )
     report = audit_run(root, required_rounds=rounds)
     assert report["status"] == "pass", report
+    assert report["code_binding"]["complete_file_set"] is True
+    assert (
+        "code/reward_engine/legacy/adapters/opencode_plugin.mjs"
+        in report["source_hashes"]
+    )
     assert [r["status"] for r in report["rounds"][0]["arms"]["B"]["versions"]] == [
         "fail",
         "pass",

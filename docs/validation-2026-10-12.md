@@ -449,6 +449,61 @@ controlled evidence, not native success. All 291 source hashes matched and
 counterexamples and the unchanged original strict auditor are retained. The
 review is same-family/provisional; fresh native validation remains required.
 
+The fresh native **Claw v10 / WorkBuddy v8** pair then ran on frozen commit
+`fe1cc5286ee50c5d85e0df91803723bc8a6a36a3`. Both failed the unchanged original
+strict audit in round 1 and were diagnostically interrupted with observed exit
+130. Claw's mandatory evidence expansion produced a reply missing one claim's
+`judgment`; the bounded repair changed the claim count and was correctly
+rejected. Its repair request also retained an earlier provisional assessment and
+an instruction to reassess it. WorkBuddy had two separate failures: a Jury seat
+twice omitted literal standard text, leaving only two Map seats, and one
+construction measurement twice nested the verdict under `response` instead of
+providing the required top-level fields. These are execution failures, not
+quality-based restarts. All completed receipts remain unchanged: ten recorded
+Claw hashes and eighteen WorkBuddy hashes were verified after interruption.
+
+The launch-binding check also found that WorkBuddy's manifest hashed only Python
+files despite copying non-Python runtime resources. Its existing manifest is
+preserved with that limitation. Prospective fixes address precise model-authored
+structural repairs and complete frozen-resource manifests; they do not alter the
+failed runs, increase retries, or weaken audit requirements. No three-round
+native success has yet been established. The prior 2,878-test result binds the
+pre-fix source and does not validate these subsequent changes.
+
+The subsequent repair adds explicit model-authored missing-judgment corrections
+and an optional, explicit operation to relocate an unchanged, unambiguous nested
+measurement verdict. It preserves the original and composed responses with
+field provenance, keeps all valid claim fields locked, and still requires cited
+preview expansion. Structural retries no longer carry a conflicting instruction
+to reassess an older provisional response. Jury diagnostics identify the exact
+missing `standard`/clause fields without deriving standards from other text;
+the requested preservation of draft identity is an instruction, not a new
+cross-response validator. New WorkBuddy manifests bind all copied regular
+source/resource files except transient bytecode caches, while legacy manifests
+retain their original limitations. **2,981 tests passed**, zero skipped, with
+nine existing warnings in 248.06 seconds; all 298 captured source/config/fixture
+hashes remained unchanged. Metadata/log are
+`full_tests_after_native_contract_repairs.{json,log}`. Independent review 012
+found no additional scoped measurement/Jury issue, but returned **FAIL (NR1)**:
+the new complete-file manifest includes MJS resources while the additional
+public auditor still compares package entries against Python files alone.
+A three-round simulated control reproduces that incompatibility. The additional
+auditor is being corrected to honor the explicit manifest scope; the original
+strict auditor and historical manifests remain unchanged. These controlled
+results predate that follow-up and do not establish native success.
+
+The NR1 follow-up now verifies the exact complete file set and byte hashes,
+including external transport and package resources, while explicitly retaining
+the legacy manifest limitation. Public pipeline controls use the actual
+prepare/validate flow. **3,019 full-suite tests passed**, zero skipped, with nine
+existing warnings in 276.87 seconds and no drift across 299 captured files
+(`full_tests_after_complete_manifest_audit.{json,log}`). Independent review 013
+passed the bounded NR1 closure: baseline failure versus fixed success, actual
+prepare/validate integration, and file/scope rejection controls. No additional
+blocking issue was found within that review. It remains same-family/provisional,
+and the original strict audit is still independently required. Fresh native
+three-round validation remains pending; all previous FAIL reports are retained.
+
 ## Local evidence
 
 - `runs/pipeline_validation_20261012/full_tests.json` and `.log`: first failed suite.

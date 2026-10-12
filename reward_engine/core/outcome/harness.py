@@ -379,7 +379,7 @@ def field_correction_targets(row, issues):
                 and isinstance(claims, list)
                 and 0 <= index < len(claims)
                 and isinstance(claims[index], dict)
-                and name in ("claim_refs", "evidence_refs")
+                and name in ("claim_refs", "evidence_refs", "judgment")
                 and field == f"claims[{index}].{name}"
             ):
                 return {}  # Other repairs continue to require the full reply.
@@ -413,6 +413,12 @@ def compose_field_correction(raw, state, evidence, attempt):
             ):
                 continue  # The complete claim validator checks the judgment.
             require_refs(value, evidence)
+        elif target[-1] == "judgment":
+            if value not in ("supported", "contradicted", "unverified"):
+                raise ResponseContractError(
+                    field,
+                    "Judgment correction requires an explicit supported/contradicted/unverified value",
+                )
         elif not isinstance(value, str) or (field != "gap" and not value.strip()):
             raise ResponseContractError(
                 field, "Summary corrections require explicit text values"
@@ -450,6 +456,48 @@ def compose_field_correction(raw, state, evidence, attempt):
         "base_attempt": state["attempt"],
         "correction_attempt": attempt,
         "claim_order_source_attempt": state["attempt"],
+        "fields": fields,
+    }
+
+
+def compose_response_unwrap(raw, state, attempt):
+    """Relocate an explicitly selected, unchanged model assessment; infer nothing."""
+    if (
+        state is None
+        or state.get("expected") is None
+        or not state.get("offer")
+        or raw != {"response_unwrap": "response"}
+    ):
+        raise ResponseContractError(
+            "response_unwrap",
+            "Use only the advertised response_unwrap operation, without replacement values or siblings",
+        )
+    composed = deepcopy(state["expected"])
+    fields = {}
+    for key, value in composed.items():
+        if key == "claims":
+            paths = [
+                f"claims[{i}].{field}"
+                for i, claim in enumerate(value)
+                for field in claim
+            ]
+        else:
+            paths = [key]
+        for path in paths:
+            nested = key != "inquiry_result"
+            fields[path] = {
+                "source_attempt": state["attempt"],
+                "source_field": ("response." if nested else "") + path,
+                "kind": "relocated" if nested else "preserved",
+            }
+    return composed, {
+        "base_attempt": state["attempt"],
+        "claim_order_source_attempt": state["attempt"],
+        "operation": {
+            "source_attempt": attempt,
+            "source_field": "response_unwrap",
+            "value": "response",
+        },
         "fields": fields,
     }
 
@@ -707,6 +755,7 @@ def defaults(semantic_call, *, tools=None):
         structure_repair = False
         claim_repair = None
         correction_state = None
+        unwrap_state = None
         request_context, attached_refs = context, set()
         pending_evidence, read_failure = {}, {}
 
@@ -749,7 +798,8 @@ def defaults(semantic_call, *, tools=None):
                 request_context, \
                 attached_refs, \
                 claim_repair, \
-                correction_state
+                correction_state, \
+                unwrap_state
             # Syntax recovery replaces response_recovery details. It cannot
             # reopen the tools/reads of an already active same-evidence repair.
             structure_repair = structure_repair or bool(
@@ -773,7 +823,28 @@ def defaults(semantic_call, *, tools=None):
                     structure_repair = False
                     claim_repair = None
                     correction_state = None
+                    unwrap_state = None
+            if structure_repair and request.get("response_recovery"):
+                # ask retains the previous preview expansion in its outer request.
+                # This emitted retry repairs the latest rejected assessment, not
+                # that older provisional one. Keep the actual attached evidence;
+                # a subsequent genuine expansion still uses ask's original state.
+                request.pop("evidence_followup", None)
+                request.pop("provisional_check", None)
             request.pop("field_correction_reply", None)
+            request.pop("response_unwrap_reply", None)
+            if (
+                unwrap_state is not None
+                and unwrap_state.get("offer")
+                and structure_repair
+            ):
+                request["response_unwrap_reply"] = deepcopy(unwrap_state["offer"])
+                if request.get("response_recovery"):
+                    request["response_recovery"]["instruction"] = (
+                        'Preferred envelope repair: return ONLY {"response_unwrap":"response"} '
+                        "to explicitly move the preserved assessment to the root without changing any value. "
+                        + request["response_recovery"]["instruction"]
+                    )
             if correction_state is not None and structure_repair:
                 # Also survives syntax recovery replacing response_recovery.
                 request["field_correction_reply"] = deepcopy(correction_state["offer"])
@@ -958,9 +1029,84 @@ def defaults(semantic_call, *, tools=None):
             return row
 
         def validate_reply(row):
-            nonlocal structure_repair, claim_repair, correction_state
+            nonlocal structure_repair, claim_repair, correction_state, unwrap_state
             raw = deepcopy(row)
             composition = {}
+            if "response_unwrap" in row:
+                try:
+                    row, provenance = compose_response_unwrap(
+                        raw, unwrap_state, len(validation_attempts) + 1
+                    )
+                    composition = {
+                        "response_kind": "response_unwrap",
+                        "composed_response": deepcopy(row),
+                        "field_provenance": provenance,
+                    }
+                except (ValueError, TypeError, KeyError) as error:
+                    validation_attempts.append(
+                        {"response": raw, "errors": {"envelope": str(error)}}
+                    )
+                    raise ResponseContractError(
+                        "response_unwrap", str(error)
+                    ) from error
+            envelope_error = None
+            if isinstance(row.get("response"), dict):
+                if unwrap_state is None:
+                    expected = None
+                    nested = row["response"]
+                    if set(row) <= {"response", "inquiry_result"} and not (
+                        set(nested)
+                        & {
+                            "response",
+                            "inquiry_result",
+                            "field_corrections",
+                            "response_unwrap",
+                            "need_tools",
+                            "need_evidence",
+                        }
+                    ):
+                        try:
+                            validate_global(deepcopy(nested))
+                            if requested_inquiry:
+                                validate_inquiry(deepcopy(row.get("inquiry_result")))
+                        except (ValueError, TypeError, KeyError, AttributeError):
+                            pass  # No unwrapping offer for an invalid/ambiguous assessment.
+                        else:
+                            expected = deepcopy(nested)
+                            if "inquiry_result" in row:
+                                expected["inquiry_result"] = deepcopy(
+                                    row["inquiry_result"]
+                                )
+                    unwrap_state = {
+                        "expected": expected,
+                        "attempt": len(validation_attempts) + 1,
+                    }
+                    # Deliberate narrow limit: ambiguous/invalid nested verdicts
+                    # get no relocation offer, and cannot select a different
+                    # assessment during this same-evidence repair. Supporting
+                    # nested field repair would need its own preservation proof.
+                envelope_error = ResponseContractError(
+                    "response",
+                    "Misplaced verdict envelope: claims/status/reason/gap/evidence_refs belong at the TOP LEVEL, "
+                    "not inside response. A full reply must move the unchanged nested assessment to the root, "
+                    "preserve any inquiry_result sibling, and omit the response wrapper. "
+                    "Competing root fields or an invalid nested assessment cannot be implicitly selected/unwrapped.",
+                )
+                envelope_error.details.update(
+                    actual_root_fields=sorted(row),
+                    missing_root_fields=[
+                        k
+                        for k in ("claims", "status", "reason", "gap", "evidence_refs")
+                        if k not in row
+                    ],
+                    nested_assessment_valid=unwrap_state["expected"] is not None,
+                )
+            elif unwrap_state is not None and row != unwrap_state["expected"]:
+                envelope_error = ResponseContractError(
+                    "response",
+                    "Envelope repair must preserve the entire original nested assessment and inquiry sibling; "
+                    "no changed judgment/relevance/claims/count/order/status/citations or ambiguous source selection",
+                )
             if "field_corrections" in row:
                 try:
                     row, provenance = compose_field_correction(
@@ -1005,6 +1151,8 @@ def defaults(semantic_call, *, tools=None):
                 parts.append(("inquiry", local, validate_inquiry))
             for scope, value, validator in parts:
                 try:
+                    if scope == "global" and envelope_error is not None:
+                        raise envelope_error
                     if scope == "global" and claim_repair is not None:
                         preserve_claim_assessment(*claim_repair, current=value)
                     candidates[scope] = validator(deepcopy(value))
@@ -1069,6 +1217,24 @@ def defaults(semantic_call, *, tools=None):
                         issue for issue in issues if issue["scope"] in missing
                     ]
                 if (
+                    unwrap_state is not None
+                    and unwrap_state["expected"] is not None
+                    and set(missing) == {"global"}
+                    and getattr(semantic_call, "bounded_stage", False)
+                ):
+                    offer = {
+                        "schema": "measurement-response-unwrap/v1",
+                        "base_attempt": unwrap_state["attempt"],
+                        "reply": {"response_unwrap": "response"},
+                        "instruction": 'Return ONLY {"response_unwrap":"response"} to explicitly relocate '
+                        "the unchanged model-authored response object to the root. Preserve every field, "
+                        "claim count/order, judgment, relevance, citations, summary and inquiry_result. "
+                        "No replacements/defaults/tools/reads. Faithful full JSON is also accepted. "
+                        "All validators and mandatory preview reads still apply; this is not a verdict acceptance.",
+                    }
+                    unwrap_state["offer"] = offer
+                    error.details["response_unwrap_reply"] = deepcopy(offer)
+                if (
                     correction_state is None
                     and getattr(semantic_call, "bounded_stage", False)
                     and set(missing) == {"global"}
@@ -1100,10 +1266,27 @@ def defaults(semantic_call, *, tools=None):
                                 "After new evidence expansion return a fresh full assessment."
                             ),
                         }
+                        judgment_values = {
+                            field: ["supported", "contradicted", "unverified"]
+                            for field, target in targets.items()
+                            if target[-1] == "judgment"
+                        }
+                        if judgment_values:
+                            offer["allowed_values"] = judgment_values
+                            offer["instruction"] += (
+                                " For each missing/invalid judgment, author only its explicit enum value "
+                                "from the preserved claim, observation and actual evidence. Do not rewrite "
+                                "those fields or change claim count/order. A judgment correction does not "
+                                "authorize changing a valid judgment, citations or summary. Existing "
+                                "evidence and status/claim consistency constraints still apply."
+                            )
                         if "status" in targets and raw.get("status") == "pass":
                             # These targets arise from existing pass/claim conflicts.
                             # Expose that constraint; the validators still decide acceptance.
-                            offer["allowed_values"] = {"status": ["fail", "unknown"]}
+                            offer.setdefault("allowed_values", {})["status"] = [
+                                "fail",
+                                "unknown",
+                            ]
                             offer["instruction"] += (
                                 " For this locked assessment, pass is invalid. Author fail or unknown "
                                 "with consistent reason/gap; all existing verdict/evidence checks still apply."
@@ -1146,6 +1329,8 @@ def defaults(semantic_call, *, tools=None):
             evidence,
             CLAUSE_INSTRUCTION
             + "Evaluate ONLY the supplied Outcome standard against current evidence and anchors. "
+            "Return claims, status, reason, gap and evidence_refs at the TOP LEVEL; do not wrap them "
+            "inside response. Any inquiry_result is a separate sibling of these fields. "
             "Find factual contradictions, missing required outcomes and unsupported claims. "
             "If measurement_inquiry is supplied, address that specific doubt using current evidence. "
             "It is an unverified question, not an established defect or a replacement standard. "

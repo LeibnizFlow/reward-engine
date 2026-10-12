@@ -1,0 +1,611 @@
+{
+  "schema": "measurement-missing-judgment-capture/v1",
+  "scope": "Exact retained model responses and public repair diagnostics only. Offline tests use synthetic evidence, not native success or semantic validation. No environment/provider credentials copied.",
+  "provenance": {
+    "source_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/round_1/construction_checks.json",
+    "source_sha256": "d3cf46a63ff4413b98d5292111dfb9ac6f2a030d189ab32ee77db32a1f05089a",
+    "measurement_index": 1,
+    "test_id": "explanation_of_methodology_and_assumptions_review",
+    "selected_result_sha256": "a2ebf30736893e35df1ff8021074c54d9f3607e7365696aa3a5fbd589405ce15",
+    "canonical_json": "UTF-8 json.dumps(ensure_ascii=False,sort_keys=True,separators=(comma,colon))",
+    "response_sha256": [
+      "6113b270707fea4a688278cf437c6cbff9e23959a30bcd96a864fcedcf2e974c",
+      "b518d81870ebb8d4b3eab17c7ac8f1da18d6c91c1b8db4ac90e4cd435dc83efc",
+      "c5da803890a4dfe18c250c665aefc6474584b0049a189efbe78741a0bd446919"
+    ],
+    "frozen_harness_path": "runs/full_claw_20261012_v10/code/reward_engine/core/outcome/harness.py",
+    "frozen_harness_sha256": "3218f66593b284446eb62123595ea46ea4a4b7134b558d188b58205cc38b4211",
+    "old_readonly_harness_path": "/data0/jiqi/jiuwenswarm-swe-runner/reward_engine/core/outcome/harness.py",
+    "old_readonly_harness_sha256": "bd2435ec49ebfff179197dff085daaec46801cb5f351a6363e512869d5d8a078",
+    "old_reference_scope": "validate_claims requires the same judgment enum; no field_corrections protocol or preserve_claim_assessment helper in this inspected old source.",
+    "provider_receipts": [
+      {
+        "attempt_index": 0,
+        "response_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/1a2ae9749f3c4ac7872059d40823f145/response.json",
+        "response_sha256": "6be0035a15377d5eb2c1613d6146bf497da1185a740148b466c86c5706f089eb",
+        "request_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/1a2ae9749f3c4ac7872059d40823f145/request.json",
+        "request_sha256": "1f941f8e8c34576ef2241d842b7f644883179217109b746f17777acc682764a2",
+        "raw_output_sha256": "1cac21f71ed7936bf7a9aaceb6423b392ba040b6e2cde31972e9aba340c38e3b",
+        "answer_sha256": "6113b270707fea4a688278cf437c6cbff9e23959a30bcd96a864fcedcf2e974c",
+        "finish_reason": "stop",
+        "completion_tokens": 1033,
+        "request_diagnostics": {},
+        "requested_evidence_refs": []
+      },
+      {
+        "attempt_index": 1,
+        "response_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/286f8512215748b8bac10c644023acb0/response.json",
+        "response_sha256": "dc6bf171bb27b2e046042e2643837286f2b532b25a8a30aa0d751f03ce08aecd",
+        "request_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/286f8512215748b8bac10c644023acb0/request.json",
+        "request_sha256": "7f9a091f86d06f097ac8eb6e6625eaaa072fea87f43728e1a0c7097e66ff9df6",
+        "raw_output_sha256": "fc2b16a36bb62edea6e842652ef8996b463b4757d270ffed4eb8fbdb1599d024",
+        "answer_sha256": "b518d81870ebb8d4b3eab17c7ac8f1da18d6c91c1b8db4ac90e4cd435dc83efc",
+        "finish_reason": "stop",
+        "completion_tokens": 571,
+        "request_diagnostics": {
+          "evidence_followup": "Your check cited preview-only sources. Available cited source records are now supplied; reassess the claims and verdict before finalizing. A fact absent from a preview may be present in its stored record. Preserve excerpt_only/offset/total_chars boundaries: a fetched passage is not necessarily the whole document. A title/link or research summary alone does not establish what the source says. Distinguish missing observation from an actual product defect.",
+          "provisional_check": {
+            "claims": [
+              {
+                "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:2",
+                  "product_1:source:4",
+                  "product_1:source:5",
+                  "product_1:source:6",
+                  "product_1:source:7"
+                ],
+                "claim_location": "Section 一 table",
+                "evidence_refs": [
+                  "product_1:source:4",
+                  "product_1:source:5",
+                  "product_1:source:6",
+                  "product_1:source:7"
+                ],
+                "observation": "The message bodies confirm 张伟/差旅费/3200/INV-001, 李华/办公用品/850/INV-002, 王明/外部培训费/5000/INV-003, 陈静/客户招待餐费/420/INV-004, matching the deliverable's extraction.",
+                "judgment": "supported",
+                "verdict_relevance": "material"
+              },
+              {
+                "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "claim_location": "Section 二 tables linking 发票号 to 交易号; conclusion says TXN-705/706 excluded as non-reimbursement",
+                "evidence_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "observation": "The report pairs each email invoice with a transaction by showing 发票号 and 交易号 in the same row. However, the report never explicitly states that INV-xxx was the key used or why TXN-705/TXN-706 were excluded, though the descriptions in source:3 appear to contain the same invoice numbers.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "This directly addresses the first subrequirement of the standard."
+              },
+              {
+                "claim": "The deliverable defines or exemplifies the rule used to classify a transaction as status-abnormal.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Section 二 status-anomaly table and note: 金额一致，但交易仍处于待审批状态，尚未完成，暂不可报销",
+                "evidence_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "observation": "The report labels TXN-703 pending as a status anomaly and explains 尚未完成，暂不可报销, which implies a rule that non-completed status is abnormal, but does not state the rule as an explicit definition or general criterion.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "The criterion asks whether the status-classification rule is stated or exemplified; an implied rule may or may not satisfy it, and the artifact does not articulate it."
+              },
+              {
+                "claim": "The deliverable states relevant unit/currency assumptions.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Amounts shown as 元 throughout; no statement of base currency or unit assumptions",
+                "evidence_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "observation": "The report uses 元 for every amount and the finance source shows currency CNY. Still, the deliverable does not state that CNY is the base currency or otherwise record the unit assumption.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "The criterion explicitly asks whether any relevant unit/currency assumption is stated."
+              },
+              {
+                "claim": "The report is otherwise internally consistent on counts and the amounts it reports.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Conclusion: 4笔报销中 2笔正常、1笔金额不符、1笔状态异常",
+                "evidence_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "observation": "The counts match the tables presented; this does not address methodology or assumption disclosure.",
+                "judgment": "supported",
+                "verdict_relevance": "advisory",
+                "relevance_reason": "Internal consistency helps usability but does not satisfy the assumption/methodology disclosure criterion."
+              }
+            ],
+            "status": "fail",
+            "reason": "The deliverable presents reconciliation results but does not explicitly state the matching key (invoice number), the status-anomaly definition, or unit/currency assumptions. The report's row structure implies invoice matching and its pending comment implies a status rule, but neither is stated as methodology or assumption, so a user cannot judge whether the reconciliation fits their situation.",
+            "gap": "Add a short methodology/assumptions note stating that matching is by invoice number (INV-xxx), that status abnormal means the finance transaction is not completed (e.g., pending), and that all amounts are CNY/元; optionally note why non-reimbursement transactions were excluded.",
+            "evidence_refs": [
+              "task",
+              "product_1:artifact:final_response",
+              "product_1:source:3"
+            ],
+            "measurement_recovery": []
+          }
+        },
+        "requested_evidence_refs": [
+          "product_1:source:2",
+          "product_1:source:3"
+        ]
+      },
+      {
+        "attempt_index": 2,
+        "response_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/f7deb8f5444b42f5987ccd27b4b5e57b/response.json",
+        "response_sha256": "d48d5958dd198056176448ec4680624c2d9b19626b34f3c1632143b44fd8084e",
+        "request_path": "runs/full_claw_20261012_v10/tasks/T111zh_expense_email_check/measurement/model/f7deb8f5444b42f5987ccd27b4b5e57b/request.json",
+        "request_sha256": "478b46ee84acf134d87bb3e34494da52a5b3298d5e3c86021a57b342a3c27d15",
+        "raw_output_sha256": "97826bf45ad6cd43979f677b751af80bfdfdcb04e27d7727e18d2edb087b02e5",
+        "answer_sha256": "c5da803890a4dfe18c250c665aefc6474584b0049a189efbe78741a0bd446919",
+        "finish_reason": "stop",
+        "completion_tokens": 1027,
+        "request_diagnostics": {
+          "evidence_followup": "Your check cited preview-only sources. Available cited source records are now supplied; reassess the claims and verdict before finalizing. A fact absent from a preview may be present in its stored record. Preserve excerpt_only/offset/total_chars boundaries: a fetched passage is not necessarily the whole document. A title/link or research summary alone does not establish what the source says. Distinguish missing observation from an actual product defect.",
+          "provisional_check": {
+            "claims": [
+              {
+                "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:2",
+                  "product_1:source:4",
+                  "product_1:source:5",
+                  "product_1:source:6",
+                  "product_1:source:7"
+                ],
+                "claim_location": "Section 一 table",
+                "evidence_refs": [
+                  "product_1:source:4",
+                  "product_1:source:5",
+                  "product_1:source:6",
+                  "product_1:source:7"
+                ],
+                "observation": "The message bodies confirm 张伟/差旅费/3200/INV-001, 李华/办公用品/850/INV-002, 王明/外部培训费/5000/INV-003, 陈静/客户招待餐费/420/INV-004, matching the deliverable's extraction.",
+                "judgment": "supported",
+                "verdict_relevance": "material"
+              },
+              {
+                "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+                "claim_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "claim_location": "Section 二 tables linking 发票号 to 交易号; conclusion says TXN-705/706 excluded as non-reimbursement",
+                "evidence_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "observation": "The report pairs each email invoice with a transaction by showing 发票号 and 交易号 in the same row. However, the report never explicitly states that INV-xxx was the key used or why TXN-705/TXN-706 were excluded, though the descriptions in source:3 appear to contain the same invoice numbers.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "This directly addresses the first subrequirement of the standard."
+              },
+              {
+                "claim": "The deliverable defines or exemplifies the rule used to classify a transaction as status-abnormal.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Section 二 status-anomaly table and note: 金额一致，但交易仍处于待审批状态，尚未完成，暂不可报销",
+                "evidence_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "observation": "The report labels TXN-703 pending as a status anomaly and explains 尚未完成，暂不可报销, which implies a rule that non-completed status is abnormal, but does not state the rule as an explicit definition or general criterion.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "The criterion asks whether the status-classification rule is stated or exemplified; an implied rule may or may not satisfy it, and the artifact does not articulate it."
+              },
+              {
+                "claim": "The deliverable states relevant unit/currency assumptions.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Amounts shown as 元 throughout; no statement of base currency or unit assumptions",
+                "evidence_refs": [
+                  "product_1:artifact:final_response",
+                  "product_1:source:3"
+                ],
+                "observation": "The report uses 元 for every amount and the finance source shows currency CNY. Still, the deliverable does not state that CNY is the base currency or otherwise record the unit assumption.",
+                "judgment": "unverified",
+                "verdict_relevance": "material",
+                "relevance_reason": "The criterion explicitly asks whether any relevant unit/currency assumption is stated."
+              },
+              {
+                "claim": "The report is otherwise internally consistent on counts and the amounts it reports.",
+                "claim_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "claim_location": "Conclusion: 4笔报销中 2笔正常、1笔金额不符、1笔状态异常",
+                "evidence_refs": [
+                  "product_1:artifact:final_response"
+                ],
+                "observation": "The counts match the tables presented; this does not address methodology or assumption disclosure.",
+                "judgment": "supported",
+                "verdict_relevance": "advisory",
+                "relevance_reason": "Internal consistency helps usability but does not satisfy the assumption/methodology disclosure criterion."
+              }
+            ],
+            "status": "fail",
+            "reason": "The deliverable presents reconciliation results but does not explicitly state the matching key (invoice number), the status-anomaly definition, or unit/currency assumptions. The report's row structure implies invoice matching and its pending comment implies a status rule, but neither is stated as methodology or assumption, so a user cannot judge whether the reconciliation fits their situation.",
+            "gap": "Add a short methodology/assumptions note stating that matching is by invoice number (INV-xxx), that status abnormal means the finance transaction is not completed (e.g., pending), and that all amounts are CNY/元; optionally note why non-reimbursement transactions were excluded.",
+            "evidence_refs": [
+              "task",
+              "product_1:artifact:final_response",
+              "product_1:source:3"
+            ],
+            "measurement_recovery": []
+          },
+          "response_recovery": {
+            "attempt": 1,
+            "error_type": "ResponseContractError",
+            "details": {
+              "field": "response",
+              "reason": "{'global': 'claims[1].judgment: Invalid claim judgment'}",
+              "invalid_fields": {
+                "global": "claims[1].judgment: Invalid claim judgment"
+              },
+              "preserved_fields": [],
+              "issues": [
+                {
+                  "scope": "global",
+                  "field": "claims[1].judgment",
+                  "reason": "Invalid claim judgment",
+                  "claim_index": 1,
+                  "claim_field": "judgment",
+                  "actual": null,
+                  "missing": true
+                }
+              ]
+            },
+            "instruction": "Repair only the invalid response structure using the same evidence. Preserve already valid global/inquiry verdicts; do not reassess them, change the standard, or seek a different semantic outcome. Copy already valid claim fields exactly from rejected_response, including claim text, observation, claim_location, relevance_reason, judgment, verdict_relevance and valid citation lists; preserve claim count/order wherever the claim structure is valid. Correct only fields identified as invalid by the reported errors. A status error does not authorize editing claims; depends_on fields are constraints to preserve, not repair targets. Do not paraphrase or clarify valid claim text or observations.",
+            "rejected_response": {
+              "claims": [
+                {
+                  "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+                  "claim_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:source:4",
+                    "product_1:source:5",
+                    "product_1:source:6",
+                    "product_1:source:7",
+                    "product_1:source:2"
+                  ],
+                  "claim_location": "Section 一 table; source:2 also confirms msg_705 is an unrelated admin notice",
+                  "evidence_refs": [
+                    "product_1:source:2",
+                    "product_1:source:4",
+                    "product_1:source:5",
+                    "product_1:source:6",
+                    "product_1:source:7"
+                  ],
+                  "observation": "Message bodies confirm 张伟/3200/INV-001, 李华/850/INV-002, 王明/5000/INV-003, 陈静/420/INV-004, matching the extraction. source:2 confirms these are the only reimbursement emails among the five inbox messages.",
+                  "judgment": "supported",
+                  "verdict_relevance": "material"
+                },
+                {
+                  "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+                  "claim_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:source:3"
+                  ],
+                  "claim_location": "Section 二 tables pairing 发票号 with 交易号",
+                  "evidence_refs": [
+                    "product_1:artifact:final_response",
+                    "product_1:source:3"
+                  ],
+                  "observation": "The report pairs each email invoice with a transaction by placing 发票号 and 交易号 in the same row, and finance descriptions contain the same INV-xxx numbers. The report does NOT explicitly state that invoi"
+                }
+              ],
+              "status": "fail",
+              "reason": "The deliverable presents reconciliation results but does not explicitly state the methodology/assumption disclosures required by this standard: the matching key (invoice number) is only implicit in the row structure, the status-anomaly rule is only implied by the pending comment (not stated as a definition), and no currency/unit assumption is recorded. source:2 and source:3 confirm the underlying data but do not cure these disclosures, which must be in the user-facing report.",
+              "gap": "Add a short methodology/assumptions note: matching is by invoice number (INV-xxx); a status anomaly means the finance transaction status is not 'completed' (e.g., pending/待审批); all amounts are in CNY/元; and note why TXN-705/TXN-706 were excluded as non-reimbursement.",
+              "evidence_refs": [
+                "task",
+                "product_1:artifact:final_response",
+                "product_1:source:2",
+                "product_1:source:3"
+              ],
+              "measurement_recovery": []
+            }
+          }
+        },
+        "requested_evidence_refs": [
+          "product_1:source:2",
+          "product_1:source:3"
+        ]
+      }
+    ]
+  },
+  "response_validation": {
+    "attempts": [
+      {
+        "response": {
+          "claims": [
+            {
+              "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:2",
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7"
+              ],
+              "claim_location": "Section 一 table",
+              "evidence_refs": [
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7"
+              ],
+              "observation": "The message bodies confirm 张伟/差旅费/3200/INV-001, 李华/办公用品/850/INV-002, 王明/外部培训费/5000/INV-003, 陈静/客户招待餐费/420/INV-004, matching the deliverable's extraction.",
+              "judgment": "supported",
+              "verdict_relevance": "material"
+            },
+            {
+              "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "claim_location": "Section 二 tables linking 发票号 to 交易号; conclusion says TXN-705/706 excluded as non-reimbursement",
+              "evidence_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "observation": "The report pairs each email invoice with a transaction by showing 发票号 and 交易号 in the same row. However, the report never explicitly states that INV-xxx was the key used or why TXN-705/TXN-706 were excluded, though the descriptions in source:3 appear to contain the same invoice numbers.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "This directly addresses the first subrequirement of the standard."
+            },
+            {
+              "claim": "The deliverable defines or exemplifies the rule used to classify a transaction as status-abnormal.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Section 二 status-anomaly table and note: 金额一致，但交易仍处于待审批状态，尚未完成，暂不可报销",
+              "evidence_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "observation": "The report labels TXN-703 pending as a status anomaly and explains 尚未完成，暂不可报销, which implies a rule that non-completed status is abnormal, but does not state the rule as an explicit definition or general criterion.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "The criterion asks whether the status-classification rule is stated or exemplified; an implied rule may or may not satisfy it, and the artifact does not articulate it."
+            },
+            {
+              "claim": "The deliverable states relevant unit/currency assumptions.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Amounts shown as 元 throughout; no statement of base currency or unit assumptions",
+              "evidence_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "observation": "The report uses 元 for every amount and the finance source shows currency CNY. Still, the deliverable does not state that CNY is the base currency or otherwise record the unit assumption.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "The criterion explicitly asks whether any relevant unit/currency assumption is stated."
+            },
+            {
+              "claim": "The report is otherwise internally consistent on counts and the amounts it reports.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Conclusion: 4笔报销中 2笔正常、1笔金额不符、1笔状态异常",
+              "evidence_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "observation": "The counts match the tables presented; this does not address methodology or assumption disclosure.",
+              "judgment": "supported",
+              "verdict_relevance": "advisory",
+              "relevance_reason": "Internal consistency helps usability but does not satisfy the assumption/methodology disclosure criterion."
+            }
+          ],
+          "status": "fail",
+          "reason": "The deliverable presents reconciliation results but does not explicitly state the matching key (invoice number), the status-anomaly definition, or unit/currency assumptions. The report's row structure implies invoice matching and its pending comment implies a status rule, but neither is stated as methodology or assumption, so a user cannot judge whether the reconciliation fits their situation.",
+          "gap": "Add a short methodology/assumptions note stating that matching is by invoice number (INV-xxx), that status abnormal means the finance transaction is not completed (e.g., pending), and that all amounts are CNY/元; optionally note why non-reimbursement transactions were excluded.",
+          "evidence_refs": [
+            "task",
+            "product_1:artifact:final_response",
+            "product_1:source:3"
+          ],
+          "measurement_recovery": []
+        },
+        "errors": {},
+        "pending_evidence": {
+          "global": [
+            "product_1:source:2",
+            "product_1:source:3"
+          ]
+        }
+      },
+      {
+        "response": {
+          "claims": [
+            {
+              "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7",
+                "product_1:source:2"
+              ],
+              "claim_location": "Section 一 table; source:2 also confirms msg_705 is an unrelated admin notice",
+              "evidence_refs": [
+                "product_1:source:2",
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7"
+              ],
+              "observation": "Message bodies confirm 张伟/3200/INV-001, 李华/850/INV-002, 王明/5000/INV-003, 陈静/420/INV-004, matching the extraction. source:2 confirms these are the only reimbursement emails among the five inbox messages.",
+              "judgment": "supported",
+              "verdict_relevance": "material"
+            },
+            {
+              "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "claim_location": "Section 二 tables pairing 发票号 with 交易号",
+              "evidence_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "observation": "The report pairs each email invoice with a transaction by placing 发票号 and 交易号 in the same row, and finance descriptions contain the same INV-xxx numbers. The report does NOT explicitly state that invoi"
+            }
+          ],
+          "status": "fail",
+          "reason": "The deliverable presents reconciliation results but does not explicitly state the methodology/assumption disclosures required by this standard: the matching key (invoice number) is only implicit in the row structure, the status-anomaly rule is only implied by the pending comment (not stated as a definition), and no currency/unit assumption is recorded. source:2 and source:3 confirm the underlying data but do not cure these disclosures, which must be in the user-facing report.",
+          "gap": "Add a short methodology/assumptions note: matching is by invoice number (INV-xxx); a status anomaly means the finance transaction status is not 'completed' (e.g., pending/待审批); all amounts are in CNY/元; and note why TXN-705/TXN-706 were excluded as non-reimbursement.",
+          "evidence_refs": [
+            "task",
+            "product_1:artifact:final_response",
+            "product_1:source:2",
+            "product_1:source:3"
+          ],
+          "measurement_recovery": []
+        },
+        "errors": {
+          "global": "claims[1].judgment: Invalid claim judgment"
+        },
+        "issues": [
+          {
+            "scope": "global",
+            "field": "claims[1].judgment",
+            "reason": "Invalid claim judgment",
+            "claim_index": 1,
+            "claim_field": "judgment",
+            "actual": null,
+            "missing": true
+          }
+        ]
+      },
+      {
+        "response": {
+          "claims": [
+            {
+              "claim": "The deliverable extracts four reimbursement requests with amounts and invoice numbers from the emails.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7",
+                "product_1:source:2"
+              ],
+              "claim_location": "Section 一 table; source:2 also confirms msg_705 is an unrelated admin notice",
+              "evidence_refs": [
+                "product_1:source:2",
+                "product_1:source:4",
+                "product_1:source:5",
+                "product_1:source:6",
+                "product_1:source:7"
+              ],
+              "observation": "Message bodies confirm 张伟/3200/INV-001, 李华/850/INV-002, 王明/5000/INV-003, 陈静/420/INV-004, matching the extraction. source:2 confirms these are the only reimbursement emails among the five inbox messages.",
+              "judgment": "supported",
+              "verdict_relevance": "material"
+            },
+            {
+              "claim": "The deliverable uses invoice number as the matching key between emails and finance transactions.",
+              "claim_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "claim_location": "Section 二 tables pairing 发票号 with 交易号",
+              "evidence_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "observation": "The report pairs each email invoice with a transaction by placing 发票号 and 交易号 in the same row, and finance descriptions contain the same INV-xxx numbers. The report does NOT explicitly state that invoice number was the matching key.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "This directly addresses the first subrequirement of the standard."
+            },
+            {
+              "claim": "The deliverable defines or exemplifies the rule used to classify a transaction as status-abnormal.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Section 二 status-anomaly table and note: 金额一致，但交易仍处于待审批状态，尚未完成，暂不可报销",
+              "evidence_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "observation": "The report labels TXN-703 pending as a status anomaly and explains 尚未完成，暂不可报销, which implies a rule that non-completed status is abnormal, but does not state the rule as an explicit definition or general criterion.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "The criterion asks whether the status-classification rule is stated or exemplified; an implied rule may or may not satisfy it, and the artifact does not articulate it."
+            },
+            {
+              "claim": "The deliverable states relevant unit/currency assumptions.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Amounts shown as 元 throughout; no statement of base currency or unit assumptions",
+              "evidence_refs": [
+                "product_1:artifact:final_response",
+                "product_1:source:3"
+              ],
+              "observation": "The report uses 元 for every amount and the finance source shows currency CNY. Still, the deliverable does not state that CNY is the base currency or otherwise record the unit assumption.",
+              "judgment": "unverified",
+              "verdict_relevance": "material",
+              "relevance_reason": "The criterion explicitly asks whether any relevant unit/currency assumption is stated."
+            },
+            {
+              "claim": "The report is otherwise internally consistent on counts and the amounts it reports.",
+              "claim_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "claim_location": "Conclusion: 4笔报销中 2笔正常、1笔金额不符、1笔状态异常",
+              "evidence_refs": [
+                "product_1:artifact:final_response"
+              ],
+              "observation": "The counts match the tables presented; this does not address methodology or assumption disclosure.",
+              "judgment": "supported",
+              "verdict_relevance": "advisory",
+              "relevance_reason": "Internal consistency helps usability but does not satisfy the assumption/methodology disclosure criterion."
+            }
+          ],
+          "status": "fail",
+          "reason": "The deliverable presents reconciliation results but does not explicitly state the matching key (invoice number), the status-anomaly definition, or unit/currency assumptions. The report's row structure implies invoice matching and its pending comment implies a status rule, but neither is stated as methodology or assumption, so a user cannot judge whether the reconciliation fits their situation.",
+          "gap": "Add a short methodology/assumptions note stating that matching is by invoice number (INV-xxx), that status abnormal means the finance transaction is not completed (e.g., pending), and that all amounts are CNY/元; optionally note why non-reimbursement transactions were excluded.",
+          "evidence_refs": [
+            "task",
+            "product_1:artifact:final_response",
+            "product_1:source:2",
+            "product_1:source:3"
+          ],
+          "measurement_recovery": []
+        },
+        "errors": {
+          "global": "Structure repair must preserve claim count and order"
+        },
+        "issues": [
+          {
+            "scope": "global",
+            "field": "claims",
+            "reason": "Structure repair must preserve claim count and order"
+          }
+        ]
+      }
+    ],
+    "selected_attempts": {}
+  }
+}
