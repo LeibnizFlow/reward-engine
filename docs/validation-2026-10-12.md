@@ -504,6 +504,63 @@ blocking issue was found within that review. It remains same-family/provisional,
 and the original strict audit is still independently required. Fresh native
 three-round validation remains pending; all previous FAIL reports are retained.
 
+The next real pair used frozen commit
+`33d39e0da135f1eceebbbabecc955c83c47ac3f6`. Claw v11 completed naturally with
+exit 0 and an original strict audit **PASS**: three fresh seeds, three completed
+rounds, nine native actors and native grades, nine full delivered-pack
+measurements, three Hypothesis proposals, and three validated same-session
+changed-artifact revision rounds. Jury, Builder, ranking/selection, and
+memory/checkpoint stages passed. This is real native pipeline evidence, separate
+from the controlled suite. The native scores still do not establish quality
+improvement or official leaderboard equivalence:
+
+| Claw round | A | B | C | Selected |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 0.916 | 1.000 | 0.916 | B |
+| 2 | 0.930 | 0.972 | 0.868 | C |
+| 3 | 0.916 | 0.972 | 0.868 | B |
+
+In particular, the second-round selection has a lower native score than both
+alternatives. All selections and grades are retained unchanged.
+
+WorkBuddy v9 completed its first round with all strict stages passing, including
+real B continuation and artifact changes. Its A/B/C native scores were
+0.9213/0.9475/0.9082, and B was selected. The second round failed construction
+measurement `language_format_usability_check`: a model-authored `unknown`
+correction was correctly retained in the next evidence-expansion request, but
+the model then returned `pass` while retaining an unverified claim with omitted
+relevance (which means material). Prose calling that claim nonmaterial did not
+satisfy the structured contract. The strict rejection and refusal of another
+repair were correct; no lost-correction or retry-accounting defect was found.
+The run was diagnostically stopped with observed exit 130. All 654 protected
+completed receipts remained unchanged, and only its three owned orphan actor
+containers were stopped, preserving their records.
+
+A prospective reminder now repeats the existing claim/status consistency rules
+after genuine preview expansion. It permits legitimate reassessment from new
+evidence, requires explicit criterion-specific advisory relevance, and does not
+prescribe a verdict, change acceptance, or increase any budget. The original
+three replies still fail in controlled replay. **3,035 full-suite tests passed**,
+zero skipped, with nine existing warnings in 275.68 seconds; all 300 captured
+source/config/fixture hashes remained unchanged
+(`full_tests_after_post_preview_consistency.{json,log}`). Independent review 015
+passed its bounded source and offline controls, with same-family/provisional
+acceptance. The new reminder's native reliability remains unproven. Claw v11's success belongs to the earlier
+frozen source; WorkBuddy v9 remains failed. Fresh validation of the changed
+shared request behavior is pending.
+
+Prospective reporting-helper review 014 passed its bounded controls, but the
+actual Claw terminal audit exposed an additional evidence-binding incompatibility:
+the original auditor lists directories and expected-absent failure markers as
+well as regular files. The initial command-receipt collector incorrectly assumed
+all entries were regular files and stopped; the PASS audit output was retained.
+Typed evidence binding was subsequently implemented and the frozen original
+Claw audit was rerun with observed exit 0 and the identical PASS output. Its
+236 file, 30 directory and 21 absent-path observations match before and after
+that fresh invocation. Independent review of this reporting follow-up is still
+pending; the original auditor remains unchanged. No native coverage has been exported or combined, and the
+Claw v11 / WorkBuddy v9 pair is ineligible for a successful paired terminal report.
+
 ## Local evidence
 
 - `runs/pipeline_validation_20261012/full_tests.json` and `.log`: first failed suite.

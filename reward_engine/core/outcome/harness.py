@@ -824,6 +824,18 @@ def defaults(semantic_call, *, tools=None):
                     claim_repair = None
                     correction_state = None
                     unwrap_state = None
+                    request["evidence_followup"] += (
+                        " After assessing the newly supplied evidence, return a full response whose "
+                        "status/reason/gap agree with its structured claims. Omitted verdict_relevance "
+                        "means material; calling a claim nonmaterial only in prose does not change "
+                        "that field. Any advisory assessment must explicitly declare "
+                        "verdict_relevance=advisory and a model-authored relevance_reason tied to "
+                        "THIS criterion. Do not change relevance just to obtain pass. New evidence "
+                        "may legitimately change judgment or relevance when supported; the prior "
+                        "provisional verdict is not fixed. Pass still requires all material claims "
+                        "to be supported. Keep the global verdict and any inquiry_result independent, "
+                        "each consistent with its own assessment."
+                    )
             if structure_repair and request.get("response_recovery"):
                 # ask retains the previous preview expansion in its outer request.
                 # This emitted retry repairs the latest rejected assessment, not
