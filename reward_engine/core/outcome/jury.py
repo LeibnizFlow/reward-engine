@@ -9,6 +9,7 @@ from reward_engine.core.outcome.context import (
     ask,
     require_refs,
     requirement_context,
+    used_previews,
 )
 from reward_engine.core.outcome.jury_drafts import (
     apply_part_decisions,
@@ -1611,18 +1612,31 @@ class _RankingRepair:
         self.context = context
         self.evidence = evidence
         self.attached = {}
+        self.unread = None
         self.preserved = None
 
     def __getattr__(self, name):
         return getattr(self.call, name)
 
     async def __call__(self, request):
+        if self.unread is None:
+            # Judge availability from the actual projected model context.
+            # Task, artifacts, checks and fully inlined sources are already
+            # observations; moving them into requested_evidence adds no facts.
+            self.unread = set(
+                used_previews(
+                    {"evidence_refs": list(self.evidence)}, request["context"]
+                )
+            )
         attached = request.get("requested_evidence", {})
-        if attached != self.attached:
-            # A source read can justify reassessment. Recovery metadata, syntax
-            # retries and evidence closure alone cannot reopen the preference.
+        newly_read = (set(attached) - set(self.attached)) & self.unread
+        if newly_read:
+            # Only expansion of a previously unread source can justify a new
+            # assessment. Reattaching inline data or rereading an opened source
+            # cannot reopen a preference during protocol repair.
             self.preserved = None
-            self.attached = deepcopy(attached)
+            self.unread.difference_update(newly_read)
+        self.attached = deepcopy(attached)
         return await self.call(request)
 
     def check_preserved(self, value):

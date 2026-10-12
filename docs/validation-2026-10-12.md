@@ -59,11 +59,20 @@ validation. No quality outcome triggered the interruption.
 
 Fixes now restrict preservation to evidence-complete verdicts, retain read
 failures, keep structural repair restrictions across syntax retries, and bind
-valid ranking partitions on unchanged evidence. The full regression suite now
-passes **2,526 tests**, with no skips and nine dependency warnings; source hashes
-were unchanged during execution. Independent follow-up is still pending. A new
-native attempt will follow that check; neither these fixes nor passing tests
-alone establish pipeline success.
+valid ranking partitions on unchanged evidence. The full regression suite then
+passed **2,526 tests**, with no skips and nine dependency warnings; source hashes
+were unchanged during execution. Independent follow-up closed the two
+measurement findings but reproduced another ranking path: reattaching an
+already-inline Task or artifact incorrectly unlocked its preference. That fix
+now distinguishes previously unread previews from data already supplied in the
+actual model request. Redundant Task, artifact, environment and inlined-source
+reads retain the lock; genuine unread-source expansion still allows reassessment.
+The final regression run passed **2,534 tests**, with no skips and nine dependency
+warnings. Independent follow-up 2 closed all four recorded findings for the
+tested hashes, provisionally and within that review scope. Both genuine
+unread-source positive controls continue to permit reassessment. New native
+attempts follow these checks; neither these fixes nor passing tests alone
+establish pipeline success.
 
 ## Local evidence
 
@@ -76,6 +85,12 @@ alone establish pipeline success.
   `auditor_probe_results_frozen.json`: original scripted counterexamples.
 - `runs/pipeline_validation_20261012/full_tests_after_integrity_fix.json` and
   `.log`: 2,526-test passing suite and exact source hashes.
+- `runs/pipeline_validation_20261012/source_integrity_followup_1.md` and `.json`:
+  measurement fixes accepted provisionally; redundant-read ranking bypass retained.
+- `runs/pipeline_validation_20261012/full_tests_after_ranking_read_fix.json` and
+  `.log`: 2,534-test passing suite and exact source hashes.
+- `runs/pipeline_validation_20261012/source_integrity_followup_2.md` and `.json`:
+  independent closure of the four recorded source findings; same-family/provisional.
 - Each v4 run's `diagnostic_stop.json` and `validation_status.json`: reason,
   observed output counts, and actual termination status.
 

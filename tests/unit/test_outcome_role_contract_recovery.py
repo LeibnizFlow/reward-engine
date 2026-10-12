@@ -409,6 +409,65 @@ async def test_newly_attached_evidence_allows_ranking_reassessment(roles, bounde
 
 
 @pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "task",
+        "product_1:artifact:final_response",
+        "product_1:environment",
+        "product_1:source:0",
+    ],
+)
+@pytest.mark.asyncio
+async def test_redundant_inline_read_cannot_unlock_ranking(roles, bounded, ref):
+    from reward_engine.core.outcome.context import inline_recent_sources
+
+    make, calls = roles
+    ctx, evidence = build_context(
+        {"task_id": "compare", "prompt": "Compare the supplied answers."},
+        [
+            {
+                "artifact": {"final_response": f"Answer {i}"},
+                "environment": {"observed": "already supplied"},
+                "source_documents": [{"text": "Source detail. " * 100}],
+            }
+            for i in range(2)
+        ],
+    )
+    # This long source would normally require a read, but the real runtime's
+    # inlining projection has already supplied it completely to the model.
+    ctx = inline_recent_sources(ctx, evidence)
+    assert ctx["products"][0]["sources"][0]["preview_only"] is False
+    original = {**ranking(), "groups": [["product_1"], ["product_2"]]}
+    invalid = deepcopy(original)
+    invalid["observations"][0].pop("reason")
+    changed = {**deepcopy(original), "groups": list(reversed(original["groups"]))}
+    count = 0
+
+    def reply(req):
+        nonlocal count
+        count += 1
+        if count == 1:
+            return deepcopy(invalid)
+        if count == 2:
+            return {"need_evidence": [ref]}
+        assert req["requested_evidence"][ref] == evidence[ref]
+        return deepcopy(changed)
+
+    with pytest.raises(ResponseContractError, match="already-valid ordering"):
+        await jury.rank(
+            ctx,
+            evidence,
+            {
+                str(i): make(f"member{i}", lambda _: ranking(), bounded=bounded)
+                for i in range(3)
+            },
+            make("chooser", reply, bounded=bounded),
+        )
+    assert count == (3 if bounded else 4)
+
+
+@pytest.mark.parametrize("bounded", [False, True])
 @pytest.mark.parametrize("unknown", [False, True])
 @pytest.mark.asyncio
 async def test_ranking_repair_allows_only_set_reordering_and_valid_replies_need_no_retry(
