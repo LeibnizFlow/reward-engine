@@ -557,9 +557,60 @@ all entries were regular files and stopped; the PASS audit output was retained.
 Typed evidence binding was subsequently implemented and the frozen original
 Claw audit was rerun with observed exit 0 and the identical PASS output. Its
 236 file, 30 directory and 21 absent-path observations match before and after
-that fresh invocation. Independent review of this reporting follow-up is still
-pending; the original auditor remains unchanged. No native coverage has been exported or combined, and the
+that fresh invocation. Independent review 016 passed the bounded reporting
+follow-up: 240 supplied controls and 28 independent cases, including the actual
+287-path report shape. Acceptance remains same-family/provisional; the original
+auditor remains unchanged. No native coverage has been exported or combined, and the
 Claw v11 / WorkBuddy v9 pair is ineligible for a successful paired terminal report.
+
+The next pair, Claw v12 / WorkBuddy v10, used frozen commit
+`bf85cddf1d16d658e82a86bb2ef2637e562c6a25` and failed on upstream HTTP 403
+responses, surfaced by the local role gateway as HTTP 502. WorkBuddy's Jury
+passed, but its first-round Builder call failed before any answer was retained;
+the driver exited 1 with zero completed rounds. Claw's original strict audit
+failed first-round construction measurements after eleven rejected role
+requests. It was diagnostically stopped with observed exit 130; all 680 protected
+completed receipt hashes remained unchanged. Neither run establishes full native
+pipeline success or the reminder's reliability.
+
+The original provider rejection bodies were not retained, so the narrower cause
+of those 403 responses is unknown. Same-model native requests with identical
+options and larger bodies also succeeded. Separate access diagnostics later
+returned 200 for a model-list request, a tiny generation request, and an exact
+replay of the rejected Builder request. The exact replay was closed after SSE
+headers without reading or using its response; this establishes request
+acceptance at that time, not completed generation or a valid answer. These
+diagnostics do not replace any native receipt. Fresh Claw v13 / WorkBuddy v11
+validation has started on the unchanged source, budgets and strict gates;
+the failed runs remain historical and ineligible.
+
+Claw v13 subsequently failed the strict first-round Jury gate: only two of three
+seats were usable. Its retained role transport includes GLM HTTP 401 and Qwen
+HTTP 403 responses. It was diagnostically stopped with observed exit 130 and
+243 protected completed receipts unchanged. A separate exact Qwen request
+diagnostic at 2026-10-12 15:43:15 UTC retained the provider's explicit error
+`pre_consume_token_quota_failed`: the token had about USD 0.312028 remaining,
+while that request required about USD 0.915600 in quota reservation. This
+confirms a current token-quota blocker; it does not retrospectively establish
+the cause of every earlier 403 or the GLM 401, whose rejection bodies are absent.
+The separate GLM replay received 200 headers and was closed without reading.
+
+WorkBuddy v11 was then diagnostically stopped for the confirmed shared quota
+blocker, with observed exit 130. Its last original strict audit was **pending**,
+with three seeds and zero completed rounds, actors or grades; it was not a
+completed strict FAIL or PASS. Its closed transport receipts also include
+DeepSeek and Qwen 403 responses. All 306 protected completed receipts remained
+unchanged. No native validation driver remains active. The user has been asked
+to replenish the token's available quota before further real validation;
+models, budgets, required Jury seats and acceptance rules have not been relaxed.
+
+A bounded read-only investigation of Claw v11's second-round choice reproduced
+C with the actual selector. Its Jury reducer preferred saved artifacts and
+traceability, whereas the native grader preferred B's anomaly analysis and
+actionable advice. All three arms passed the six pack checks, so the selector's
+check-regression veto did not exclude C. No host selection/mapping bug was
+reproduced. This is an observed assessment disagreement, not evidence of quality
+improvement; native grades remain excluded from learning and selection inputs.
 
 ## Local evidence
 
