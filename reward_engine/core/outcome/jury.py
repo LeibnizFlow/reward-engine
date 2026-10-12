@@ -627,21 +627,20 @@ async def _propose_once(
                     ]
                 },
                 extra={"prompt_version": protocol_version},
-                **(
-                    {
-                        "validate": lambda row: validate(
-                            row,
-                            blind_evidence,
-                            blind_context,
-                            clause_contract=clause_contract,
-                        ),
-                        "max_contract_retries": 1,
-                        "max_evidence_rounds": 2,
-                        "close_evidence": True,
-                    }
+                validate=lambda row: (
+                    validate(
+                        row,
+                        blind_evidence,
+                        blind_context,
+                        clause_contract=clause_contract,
+                    )
                     if strict
-                    else {}
+                    else keep_draft(row, blind_evidence, blind_context, validate)
                 ),
+                max_contract_retries=1,
+                max_syntax_retries=1,
+                max_evidence_rounds=2,
+                close_evidence=True,
             )
         )
         initial = keep_draft(
@@ -716,7 +715,7 @@ async def _propose_once(
                     clause_contract=clause_contract,
                 )
                 if strict
-                else row
+                else keep_draft(row, evidence, context, validate)
             )
 
         draft = await (ask_draft if clause_contract or revision_protocol else ask)(
@@ -748,17 +747,11 @@ async def _propose_once(
                     "draft_validation_issues", []
                 ),
             },
-            **({"validate": prepare_draft} if strict or revision_protocol else {}),
-            **({"max_contract_retries": 1} if revision_protocol and not strict else {}),
-            **(
-                {
-                    "max_contract_retries": 1,
-                    "max_evidence_rounds": 2,
-                    "close_evidence": True,
-                }
-                if strict
-                else {}
-            ),
+            validate=prepare_draft,
+            max_contract_retries=1,
+            max_syntax_retries=1,
+            max_evidence_rounds=2,
+            close_evidence=True,
         )
         if revision_protocol:
             try:
@@ -1532,31 +1525,81 @@ def reconcile_coverage(expectations, output):
 
 
 def validate_ranking(result, context, evidence):
+    """Report all binding defects together; the model owns any corrected ordering."""
+    if not isinstance(result, dict):
+        raise ResponseContractError("ranking", "Ranking must be a JSON object")
+    issues = []
+
+    def issue(field, reason):
+        issues.append({"field": field, "reason": reason})
+
     groups, unknown = result.get("groups"), result.get("unknown")
+    products = {p["product_id"] for p in context["products"]}
     if (
         not isinstance(groups, list)
         or not isinstance(unknown, list)
         or any(not isinstance(g, list) or not g for g in groups)
     ):
-        raise ValueError("Ranking needs nonempty tie groups and explicit unknown list")
-    ordered = [p for group in groups for p in group] + unknown
-    products = {p["product_id"] for p in context["products"]}
-    if len(ordered) != len(products) or set(ordered) != products:
-        raise ValueError("Ranking must account for each supplied product once")
-    observations = result.get("observations", [])
-    if (
-        len(observations) != len(products)
-        or {r["product_id"] for r in observations} != products
-    ):
-        raise ValueError("Ranking needs product-specific observations")
-    for row in observations:
-        refs = require_refs(row.get("evidence_refs"), evidence)
-        if not row.get("reason") or not any(
-            product_ref(r, row["product_id"], evidence) for r in refs
+        issue(
+            "groups/unknown",
+            "Ranking needs nonempty tie groups and explicit unknown list",
+        )
+    else:
+        ordered = [p for group in groups for p in group] + unknown
+        if (
+            any(not isinstance(p, str) for p in ordered)
+            or len(ordered) != len(products)
+            or set(ordered) != products
         ):
-            raise ValueError("Ranking must cite the actual product")
-    if not result.get("reason"):
-        raise ValueError("Ranking needs an evidence-based explanation")
+            issue(
+                "groups/unknown", "Ranking must account for each supplied product once"
+            )
+    observations = result.get("observations", [])
+    if not isinstance(observations, list) or any(
+        not isinstance(r, dict) for r in observations
+    ):
+        issue(
+            "observations",
+            "Ranking needs product-specific observations as a list of objects",
+        )
+    else:
+        ids = [r.get("product_id") for r in observations]
+        if (
+            any(not isinstance(p, str) for p in ids)
+            or len(ids) != len(products)
+            or set(ids) != products
+        ):
+            issue(
+                "observations",
+                "Ranking needs product-specific observations, one per supplied product",
+            )
+        for index, row in enumerate(observations):
+            field = f"observations[{index}]"
+            try:
+                refs = require_refs(row.get("evidence_refs"), evidence)
+            except (ValueError, TypeError) as error:
+                issue(field + ".evidence_refs", str(error))
+                continue
+            product = row.get("product_id")
+            if (
+                not isinstance(product, str)
+                or product not in products
+                or not isinstance(row.get("reason"), str)
+                or not row["reason"].strip()
+                or not any(product_ref(r, product, evidence) for r in refs)
+            ):
+                issue(
+                    field,
+                    "Ranking must cite the actual product and explain the observation",
+                )
+    if not isinstance(result.get("reason"), str) or not result["reason"].strip():
+        issue("reason", "Ranking needs an evidence-based explanation")
+    if issues:
+        error = ResponseContractError(
+            "ranking", "\n".join(f"{r['field']}: {r['reason']}" for r in issues)
+        )
+        error.details.update(issues=issues, product_ids=sorted(products))
+        raise error
     return result
 
 
@@ -1644,7 +1687,13 @@ async def rank(
         "requirements attached to EACH product; do not transfer undisclosed requirements between them. "
         "Ranking checks improvement/regression, never proves absolute completion. Shared defects "
         "remain defects even for the winner. If no meaningful difference is supported use tie; "
-        "if evidence is insufficient use unknown. No absolute scores."
+        "if evidence is insufficient use unknown. No absolute scores. Return top-level groups "
+        "as arrays of product IDs (one array per tie group), and unknown as an array. Account "
+        "for every supplied product exactly once across groups and unknown; include one "
+        "observation for EVERY product, including ties and unknowns. Cite exact available "
+        "evidence handles for that product. Do not infer check indices or use filesystem paths "
+        "as handles. A repair corrects the rejected contract against the same evidence; it "
+        "does not require changing a valid semantic preference or manufacturing certainty."
     )
 
     async def one(call):
@@ -1656,15 +1705,11 @@ async def rank(
                 evidence,
                 instruction,
                 schema,
-                **(
-                    {
-                        "validate": lambda value: validate_ranking(
-                            value, context, evidence
-                        )
-                    }
-                    if getattr(call, "bounded_stage", False)
-                    else {}
-                ),
+                validate=lambda value: validate_ranking(value, context, evidence),
+                max_contract_retries=1,
+                max_syntax_retries=1,
+                max_evidence_rounds=2,
+                close_evidence=True,
             ),
             context,
             evidence,
@@ -1718,15 +1763,11 @@ async def rank(
                 reduce_schema,
                 extra=extra,
                 max_bytes=reduce_max_bytes,
-                **(
-                    {
-                        "validate": lambda value: validate_ranking(
-                            value, context, evidence
-                        )
-                    }
-                    if getattr(reducer, "bounded_stage", False)
-                    else {}
-                ),
+                validate=lambda value: validate_ranking(value, context, evidence),
+                max_contract_retries=1,
+                max_syntax_retries=1,
+                max_evidence_rounds=2,
+                close_evidence=True,
             ),
             context,
             evidence,

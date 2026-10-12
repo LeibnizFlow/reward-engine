@@ -1807,7 +1807,12 @@ async def test_captured_scalar_inquiry_is_diagnosed_unless_requested(
     replay.bounded_stage = bounded
     measurement = await measure(pack, defaults(replay), context, evidence)
     row = measurement["results"][0]
-    assert len(calls) == 1  # Unsolicited metadata never buys another model call.
+    # Only explicitly requested inquiries on opted-in roles get one contract
+    # repair. Unsolicited metadata never buys another model call.
+    assert len(calls) == (2 if requested and bounded else 1)
+    if requested and bounded:
+        assert calls[1]["response_recovery"]["rejected_response"] == raw
+        assert row["response_validation"]["selected_attempts"] == {"global": 1}
     for key in ("status", "reason", "gap", "claims", "evidence_refs"):
         assert row[key] == capture["response"][key]
     assert (pack, context, evidence, raw) == frozen

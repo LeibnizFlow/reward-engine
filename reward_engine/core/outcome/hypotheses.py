@@ -15,7 +15,7 @@ from reward_engine.core.outcome.context import (
     require_refs,
 )
 
-PROMPT_VERSION = "outcome-hypothesis/2026-09-10-task-first-construction"
+PROMPT_VERSION = "outcome-hypothesis/2026-10-12-bounded-contract"
 
 TASK_FIRST = (
     "Task is the primary source of the desired outcome; the final Jury clarifies its quality goals. "
@@ -24,6 +24,13 @@ TASK_FIRST = (
     "consequential opportunity to improve complete, accurate, useful and sufficiently deep delivery "
     "of the actual Task. A missing or irrelevant knowledge pack does not erase the Task's goals. "
     "Do not prefer a tiny well-documented defect over a major missing Task outcome. "
+    "Use exact supplied evidence handles in evidence_refs, never filesystem paths, criterion IDs "
+    "or gap IDs. target_gap_ids contains only IDs in jury.gaps; use [] for new exploration. "
+    "A path mentioned inside a source is not itself an evidence handle. Request the existing "
+    "source handle if needed; do not invent repository paths or treat an unread source as support. "
+    "Do not request already supplied requested_evidence again. If evidence_access_closed is true, "
+    "return the final hypothesis with explicit uncertainty and verification actions using what "
+    "was supplied; do not manufacture a finding or a keep verdict to satisfy the budget. "
 )
 
 AUDIT = (
@@ -272,9 +279,10 @@ async def propose(
             SCHEMA,
             extra={"jury": jury},
             validate=lambda result: validate(result, evidence, jury),
-            max_contract_retries=int(rounds > 1),
-            max_evidence_rounds=2 if rounds > 1 else 1,
-            close_evidence=rounds > 1,
+            max_contract_retries=1,
+            max_syntax_retries=1,
+            max_evidence_rounds=2,
+            close_evidence=True,
         )
 
     batch = await collect_batch(
@@ -299,9 +307,7 @@ async def propose(
         }
     else:
         try:
-            output = await _reduce_prepared(
-                context, evidence, jury, reducer, good, contract_retry=rounds > 1
-            )
+            output = await _reduce_prepared(context, evidence, jury, reducer, good)
             completed = 1
             if rounds > 1:
                 record("construction/hypothesis/round_1/output", deepcopy(output))
@@ -350,9 +356,7 @@ async def reduce(context, evidence, jury, reducer, proposals):
     return await _reduce_prepared(context, evidence, jury, reducer, proposals)
 
 
-async def _reduce_prepared(
-    context, evidence, jury, reducer, proposals, *, contract_retry=False
-):
+async def _reduce_prepared(context, evidence, jury, reducer, proposals):
     """Reuse the same lossless question projection as Map; standalone reduce still prepares it."""
     return await ask(
         reducer,
@@ -376,9 +380,10 @@ async def _reduce_prepared(
         SCHEMA,
         extra={"jury": jury, "proposals": proposals},
         validate=lambda result: validate(result, evidence, jury),
-        max_contract_retries=int(contract_retry),
-        max_evidence_rounds=2 if contract_retry else 1,
-        close_evidence=contract_retry,
+        max_contract_retries=1,
+        max_syntax_retries=1,
+        max_evidence_rounds=2,
+        close_evidence=True,
     )
 
 

@@ -3,7 +3,7 @@
 import json
 from copy import deepcopy
 
-from reward_engine.core.outcome.context import require_refs
+from reward_engine.core.outcome.context import ResponseContractError, require_refs
 
 
 def selection_inputs(inputs):
@@ -436,7 +436,12 @@ def reduction_inputs(proposals):
 def keep_draft(raw, evidence, context, validator):
     rows = raw.get("criteria") if isinstance(raw, dict) else None
     if not isinstance(rows, list) or not 1 <= len(rows) <= 20:
-        raise ValueError("No substantive criterion proposal")
+        raise ResponseContractError(
+            "criteria",
+            "No substantive criterion proposal: return the exact top-level criteria field "
+            "as a list of 1..20 criterion objects, preserving the proposed requirements. "
+            "An assessment, score or differently named wrapper is not an Outcome definition.",
+        )
     rows = deepcopy(rows)
     for row in rows:
         if not isinstance(row, dict):
@@ -465,7 +470,12 @@ def keep_draft(raw, evidence, context, validator):
         and r["standard"].strip()
     ]
     if not usable:
-        raise ValueError("No substantive criterion proposal")
+        raise ResponseContractError(
+            "criteria",
+            "No substantive criterion proposal: each usable criterion needs nonempty standard "
+            "text or explicit clauses with nonempty text. Correct the supplied draft; do not "
+            "invent a requirement just to fill the schema.",
+        )
     draft = deepcopy(raw)
     draft["criteria"] = deepcopy(usable)
     if len(usable) != len(rows):

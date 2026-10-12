@@ -49,12 +49,23 @@ def prepare(args):
         model_concurrency=6,
         per_model_concurrency=6,
         quality_resampling=False,
+        role_bounded_stage=True,
+        role_stage_timeout_s=1800,
+        role_response_format="json_object",
     )
     if getattr(args, "role_thinking", "provider_default") == "disabled":
         config["role_request_options"] = {
             "thinking": {"type": "disabled"},
             "enable_thinking": False,
         }
+    config["validation_role_limits"] = {
+        "role_stream_timeout_s": 1800,
+        "role_max_tokens": {
+            role: 131072 if role == "jury_reducer" else 65536
+            for role in config["roles"]
+            if role != "actor"
+        },
+    }
     config["identity"] = digest({k: v for k, v in config.items() if k != "identity"})
     code = Path(config["code"])
     shutil.copy2(Path(__file__), code / "experiments/validate_pipeline.py")
@@ -71,13 +82,7 @@ def prepare(args):
     write(output / "manifest.json", manifest)
     write(
         output / "role_limits.json",
-        {
-            "role_max_tokens": {
-                role: 131072 if role == "jury_reducer" else 32768
-                for role in config["roles"]
-                if role != "actor"
-            }
-        },
+        config["validation_role_limits"],
     )
     write(
         output / "validation_protocol.json",
@@ -87,6 +92,17 @@ def prepare(args):
             "native_grading": "Separate from learning inputs; all nine arm outputs",
             "historical_samples_reused": False,
             "quality_resampling": False,
+            "role_protocol": {
+                "bounded_stage": True,
+                "response_format": "json_object",
+                "contract_repairs_per_stage": 1,
+                "syntax_repairs_per_stage": 1,
+                "evidence_expansion_rounds": 2,
+                "stage_timeout_s": 1800,
+                "output_tokens": 65536,
+                "reducer_output_tokens": 131072,
+                "repair_scope": "Same operation and evidence; structural correction only",
+            },
             "optional_paths": "Require complementary tests; not implied by this run",
         },
     )
@@ -95,6 +111,11 @@ def prepare(args):
 
 async def run(config):
     root = Path(config["output"])
+    if (
+        "validation_role_limits" in config
+        and read(root / "role_limits.json") != config["validation_role_limits"]
+    ):
+        raise ValueError("Validation role limits changed after preparation")
     servers = [
         uvicorn.Server(
             uvicorn.Config(

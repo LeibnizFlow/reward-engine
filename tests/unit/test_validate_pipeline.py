@@ -112,6 +112,10 @@ def test_prepare_rebinds_validation_settings_and_freezes_driver(frozen):
     assert config["validation_task_id"] == "task"
     assert config["task_ids"] == ["task"]
     assert config["quality_resampling"] is False
+    assert config["role_bounded_stage"] is True
+    assert config["role_response_format"] == "json_object"
+    assert config["role_stage_timeout_s"] == 1800
+    assert read(frozen.output / "role_limits.json") == config["validation_role_limits"]
     assert config["roles"] == frozen.original["roles"]
     assert config["identity"] != frozen.original["identity"]
     assert config["identity"] == digest(
@@ -140,12 +144,13 @@ def test_prepare_rebinds_validation_settings_and_freezes_driver(frozen):
     assert protocol["full_harness_audit"] is True
     assert protocol["historical_samples_reused"] is False
     assert protocol["quality_resampling"] is False
+    assert protocol["role_protocol"]["contract_repairs_per_stage"] == 1
     frozen.verify(config)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "tamper", ["rounds", "full_audit", "validation_task_id", "code"]
+    "tamper", ["rounds", "full_audit", "validation_task_id", "code", "role_limits"]
 )
 async def test_changed_frozen_inputs_are_rejected_before_dispatch(
     frozen, offline_runner, tamper
@@ -155,6 +160,8 @@ async def test_changed_frozen_inputs_are_rejected_before_dispatch(
         (Path(config["code"]) / "experiments/validate_pipeline.py").write_text(
             "changed"
         )
+    elif tamper == "role_limits":
+        write(frozen.output / "role_limits.json", {"role_max_tokens": {}})
     else:
         config[tamper] = {
             "rounds": 1,

@@ -1,7 +1,7 @@
 """Jury proposal prompts; version travels with requests and replay checkpoints."""
 
-PROMPT_VERSION = "outcome-jury/2026-09-12-outcome-priority"
-CONSTRUCTION_PROMPT_VERSION = "outcome-jury/2026-09-12-three-round-outcome-priority"
+PROMPT_VERSION = "outcome-jury/2026-10-12-bounded-contract"
+CONSTRUCTION_PROMPT_VERSION = "outcome-jury/2026-10-12-three-round-bounded-contract"
 
 OUTCOME_VALUE_INSTRUCTION = (
     " Organize standards around the main requested results and their relative importance. Preserve "
@@ -47,7 +47,9 @@ OUTCOME_EXPECTATIONS_PROMPT = (
     "missing, name the source/question to investigate in measurement_question. List important "
     "distinct subrequirements explicitly, so later synthesis cannot silently replace them with one "
     "broad label. No exhaustive quota or new hard user obligations. No product observations, gaps, "
-    "ranking or absolute score in this phase."
+    "ranking or absolute score in this phase. Return the exact top-level criteria list in the "
+    "response contract; do not substitute an assessment report or rename its fields. Use exact "
+    "supplied evidence handles, not paths or invented citations."
 )
 
 OUTCOME_JURY_MAP_PROMPT = (
@@ -63,7 +65,10 @@ OUTCOME_JURY_MAP_PROMPT = (
     "Inspect actual user amendments and environment state, not just prose. Domain experience may "
     "propose a testable suspicion but cannot create a hard obligation. check_supported requires an "
     "existing failed check; otherwise needs_check. Never invent a gap to fill a quota. No absolute "
-    "total score."
+    "total score. Return the exact top-level criteria list in the response contract, not an "
+    "assessment of pass/fail or scores. Cite exact supplied evidence handles; check indices and "
+    "source paths must not be guessed into references. Avoid reprinting product content or whole "
+    "prior drafts; preserve distinct requirements and cite their existing evidence handles."
 )
 
 OUTCOME_JURY_REDUCE_PROMPT = (

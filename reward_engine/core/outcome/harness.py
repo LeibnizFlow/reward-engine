@@ -433,6 +433,8 @@ def defaults(semantic_call, *, tools=None):
         context = measurement_prior_view(context, evidence, test)
         receipts = {}
         model_requests = 0
+        validation_attempts, validated_parts, selected_attempts = [], {}, {}
+        requested_inquiry = bool(context.get("measurement_inquiry"))
 
         def charged_tools():
             # A probe rejected before execution (bad refs/paths, oversized input)
@@ -468,6 +470,18 @@ def defaults(semantic_call, *, tools=None):
 
         async def tool_call(request):
             nonlocal model_requests
+            structure_repair = bool(
+                request.get("response_recovery", {})
+                .get("details", {})
+                .get("invalid_fields")
+            )
+            if request.get("evidence_followup") and not request.get(
+                "response_recovery"
+            ):
+                # A preview verdict is provisional: expanded evidence requires
+                # fresh validation. Only structure repair retains a counterpart.
+                validated_parts.clear()
+                selected_attempts.clear()
             # Two measurement waves at most, then a final evidence-grounded verdict.
             # A failed or rejected probe needs one correction wave before the
             # final verdict; capping at one wave would drop that recovery.
@@ -486,8 +500,39 @@ def defaults(semantic_call, *, tools=None):
                     "from existing evidence; return unknown for any material fact that still needs an "
                     "unperformed measurement.",
                 }
+                if structure_repair:
+                    request["measurement_budget"].update(
+                        remaining_tool_calls=0,
+                        max_calls_per_wave=0,
+                        remaining_tool_waves=0,
+                        final_verdict_required=True,
+                    )
                 model_requests += 1
-                result = await semantic_call(deepcopy(request))
+                try:
+                    result = await semantic_call(deepcopy(request))
+                except Exception as error:
+                    validation_attempts.append(
+                        {
+                            "error_type": type(error).__name__,
+                            "diagnostic": str(error)[:400],
+                            **(
+                                {"raw_response": error.doc}
+                                if isinstance(error, json.JSONDecodeError)
+                                else {}
+                            ),
+                        }
+                    )
+                    raise
+                if (
+                    structure_repair
+                    and isinstance(result, dict)
+                    and ("need_tools" in result or "need_evidence" in result)
+                ):
+                    reason = "Structure repair must use existing evidence, not new measurements/reads"
+                    validation_attempts.append(
+                        {"response": deepcopy(result), "errors": {"repair": reason}}
+                    )
+                    raise ResponseContractError("response", reason)
                 if not isinstance(result, dict) or "need_tools" not in result:
                     return result
                 if wave == 2:
@@ -555,8 +600,19 @@ def defaults(semantic_call, *, tools=None):
                     "diagnostic": str(error)[:400],
                     "claims": [],
                 }
+            except Exception as error:
+                if not requested_inquiry or not validated_parts:
+                    raise
+                # A failed repair call cannot erase an independently validated
+                # counterpart. Preserve the failure; do not retry transport here.
+                return {
+                    **unknown("Measurement structure repair unavailable", error=True),
+                    "diagnostic": str(error)[:400],
+                    "failure_layer": failure_layer(error),
+                    "claims": [],
+                }
 
-        def validate_reply(row):
+        def validate_global(row):
             # Validate the whole final verdict inside the bounded retry, not
             # just its claim audit. Otherwise a well-explained `partial` or a
             # missing reason escapes repair and is discarded by Registry.run.
@@ -570,6 +626,67 @@ def defaults(semantic_call, *, tools=None):
                     "Known check results need observed product evidence, not just the Task"
                 )
             return row
+
+        def validate_inquiry(row):
+            if not isinstance(row, dict):
+                raise ValueError("Requested inquiry_result must be a verdict object")
+            row = validate_result(deepcopy(row), evidence)
+            if row["status"] != "unknown" and not has_product_evidence(
+                row["evidence_refs"], evidence, receipts
+            ):
+                raise ValueError("An inquiry conclusion needs actual product evidence")
+            return row
+
+        def validate_reply(row):
+            errors = {}
+            candidates = {}
+            global_row = (
+                {k: v for k, v in row.items() if k != "inquiry_result"}
+                if requested_inquiry
+                else row
+            )
+            parts = [("global", global_row, validate_global)]
+            if requested_inquiry:
+                local = row.get("inquiry_result")
+                if "inquiry_result" not in row and not getattr(
+                    semantic_call, "bounded_stage", False
+                ):
+                    # Legacy roles never promised the separate reply contract.
+                    # An omitted answer remains unresolved and eligible for
+                    # review feedback/retesting, not an execution failure.
+                    local = unknown(
+                        "Specific inquiry was not explicitly answered; the rubric verdict is separate"
+                    )
+                parts.append(("inquiry", local, validate_inquiry))
+            for scope, value, validator in parts:
+                try:
+                    candidates[scope] = validator(deepcopy(value))
+                except (ValueError, TypeError, KeyError, AttributeError) as error:
+                    errors[scope] = str(error)[:400]
+            validation_attempts.append({"response": deepcopy(row), "errors": errors})
+            for scope, value in candidates.items():
+                if scope not in validated_parts:
+                    validated_parts[scope] = deepcopy(value)
+                    selected_attempts[scope] = len(validation_attempts)
+            missing = {
+                scope: reason
+                for scope, reason in errors.items()
+                if scope not in validated_parts
+            }
+            if missing:
+                error = ResponseContractError("response", str(missing))
+                error.details["invalid_fields"] = missing
+                error.details["preserved_fields"] = list(validated_parts)
+                error.recovery_instruction = (
+                    "Repair only the invalid response structure using the same evidence. "
+                    "Preserve already valid global/inquiry verdicts; do not reassess them, "
+                    "change the standard, or seek a different semantic outcome."
+                )
+                raise error
+            result = deepcopy(validated_parts["global"])
+            if requested_inquiry:
+                result["inquiry_result"] = deepcopy(validated_parts["inquiry"])
+            return result
 
         result = await ask_with_receipts(
             MeasurementCall(),
@@ -675,8 +792,7 @@ def defaults(semantic_call, *, tools=None):
             verify_used_previews=True,
             **(
                 {"validate": validate_reply}
-                if getattr(semantic_call, "bounded_stage", False)
-                and not context.get("measurement_inquiry")
+                if getattr(semantic_call, "bounded_stage", False) or requested_inquiry
                 else {}
             ),
         )
@@ -684,21 +800,24 @@ def defaults(semantic_call, *, tools=None):
         # audit must not erase a well-formed, evidenced local correction (or vice versa).
         inquiry_result = None
         inquiry_diagnostic = None
-        if context.get("measurement_inquiry"):
+        if requested_inquiry:
+            if "global" in validated_parts:
+                result = deepcopy(validated_parts["global"])
             try:
-                inquiry_result = validate_result(
-                    result.get("inquiry_result")
-                    or unknown(
-                        "Specific inquiry was not explicitly answered; the rubric verdict is separate"
-                    ),
-                    evidence,
-                )
-                if inquiry_result["status"] != "unknown" and not has_product_evidence(
-                    inquiry_result["evidence_refs"], evidence, receipts
-                ):
-                    raise ValueError(
-                        "An inquiry conclusion needs actual product evidence"
+                if "inquiry" in validated_parts:
+                    inquiry_result = deepcopy(validated_parts["inquiry"])
+                else:
+                    rejected = next(
+                        (
+                            attempt["errors"]["inquiry"]
+                            for attempt in reversed(validation_attempts)
+                            if "inquiry" in attempt.get("errors", {})
+                        ),
+                        None,
                     )
+                    if rejected:
+                        raise ValueError(rejected)
+                    inquiry_result = validate_inquiry(result.get("inquiry_result"))
             except (ValueError, TypeError, AttributeError) as error:
                 inquiry_result = {
                     **unknown("Specific inquiry validation failed", error=True),
@@ -727,6 +846,14 @@ def defaults(semantic_call, *, tools=None):
             result["inquiry_result"] = inquiry_result
         if inquiry_diagnostic is not None:
             result["inquiry_result_diagnostic"] = inquiry_diagnostic
+        if any(
+            attempt.get("errors") or attempt.get("error_type")
+            for attempt in validation_attempts
+        ):
+            result["response_validation"] = {
+                "attempts": deepcopy(validation_attempts),
+                "selected_attempts": deepcopy(selected_attempts),
+            }
         # Never trust model-authored receipts; overwrite with executed observations.
         result["tool_observations"] = deepcopy(receipts)
         result["execution_usage"] = {

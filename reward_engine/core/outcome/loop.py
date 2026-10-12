@@ -231,7 +231,8 @@ async def run_task(
         prefix = f"round_{number}"
 
         def save(name, data, prefix=prefix):
-            record(prefix + "/" + name, data)
+            # A retaining recorder must see the same snapshot as a JSON writer.
+            record(prefix + "/" + name, deepcopy(data))
 
         context, evidence = build_context(
             task, pool, skills=skills, checks=prior_checks
@@ -514,6 +515,9 @@ async def run_task(
                     if (spec["delivery_review"] or spec["policy_critic"])
                     else None,
                 )
+                # Native reviews may expose live Memory.rows/history. Detach at
+                # delivery time so later rounds cannot rewrite this receipt.
+                row = deepcopy(row)
                 row["hypothesis_applied"] = spec["hypothesis"] and has_hypothesis(
                     method
                 )
@@ -785,7 +789,7 @@ async def run_task(
                 }
             ),
         )
-        results.append(summary)
+        results.append(deepcopy(summary))
         if decision["decision"] != "continue":
             break  # Default one round. Grader scores cannot authorize another round.
     final = {
@@ -802,7 +806,7 @@ async def run_task(
         else {},
         "selected_delivery": results[-1]["selection"] if results else None,
         "official_evaluation": "separate_from_outcome_estimator",
-        "memory": memory.rows,
+        "memory": deepcopy(memory.rows),
         "round_policy": "one_round_unless_jury_new_gap"
         if continuation_policy == "jury_new_gap"
         else "fixed_rounds",
@@ -812,7 +816,7 @@ async def run_task(
     }
     if construction_failure:
         final["construction_failure"] = construction_failure
-    record("result.private", final)
+    record("result.private", deepcopy(final))
     return final
 
 

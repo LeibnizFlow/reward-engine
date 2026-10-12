@@ -7,6 +7,47 @@ from reward_engine.adapters.claw_eval.reply_format import decode_completed_reply
 from reward_engine.core.shared.provider_reply import json_answer_text
 
 
+def is_usage_terminal_repeat(previous, event):
+    """Recognize the captured empty terminal replay, not a second answer.
+
+    Qwen's usage trailer repeats the complete terminal choice and adds usage
+    details (and a null service_tier). Require an identified completion and
+    otherwise identical metadata; callers retain both original events.
+    """
+    if not previous.get("id") or not previous.get("model"):
+        return False
+    if not isinstance(event.get("usage"), dict) or not event["usage"]:
+        return False
+    choices = previous.get("choices", [])
+    if len(choices) != 1 or choices != event.get("choices"):
+        return False
+    choice = choices[0]
+    if choice.get("finish_reason") not in {"stop", "tool_calls"}:
+        return False
+    delta = choice.get("delta", {})
+    if not isinstance(delta, dict) or set(delta) - {
+        "content",
+        "reasoning_content",
+        "role",
+        "tool_calls",
+    }:
+        return False
+    if any(
+        delta.get(key) not in (None, "")
+        for key in ("content", "reasoning_content", "tool_calls")
+    ) or delta.get("role") not in (None, "assistant"):
+        return False
+
+    def identity(value):
+        return {
+            key: item
+            for key, item in value.items()
+            if key != "usage" and not (key == "service_tier" and item is None)
+        }
+
+    return identity(previous) == identity(event)
+
+
 def _strict_json(text):
     """Reject ambiguous keys at every depth, including inside argument arrays."""
 
@@ -26,11 +67,11 @@ def _strict_json(text):
     )
 
 
-def _strict_completed_reply(text):
+def _strict_completed_reply(text, *, response_format=None):
     # The shared decoder defines the allowed presentation repairs, but its
     # decoded dict has already lost duplicate keys. Reapply ONLY its recorded
     # syntax edit to the original text and strictly parse that source instead.
-    _, notes = decode_completed_reply(text)
+    _, notes = decode_completed_reply(text, response_format=response_format)
     if notes == [{"operation": "unwrap_complete_json_presentation"}]:
         fence = re.fullmatch(r"(?::\s*)?```(?:json)?[ \t]*\n([\s\S]+)", text.strip())
         body = fence.group(1).strip()
@@ -45,6 +86,8 @@ def _strict_completed_reply(text):
         operation, offset = note["operation"], note.get("offset")
         if operation == "remove_duplicate_root_closing_brace":
             source = source[:offset]
+        elif operation == "remove_echoed_response_format":
+            source = source[offset:].strip()
         elif operation == "remove_one_trailing_comma":
             source = source[:offset] + source[offset + 1 :]
         elif operation in {
@@ -171,7 +214,7 @@ def decode_native_tool_reply(request, chunks, *, content, finish_reason):
     ]
 
 
-def decode_role_reply(text):
+def _decode_role_reply(text, *, response_format=None):
     """Never repair verdict values, references, tool arguments, or incomplete arrays."""
     raw = text.strip()
     if raw.startswith("{") and raw.endswith("\n```"):
@@ -183,7 +226,7 @@ def decode_role_reply(text):
             {"operation": "remove_trailing_json_fence", "offset": len(raw) - 3}
         ]
     try:
-        return _strict_completed_reply(text)
+        return _strict_completed_reply(text, response_format=response_format)
     except json.JSONDecodeError:
         match = re.fullmatch(
             r"\{\s*(need_tools|need_evidence)\s*:\s*(\[.*\])\s*\}", text.strip(), re.S
@@ -196,3 +239,17 @@ def decode_role_reply(text):
         return {match.group(1): values}, [
             {"operation": "quote_protocol_request_key", "key": match.group(1)}
         ]
+
+
+def decode_role_reply(text, *, response_format=None):
+    """Keep rejected raw text intact for the core's bounded syntax retry."""
+    try:
+        return _decode_role_reply(text, response_format=response_format)
+    except json.JSONDecodeError as error:
+        # A failed presentation repair can raise on an edited substring or an
+        # appended brace. Neither is the actual rejected provider response.
+        if error.doc != text:
+            raise json.JSONDecodeError(
+                error.msg, text, min(error.pos, len(text))
+            ) from error
+        raise
