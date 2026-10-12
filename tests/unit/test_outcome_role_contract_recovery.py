@@ -181,6 +181,271 @@ async def test_persistent_bad_ranking_never_becomes_ties_or_unknown(roles):
 
 
 @pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("phase", ["map", "reduce"])
+@pytest.mark.parametrize(
+    "groups,unknown,changed_groups,changed_unknown",
+    [
+        ([["product_1"], ["product_2"]], [], [["product_2"], ["product_1"]], []),
+        ([["product_1", "product_2"]], [], [["product_1"], ["product_2"]], []),
+        ([["product_1"], ["product_2"]], [], [["product_1", "product_2"]], []),
+        ([["product_1"]], ["product_2"], [["product_2"]], ["product_1"]),
+        ([], ["product_1", "product_2"], [["product_1", "product_2"]], []),
+    ],
+    ids=["reverse", "split-tie", "merge-tie", "swap-unknown", "remove-unknown"],
+)
+@pytest.mark.asyncio
+async def test_ranking_repair_rejects_unrelated_preference_changes(
+    roles, bounded, phase, groups, unknown, changed_groups, changed_unknown
+):
+    make, calls = roles
+    ctx, evidence = context()
+    original = {**ranking(), "groups": groups, "unknown": unknown}
+    invalid = deepcopy(original)
+    invalid["observations"][0].pop("reason")
+    changed = {
+        **deepcopy(original),
+        "groups": changed_groups,
+        "unknown": changed_unknown,
+    }
+    before = deepcopy((original, invalid, changed))
+    records = {}
+
+    def reply(req):
+        if req["mode"] != f"outcome_ranking_{phase}":
+            return deepcopy(original)
+        if "response_recovery" not in req:
+            return deepcopy(invalid)
+        recovery = req["response_recovery"]
+        assert recovery["rejected_response"] == invalid
+        assert recovery["details"]["preserved_ranking"] == {
+            "groups": groups,
+            "unknown": unknown,
+        }
+        return deepcopy(changed)
+
+    members = {str(i): make(f"member{i}", reply, bounded=bounded) for i in range(3)}
+    call = jury.rank(
+        ctx,
+        evidence,
+        members,
+        make("chooser", reply, bounded=bounded),
+        record=records.__setitem__,
+    )
+    if phase == "reduce":
+        with pytest.raises(
+            ResponseContractError, match="already-valid ordering"
+        ) as exc:
+            await call
+        assert exc.value.rejected_response == changed
+        assert "ranking" not in records  # No repaired or original verdict published.
+        assert records["ranking_map"]["succeeded"] == 3
+    else:
+        result = await call
+        assert result["status"] == "unavailable" and "groups" not in result
+        assert records["ranking_map"]["succeeded"] == 0
+        assert not any(name == "chooser" for name, _ in calls)
+    for name in {name for name, _ in calls}:
+        attempts = [req for model, req in calls if model == name]
+        if attempts[0]["mode"] == f"outcome_ranking_{phase}":
+            assert len(attempts) == 2
+            assert attempts[0] == {
+                k: v for k, v in attempts[1].items() if k != "response_recovery"
+            }
+    assert (original, invalid, changed) == before
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("defect", ["observation", "references", "reason"])
+@pytest.mark.asyncio
+async def test_ranking_repairs_other_fields_without_changing_preference(
+    roles, bounded, defect
+):
+    make, calls = roles
+    ctx, evidence = context()
+    original = {**ranking(), "groups": [["product_1"]], "unknown": ["product_2"]}
+    invalid = deepcopy(original)
+    if defect == "observation":
+        invalid["observations"].pop()
+    elif defect == "references":
+        invalid["observations"][0]["evidence_refs"] = ["check:0:10"]
+    else:
+        invalid.pop("reason")
+
+    def reply(req):
+        return deepcopy(original if "response_recovery" in req else invalid)
+
+    result = await jury.rank(
+        ctx,
+        evidence,
+        {str(i): make(f"member{i}", reply, bounded=bounded) for i in range(3)},
+        make("chooser", reply, bounded=bounded),
+    )
+    assert result == {**original, "status": "compared"}
+    assert Counter(name for name, _ in calls) == {
+        name: 2 for name in ("member0", "member1", "member2", "chooser")
+    }
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("defect", ["missing", "empty", "duplicate", "unknown"])
+@pytest.mark.asyncio
+async def test_invalid_ranking_partition_can_be_corrected(roles, bounded, defect):
+    make, calls = roles
+    ctx, evidence = context()
+    original = {**ranking(), "groups": [["product_2"], ["product_1"]]}
+    invalid = deepcopy(original)
+    if defect == "missing":
+        invalid.pop("groups")
+    elif defect == "empty":
+        invalid["groups"] = []
+    elif defect == "duplicate":
+        invalid["groups"] = [["product_1"], ["product_1"]]
+    else:
+        invalid["unknown"] = ["product_1"]
+
+    def reply(req):
+        if "response_recovery" in req:
+            assert "preserved_ranking" not in req["response_recovery"]["details"]
+            return deepcopy(original)
+        return deepcopy(invalid)
+
+    result = await jury.rank(
+        ctx,
+        evidence,
+        {str(i): make(f"member{i}", reply, bounded=bounded) for i in range(3)},
+        make("chooser", reply, bounded=bounded),
+    )
+    assert result == {**original, "status": "compared"}
+    assert len(calls) == 8
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("syntax_retry", [False, True])
+@pytest.mark.asyncio
+async def test_ranking_preservation_survives_syntax_retry_and_evidence_closure(
+    roles, bounded, syntax_retry
+):
+    make, calls = roles
+    ctx, evidence = context()
+    original = {**ranking(), "groups": [["product_1"], ["product_2"]]}
+    invalid = deepcopy(original)
+    invalid["observations"][0].pop("reason")
+    changed = {**deepcopy(original), "groups": list(reversed(original["groups"]))}
+    count = 0
+
+    def reply(req):
+        nonlocal count
+        count += 1
+        if syntax_retry:
+            return [invalid, '{"groups":', changed][count - 1]
+        # A repeated read closes evidence access without supplying new facts.
+        if count in (1, 3):
+            return {"need_evidence": ["task"]}
+        if count == 2:
+            return deepcopy(invalid)
+        assert req["evidence_access_closed"]
+        return deepcopy(changed)
+
+    with pytest.raises(ResponseContractError, match="already-valid ordering"):
+        await jury.rank(
+            ctx,
+            evidence,
+            {
+                str(i): make(f"member{i}", lambda _: ranking(), bounded=bounded)
+                for i in range(3)
+            },
+            make("chooser", reply, bounded=bounded),
+        )
+    # Plain ask can use its existing per-evidence-stage allowance; bounded
+    # Roles retain their single contract repair across the whole operation.
+    assert count == (3 if syntax_retry else 4 if bounded else 5)
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.asyncio
+async def test_newly_attached_evidence_allows_ranking_reassessment(roles, bounded):
+    make, calls = roles
+    ctx, evidence = build_context(
+        {"task_id": "compare", "prompt": "Compare against the full source."},
+        [
+            {
+                "artifact": {"final_response": f"Answer {i}"},
+                "source_documents": [{"text": "Source detail. " * 100}],
+            }
+            for i in range(2)
+        ],
+    )
+    original = {**ranking(), "groups": [["product_1"], ["product_2"]]}
+    invalid = deepcopy(original)
+    invalid["observations"][0].pop("reason")
+    changed = {**deepcopy(original), "groups": list(reversed(original["groups"]))}
+    count = 0
+
+    def reply(req):
+        nonlocal count
+        count += 1
+        if count == 1:
+            return deepcopy(invalid)
+        if count == 2:
+            return {"need_evidence": ["product_1:source:0"]}
+        assert (
+            req["requested_evidence"]["product_1:source:0"]
+            == evidence["product_1:source:0"]
+        )
+        assert "response_recovery" not in req
+        return deepcopy(changed)
+
+    result = await jury.rank(
+        ctx,
+        evidence,
+        {
+            str(i): make(f"member{i}", lambda _: ranking(), bounded=bounded)
+            for i in range(3)
+        },
+        make("chooser", reply, bounded=bounded),
+    )
+    assert result == {**changed, "status": "compared"}
+    assert count == 3
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("unknown", [False, True])
+@pytest.mark.asyncio
+async def test_ranking_repair_allows_only_set_reordering_and_valid_replies_need_no_retry(
+    roles, bounded, unknown
+):
+    make, calls = roles
+    ctx, evidence = context()
+    original = ranking()
+    if unknown:
+        original.update(groups=[], unknown=["product_1", "product_2"])
+    invalid = deepcopy(original)
+    invalid.pop("reason")
+    changed = deepcopy(original)
+    (changed["unknown"] if unknown else changed["groups"][0]).reverse()
+
+    def reply(req):
+        return deepcopy(changed if "response_recovery" in req else invalid)
+
+    result = await jury.rank(
+        ctx,
+        evidence,
+        {
+            str(i): make(f"member{i}", lambda _: deepcopy(original), bounded=bounded)
+            for i in range(3)
+        },
+        make("chooser", reply, bounded=bounded),
+    )
+    assert result == {**changed, "status": "compared"}
+    assert Counter(name for name, _ in calls) == {
+        "member0": 1,
+        "member1": 1,
+        "member2": 1,
+        "chooser": 2,
+    }
+
+
+@pytest.mark.parametrize("bounded", [False, True])
 @pytest.mark.parametrize("phase", ["outcome_expectations", "outcome_jury_map"])
 @pytest.mark.asyncio
 async def test_jury_corrects_completed_syntax_and_wrong_draft_shape(

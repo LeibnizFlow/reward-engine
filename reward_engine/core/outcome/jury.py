@@ -1525,7 +1525,7 @@ def reconcile_coverage(expectations, output):
 
 
 def validate_ranking(result, context, evidence):
-    """Report all binding defects together; the model owns any corrected ordering."""
+    """Report all binding defects together without supplying a model verdict."""
     if not isinstance(result, dict):
         raise ResponseContractError("ranking", "Ranking must be a JSON object")
     issues = []
@@ -1601,6 +1601,68 @@ def validate_ranking(result, context, evidence):
         error.details.update(issues=issues, product_ids=sorted(products))
         raise error
     return result
+
+
+class _RankingRepair:
+    """Bind a valid partition while repairing other fields on the same evidence."""
+
+    def __init__(self, call, context, evidence):
+        self.call = call
+        self.context = context
+        self.evidence = evidence
+        self.attached = {}
+        self.preserved = None
+
+    def __getattr__(self, name):
+        return getattr(self.call, name)
+
+    async def __call__(self, request):
+        attached = request.get("requested_evidence", {})
+        if attached != self.attached:
+            # A source read can justify reassessment. Recovery metadata, syntax
+            # retries and evidence closure alone cannot reopen the preference.
+            self.preserved = None
+            self.attached = deepcopy(attached)
+        return await self.call(request)
+
+    def check_preserved(self, value):
+        if self.preserved is None:
+            return
+        # Order within a tie/unknown set carries no semantic preference.
+        if [set(g) for g in value["groups"]] != [
+            set(g) for g in self.preserved["groups"]
+        ] or set(value["unknown"]) != set(self.preserved["unknown"]):
+            error = ResponseContractError(
+                "groups/unknown",
+                "Ranking repair changed an already-valid ordering or unknown "
+                "assignment on the same evidence",
+            )
+            error.details["preserved_ranking"] = deepcopy(self.preserved)
+            raise error
+
+    def validate(self, value):
+        try:
+            result = validate_ranking(value, self.context, self.evidence)
+        except ResponseContractError as error:
+            issues = error.details.get("issues", [])
+            if issues and not any(r["field"] == "groups/unknown" for r in issues):
+                # The ordinary strict validator independently accepted the
+                # whole partition. Keep it even if observations/reason failed.
+                self.check_preserved(value)
+                if self.preserved is None:
+                    self.preserved = deepcopy(
+                        {k: value[k] for k in ("groups", "unknown")}
+                    )
+                error.details["preserved_ranking"] = deepcopy(self.preserved)
+                error.recovery_instruction = (
+                    "Correct only the reported contract defects against the same "
+                    "evidence. Preserve the valid groups/unknown partition in "
+                    "preserved_ranking: do not reverse ordering, split or merge "
+                    "ties, or change unknown assignments. Do not invent evidence."
+                )
+            raise
+        self.check_preserved(result)
+        return result
 
 
 def continuation_decision(raw, context, evidence, known_gaps):
@@ -1692,20 +1754,22 @@ async def rank(
         "for every supplied product exactly once across groups and unknown; include one "
         "observation for EVERY product, including ties and unknowns. Cite exact available "
         "evidence handles for that product. Do not infer check indices or use filesystem paths "
-        "as handles. A repair corrects the rejected contract against the same evidence; it "
-        "does not require changing a valid semantic preference or manufacturing certainty."
+        "as handles. A repair corrects the rejected contract against the same evidence; "
+        "preserve any already-valid groups/unknown partition while correcting unrelated "
+        "observation or explanation defects. Do not manufacture certainty."
     )
 
     async def one(call):
+        repair = _RankingRepair(call, context, evidence)
         return validate_ranking(
             await ask(
-                call,
+                repair,
                 "outcome_ranking_map",
                 context,
                 evidence,
                 instruction,
                 schema,
-                validate=lambda value: validate_ranking(value, context, evidence),
+                validate=repair.validate,
                 max_contract_retries=1,
                 max_syntax_retries=1,
                 max_evidence_rounds=2,
@@ -1742,9 +1806,10 @@ async def rank(
                 "product_ids": ["affected current product IDs"],
                 "evidence_refs": ["actual supporting product/check refs"],
             }
+        repair = _RankingRepair(reducer, context, evidence)
         result = validate_ranking(
             await ask(
-                reducer,
+                repair,
                 "outcome_ranking_reduce",
                 context,
                 evidence,
@@ -1763,7 +1828,7 @@ async def rank(
                 reduce_schema,
                 extra=extra,
                 max_bytes=reduce_max_bytes,
-                validate=lambda value: validate_ranking(value, context, evidence),
+                validate=repair.validate,
                 max_contract_retries=1,
                 max_syntax_retries=1,
                 max_evidence_rounds=2,

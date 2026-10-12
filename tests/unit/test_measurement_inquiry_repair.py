@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import pytest
 
+from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.harness import defaults
 from tests.unit.test_claw_outcome_measurement_tools import case, verdict
 
@@ -235,3 +236,187 @@ async def test_structure_repair_cannot_restart_measurements_or_evidence_reads(
     assert result["inquiry_result"]["error"]
     assert result["response_validation"]["attempts"][-1]["response"] == repair_response
     assert result["response_validation"]["attempts"][-1]["errors"]["repair"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    "new_request",
+    [
+        {"need_tools": [{"tool": "calculate", "arguments": {"expression": "9+9"}}]},
+        {"need_evidence": ["product_1:artifact:final_response"]},
+    ],
+)
+async def test_syntax_retry_cannot_unlock_structure_repair(new_request, wrapped):
+    if wrapped:
+        new_request = {"response": new_request}
+    first = {**verdict("tool:check:0"), "inquiry_result": "fail"}
+    broken = '{"status":'
+    result, requests = await measured(
+        [
+            first,
+            json.JSONDecodeError("broken", broken, len(broken)),
+            new_request,
+            {**verdict("tool:check:0"), "inquiry_result": inquiry()},
+        ]
+    )
+    assert len(requests) == 3
+    assert requests[-1]["measurement_budget"]["remaining_tool_calls"] == 0
+    assert requests[-1]["measurement_budget"]["remaining_tool_waves"] == 0
+    assert result["execution_usage"] == {"model_requests": 3, "tool_calls": 1}
+    assert len(result["tool_observations"]) == 1
+    assert result["inquiry_result"]["status"] == "unknown"
+    assert result["inquiry_result"]["error"]
+    assert result["response_validation"]["attempts"][-1]["response"] == new_request
+
+
+async def preview_measurement(scope="both", *, bounded=True, exhaust=False):
+    context, evidence = build_context(
+        {"task_id": "audit", "prompt": "Check the whole report and its calculation."},
+        [
+            {
+                "artifact": {"final_response": "The answer is 5"},
+                "source_documents": [
+                    {"text": "x" * 1000 + " The answer is actually 6."}
+                ],
+            }
+        ],
+    )
+    _, _, _, test = case()
+    context["measurement_inquiries"] = {
+        "check": {"questions": ["Is the calculation explained?"]}
+    }
+    ref = "product_1:source:0"
+    assert context["products"][0]["sources"][0]["preview_only"]
+    raw = verdict()
+    raw["evidence_refs"] = [ref]
+    raw["claims"][0]["evidence_refs"] = [ref]
+    raw["inquiry_result"] = {**inquiry("pass"), "evidence_refs": [ref]}
+    if scope == "global":
+        raw["inquiry_result"] = "fail"
+    elif scope == "inquiry":
+        raw["status"] = "partial"
+    requests = []
+
+    async def model(request):
+        requests.append(deepcopy(request))
+        if exhaust and len(requests) == 1:
+            return {"need_evidence": ["task"]}
+        if exhaust and len(requests) == 2:
+            return {"need_evidence": ["product_1:artifact:final_response"]}
+        assert len(requests) <= (4 if exhaust else 2 if bounded else 1)
+        return deepcopy(raw)
+
+    model.bounded_stage = bounded
+    result = await defaults(model).run(test, context, evidence)
+    return result, requests, ref
+
+
+@pytest.mark.asyncio
+async def test_preview_read_exhaustion_cannot_restore_passes_or_erase_error():
+    from experiments.pipeline_audit import check_result
+
+    result, requests, ref = await preview_measurement(exhaust=True)
+    assert len(requests) == 4 and requests[-1]["evidence_access_closed"]
+    assert all(ref not in r.get("requested_evidence", {}) for r in requests)
+    assert result["status"] == "unknown" and result["error"]
+    assert result["unresolved_evidence_refs"] == [ref]
+    assert result["inquiry_result"]["status"] == "unknown"
+    assert result["inquiry_result"]["error"]
+    with pytest.raises(ValueError):
+        check_result(result, "global")
+    with pytest.raises(ValueError):
+        check_result(result["inquiry_result"], "inquiry")
+    assert result["response_validation"]["selected_attempts"] == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["global", "inquiry"])
+@pytest.mark.parametrize("bounded", [False, True])
+async def test_malformed_companion_cannot_preserve_unread_preview_verdict(
+    scope, bounded
+):
+    result, requests, ref = await preview_measurement(scope, bounded=bounded)
+    assert all(ref not in r.get("requested_evidence", {}) for r in requests)
+    assert result["status"] == "unknown" and result["error"]
+    assert (
+        result["inquiry_result"]["status"] == "unknown"
+        and result["inquiry_result"]["error"]
+    )
+    assert ref in result["unresolved_evidence_refs"]
+    assert result["response_validation"]["selected_attempts"] == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("malformed_scope", [None, "global", "inquiry"])
+async def test_preview_counterpart_is_preservable_only_after_source_supplied(
+    malformed_scope,
+):
+    context, evidence = build_context(
+        {"task_id": "audit", "prompt": "Check the recorded calculation"},
+        [
+            {
+                "artifact": {"final_response": "The answer is 5"},
+                "source_documents": [{"text": "x" * 1000 + " End of actual source."}],
+            }
+        ],
+    )
+    _, _, _, test = case()
+    context["measurement_inquiries"] = {"check": {"questions": ["Is it explained?"]}}
+    ref = "product_1:source:0"
+    requests = []
+
+    async def model(request):
+        requests.append(deepcopy(request))
+        # An explicit read before a malformed companion, or an implicit
+        # preview followup for a well-formed pair, supplies the actual source.
+        if malformed_scope and len(requests) == 1:
+            return {"need_evidence": [ref]}
+        raw = verdict()
+        raw["evidence_refs"] = raw["claims"][0]["evidence_refs"] = [ref]
+        raw["inquiry_result"] = {**inquiry(), "evidence_refs": [ref]}
+        if len(requests) > 1:
+            assert request["requested_evidence"][ref] == evidence[ref]
+        if malformed_scope == "global":
+            raw["status"] = "partial"
+        elif malformed_scope == "inquiry":
+            raw["inquiry_result"] = "fail"
+        return raw
+
+    model.bounded_stage = True
+    result = await defaults(model).run(test, context, evidence)
+    assert len(requests) == (3 if malformed_scope else 2)
+    assert not result.get("unresolved_evidence_refs")
+    assert result["status"] == ("unknown" if malformed_scope == "global" else "pass")
+    assert result["inquiry_result"]["status"] == (
+        "unknown" if malformed_scope == "inquiry" else "fail"
+    )
+    if malformed_scope:
+        part = result if malformed_scope == "global" else result["inquiry_result"]
+        assert part["error"]
+    else:
+        assert not result.get("error") and not result["inquiry_result"].get("error")
+
+
+@pytest.mark.asyncio
+async def test_read_limit_error_not_replaced_even_by_evidence_complete_global():
+    context, evidence, _, test = case()
+    context["measurement_inquiries"] = {"check": {"questions": ["Explain it"]}}
+    calls = []
+
+    async def model(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return {**verdict(), "inquiry_result": "fail"}
+        # The exception can originate from a source-reading wrapper as well as
+        # ask. A valid earlier global part must not erase the terminal failure.
+        from reward_engine.core.outcome.context import EvidenceReadLimit
+
+        raise EvidenceReadLimit(["product_1:artifact:final_response"])
+
+    model.bounded_stage = True
+    result = await defaults(model).run(test, context, evidence)
+    assert len(calls) == 2
+    assert result["status"] == "unknown" and result["error"]
+    assert result["unresolved_evidence_refs"] == ["product_1:artifact:final_response"]
+    assert "global" not in result["response_validation"]["selected_attempts"]

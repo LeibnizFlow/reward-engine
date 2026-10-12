@@ -13,6 +13,8 @@ from reward_engine.core.outcome.context import (
     measurement_prior_view,
     measurement_test_view,
     require_refs,
+    response_payload,
+    used_previews,
     validate_current_product_refs,
 )
 from reward_engine.core.outcome.coverage import complete, expectations, report
@@ -435,6 +437,9 @@ def defaults(semantic_call, *, tools=None):
         model_requests = 0
         validation_attempts, validated_parts, selected_attempts = [], {}, {}
         requested_inquiry = bool(context.get("measurement_inquiry"))
+        structure_repair = False
+        request_context, attached_refs = context, set()
+        pending_evidence, read_failure = {}, {}
 
         def charged_tools():
             # A probe rejected before execution (bad refs/paths, oversized input)
@@ -469,8 +474,10 @@ def defaults(semantic_call, *, tools=None):
             await execute(recipe["probes"])
 
         async def tool_call(request):
-            nonlocal model_requests
-            structure_repair = bool(
+            nonlocal model_requests, structure_repair, request_context, attached_refs
+            # Syntax recovery replaces response_recovery details. It cannot
+            # reopen the tools/reads of an already active same-evidence repair.
+            structure_repair = structure_repair or bool(
                 request.get("response_recovery", {})
                 .get("details", {})
                 .get("invalid_fields")
@@ -482,6 +489,9 @@ def defaults(semantic_call, *, tools=None):
                 # fresh validation. Only structure repair retains a counterpart.
                 validated_parts.clear()
                 selected_attempts.clear()
+                structure_repair = False
+            request_context = request["context"]
+            attached_refs = set(request.get("requested_evidence", {}))
             # Two measurement waves at most, then a final evidence-grounded verdict.
             # A failed or rejected probe needs one correction wave before the
             # final verdict; capping at one wave would drop that recovery.
@@ -523,10 +533,11 @@ def defaults(semantic_call, *, tools=None):
                         }
                     )
                     raise
+                envelope = response_payload(result, request["response"])
                 if (
                     structure_repair
-                    and isinstance(result, dict)
-                    and ("need_tools" in result or "need_evidence" in result)
+                    and isinstance(envelope, dict)
+                    and ("need_tools" in envelope or "need_evidence" in envelope)
                 ):
                     reason = "Structure repair must use existing evidence, not new measurements/reads"
                     validation_attempts.append(
@@ -580,15 +591,29 @@ def defaults(semantic_call, *, tools=None):
             try:
                 return await ask(*args, **kwargs)
             except EvidenceReadLimit as error:
-                return {
-                    **unknown(
-                        "Evidence read allowance exhausted; final assessment unavailable",
-                        error=True,
-                    ),
-                    "diagnostic": str(error),
-                    "unresolved_evidence_refs": list(error.refs),
-                    "claims": [],
-                }
+                read_failure.update(
+                    {
+                        **unknown(
+                            "Evidence read allowance exhausted; final assessment unavailable",
+                            error=True,
+                        ),
+                        "diagnostic": str(error),
+                        "unresolved_evidence_refs": list(error.refs),
+                        "claims": [],
+                    }
+                )
+                # This operation did not finish its evidence protocol. A
+                # provisional global verdict must never replace that failure.
+                validated_parts.pop("global", None)
+                selected_attempts.pop("global", None)
+                validation_attempts.append(
+                    {
+                        "error_type": type(error).__name__,
+                        "diagnostic": str(error),
+                        "unresolved_evidence_refs": list(error.refs),
+                    }
+                )
+                return deepcopy(read_failure)
             except (ResponseContractError, json.JSONDecodeError) as error:
                 # The bounded repair already ran. A rejected interpretation
                 # must not erase computations/reads that actually completed.
@@ -638,6 +663,7 @@ def defaults(semantic_call, *, tools=None):
             return row
 
         def validate_reply(row):
+            nonlocal structure_repair
             errors = {}
             candidates = {}
             global_row = (
@@ -663,17 +689,39 @@ def defaults(semantic_call, *, tools=None):
                     candidates[scope] = validator(deepcopy(value))
                 except (ValueError, TypeError, KeyError, AttributeError) as error:
                     errors[scope] = str(error)[:400]
-            validation_attempts.append({"response": deepcopy(row), "errors": errors})
+            pending_evidence.clear()
             for scope, value in candidates.items():
                 if scope not in validated_parts:
-                    validated_parts[scope] = deepcopy(value)
-                    selected_attempts[scope] = len(validation_attempts)
+                    unread = sorted(
+                        (
+                            set(used_previews(value, context))
+                            | set(used_previews(value, request_context))
+                        )
+                        - attached_refs
+                    )
+                    if unread:
+                        pending_evidence[scope] = unread
+                    else:
+                        validated_parts[scope] = deepcopy(value)
+                        selected_attempts[scope] = len(validation_attempts) + 1
+            validation_attempts.append(
+                {
+                    "response": deepcopy(row),
+                    "errors": errors,
+                    **(
+                        {"pending_evidence": deepcopy(pending_evidence)}
+                        if pending_evidence
+                        else {}
+                    ),
+                }
+            )
             missing = {
                 scope: reason
                 for scope, reason in errors.items()
                 if scope not in validated_parts
             }
             if missing:
+                structure_repair = True
                 error = ResponseContractError("response", str(missing))
                 error.details["invalid_fields"] = missing
                 error.details["preserved_fields"] = list(validated_parts)
@@ -683,9 +731,12 @@ def defaults(semantic_call, *, tools=None):
                     "change the standard, or seek a different semantic outcome."
                 )
                 raise error
-            result = deepcopy(validated_parts["global"])
+            # Structurally valid but unread parts remain provisional. Return
+            # them to ask's preview-read protocol, never to the preservation cache.
+            current = {**candidates, **validated_parts}
+            result = deepcopy(current["global"])
             if requested_inquiry:
-                result["inquiry_result"] = deepcopy(validated_parts["inquiry"])
+                result["inquiry_result"] = deepcopy(current["inquiry"])
             return result
 
         result = await ask_with_receipts(
@@ -801,7 +852,7 @@ def defaults(semantic_call, *, tools=None):
         inquiry_result = None
         inquiry_diagnostic = None
         if requested_inquiry:
-            if "global" in validated_parts:
+            if "global" in validated_parts and not read_failure:
                 result = deepcopy(validated_parts["global"])
             try:
                 if "inquiry" in validated_parts:
@@ -846,8 +897,17 @@ def defaults(semantic_call, *, tools=None):
             result["inquiry_result"] = inquiry_result
         if inquiry_diagnostic is not None:
             result["inquiry_result_diagnostic"] = inquiry_diagnostic
+        unread = sorted(
+            set(result.get("unresolved_evidence_refs", []))
+            | {ref for refs in pending_evidence.values() for ref in refs}
+            | set(read_failure.get("unresolved_evidence_refs", []))
+        )
+        if unread:
+            result["unresolved_evidence_refs"] = unread
         if any(
-            attempt.get("errors") or attempt.get("error_type")
+            attempt.get("errors")
+            or attempt.get("error_type")
+            or attempt.get("pending_evidence")
             for attempt in validation_attempts
         ):
             result["response_validation"] = {
