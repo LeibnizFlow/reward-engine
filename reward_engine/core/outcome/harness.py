@@ -144,47 +144,185 @@ def has_product_evidence(refs, evidence, receipts):
     return False
 
 
-def validate_claims(row, evidence):
-    """Validate an inspectable audit, not the truth of the model's reasoning."""
+def claim_contract_issues(row, evidence):
+    """Collect independent claim contract errors without changing the assessment."""
+    issues = []
+
+    def reject(field, reason, **details):
+        issues.append({"field": field, "reason": reason, **details})
+
     claims = row.get("claims")
     if not isinstance(claims, list) or (row.get("status") != "unknown" and not claims):
-        raise ValueError("Semantic verdict needs a claim/evidence audit")
+        return [
+            {
+                "field": "claims",
+                "reason": "Semantic verdict needs a claim/evidence audit",
+            }
+        ]
     material_claims = 0
-    for claim in claims:
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            reject(
+                f"claims[{index}]", "Each claim must be an object", claim_index=index
+            )
+            continue
+
+        def invalid(field, reason, *, index=index, claim=claim):
+            reject(
+                f"claims[{index}].{field}",
+                reason,
+                claim_index=index,
+                claim_field=field,
+                actual=deepcopy(claim.get(field)),
+                missing=field not in claim,
+            )
+
+        def refs_valid(field, *, claim=claim, invalid=invalid):
+            try:
+                require_refs(claim.get(field), evidence)
+            except ValueError as ref_error:
+                invalid(field, str(ref_error))
+
         relevance = claim.get("verdict_relevance", "material")
-        if relevance not in {"material", "advisory"}:
-            raise ValueError("Claim verdict_relevance must be material or advisory")
+        if relevance not in ("material", "advisory"):
+            invalid(
+                "verdict_relevance",
+                "Claim verdict_relevance must be material or advisory",
+            )
         if relevance == "advisory" and not (
             isinstance(claim.get("relevance_reason"), str)
             and claim["relevance_reason"].strip()
         ):
-            raise ValueError(
-                "Advisory findings need a reason tied to the supplied standard"
+            invalid(
+                "relevance_reason",
+                "Advisory findings need a reason tied to the supplied standard",
             )
         material_claims += relevance == "material"
-        if not claim.get("claim") or not claim.get("observation"):
-            raise ValueError("Each claim needs its observed support or gap")
-        require_refs(claim.get("claim_refs"), evidence)
+        for field in ("claim", "observation"):
+            if not claim.get(field):
+                invalid(field, "Each claim needs its observed support or gap")
+        refs_valid("claim_refs")
         refs = claim.get("evidence_refs")
         if not isinstance(refs, list):
-            raise ValueError("Declare evidence refs, even when unavailable")
-        if refs:
-            require_refs(refs, evidence)
-        if claim.get("judgment") not in {"supported", "contradicted", "unverified"}:
-            raise ValueError("Invalid claim judgment")
-        if claim["judgment"] != "unverified" and not refs:
-            raise ValueError("Supported/contradicted needs observed evidence")
+            invalid(
+                "evidence_refs",
+                "Declare evidence refs, even when unavailable: supply a list of exact observed handles. "
+                "Supported/contradicted needs nonempty observed evidence; only unverified may use []. "
+                "Do not invent refs or change the existing judgment to satisfy the schema.",
+            )
+        elif refs:
+            refs_valid("evidence_refs")
+        if claim.get("judgment") not in ("supported", "contradicted", "unverified"):
+            invalid("judgment", "Invalid claim judgment")
+        if claim.get("judgment") in ("supported", "contradicted") and refs == []:
+            field = f"claims[{index}].evidence_refs"
+            error = ResponseContractError(
+                field,
+                f"{field}: Supported/contradicted needs observed evidence; "
+                f"judgment={claim['judgment']!r}, actual=[]. Cite nonempty exact "
+                "supplied evidence handles that support this claim's existing judgment. "
+                "Do not invent refs, copy claim_refs automatically, or flip the "
+                "judgment merely to satisfy validation. Empty refs are allowed only for unverified claims.",
+            )
+            error.details.update(
+                claim_index=index,
+                judgment=claim["judgment"],
+                actual=deepcopy(refs),
+                claim_field="evidence_refs",
+            )
+            issues.append(error.details)
         if (
             row.get("status") == "pass"
             and relevance == "material"
-            and claim["judgment"] != "supported"
+            and claim.get("judgment") in ("unverified", "contradicted")
         ):
-            raise ValueError("Unresolved material claims cannot silently become pass")
+            error = ResponseContractError(
+                "status",
+                f"status='pass' conflicts with claims[{index}].judgment="
+                f"{claim['judgment']!r} and claims[{index}].verdict_relevance='material'. "
+                "Pass requires ALL material claims to be supported. "
+                "Unresolved material claims cannot silently become pass.",
+            )
+            error.details.update(
+                claim_index=index,
+                actual=row["status"],
+                depends_on={
+                    f"claims[{index}].judgment": claim["judgment"],
+                    f"claims[{index}].verdict_relevance": relevance,
+                },
+                repair_instruction=(
+                    "For this status/claim contradiction only, minimally correct "
+                    "status/reason/gap to be consistent with the preserved claim assessment "
+                    "using the same evidence. This contract consistency correction is permitted; "
+                    "the model must author the verdict, not the host. Preserve claims, "
+                    "judgments, relevance and evidence refs except citation fields separately "
+                    "reported invalid. Do not upgrade an unsupported "
+                    "claim to supported, downgrade material to advisory, delete a claim, "
+                    "invent proof or request new evidence to make pass."
+                ),
+            )
+            issues.append(error.details)
     if row.get("status") == "pass" and not material_claims:
-        raise ValueError(
-            "A pass needs supported material claims, not only advisory findings"
+        reject(
+            "status",
+            "A pass needs supported material claims, not only advisory findings",
         )
+    return issues
+
+
+def validate_claims(row, evidence):
+    """Validate an inspectable audit, not the truth of the model's reasoning."""
+    issues = claim_contract_issues(row, evidence)
+    if issues:
+        error = ResponseContractError(
+            issues[0]["field"],
+            "; ".join(f"{issue['field']}: {issue['reason']}" for issue in issues),
+        )
+        if len(issues) == 1:
+            error.details = deepcopy(issues[0])
+        else:
+            error.details["issues"] = issues
+        raise error
     return row
+
+
+def preserve_claim_assessment(original, issues, *, current):
+    """A same-evidence repair may edit invalid fields, not reroll valid claims."""
+    claims = original.get("claims")
+    if not isinstance(claims, list) or (
+        not claims and any(issue["field"] == "claims" for issue in issues)
+    ):
+        return  # There was no usable claim structure to preserve.
+    revised = current.get("claims")
+    if not isinstance(revised, list) or len(revised) != len(claims):
+        raise ResponseContractError(
+            "claims", "Structure repair must preserve claim count and order"
+        )
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            continue  # Only this malformed row may be replaced.
+        allowed = {
+            issue["claim_field"]
+            for issue in issues
+            if issue.get("claim_index") == index and "claim_field" in issue
+        }
+        fixed = revised[index]
+        if not isinstance(fixed, dict) or {
+            k: v for k, v in claim.items() if k not in allowed
+        } != {k: v for k, v in fixed.items() if k not in allowed}:
+            raise ResponseContractError(
+                f"claims[{index}]",
+                f"Structure repair must preserve already valid fields of claims[{index}]; "
+                f"only these invalid fields may change: {sorted(allowed)}",
+            )
+    if (
+        original.get("status") in ("pass", "fail", "unknown")
+        and not any(issue["field"] == "status" for issue in issues)
+        and current.get("status") != original["status"]
+    ):
+        raise ResponseContractError(
+            "status", "Structure repair must preserve the already consistent verdict"
+        )
 
 
 def claim_locations(row, evidence):
@@ -438,6 +576,7 @@ def defaults(semantic_call, *, tools=None):
         validation_attempts, validated_parts, selected_attempts = [], {}, {}
         requested_inquiry = bool(context.get("measurement_inquiry"))
         structure_repair = False
+        claim_repair = None
         request_context, attached_refs = context, set()
         pending_evidence, read_failure = {}, {}
 
@@ -474,7 +613,12 @@ def defaults(semantic_call, *, tools=None):
             await execute(recipe["probes"])
 
         async def tool_call(request):
-            nonlocal model_requests, structure_repair, request_context, attached_refs
+            nonlocal \
+                model_requests, \
+                structure_repair, \
+                request_context, \
+                attached_refs, \
+                claim_repair
             # Syntax recovery replaces response_recovery details. It cannot
             # reopen the tools/reads of an already active same-evidence repair.
             structure_repair = structure_repair or bool(
@@ -485,11 +629,18 @@ def defaults(semantic_call, *, tools=None):
             if request.get("evidence_followup") and not request.get(
                 "response_recovery"
             ):
-                # A preview verdict is provisional: expanded evidence requires
-                # fresh validation. Only structure repair retains a counterpart.
-                validated_parts.clear()
-                selected_attempts.clear()
-                structure_repair = False
+                newly_attached = (
+                    set(request.get("requested_evidence", {})) - attached_refs
+                )
+                if used_previews(
+                    {"evidence_refs": list(newly_attached)}, request_context
+                ):
+                    # Only an actual expansion beyond the preceding view reopens
+                    # assessment. Duplicate/inline reads and budget closure do not.
+                    validated_parts.clear()
+                    selected_attempts.clear()
+                    structure_repair = False
+                    claim_repair = None
             request_context = request["context"]
             attached_refs = set(request.get("requested_evidence", {}))
             # Two measurement waves at most, then a final evidence-grounded verdict.
@@ -663,8 +814,9 @@ def defaults(semantic_call, *, tools=None):
             return row
 
         def validate_reply(row):
-            nonlocal structure_repair
+            nonlocal structure_repair, claim_repair
             errors = {}
+            issues = []
             candidates = {}
             global_row = (
                 {k: v for k, v in row.items() if k != "inquiry_result"}
@@ -686,9 +838,16 @@ def defaults(semantic_call, *, tools=None):
                 parts.append(("inquiry", local, validate_inquiry))
             for scope, value, validator in parts:
                 try:
+                    if scope == "global" and claim_repair is not None:
+                        preserve_claim_assessment(*claim_repair, current=value)
                     candidates[scope] = validator(deepcopy(value))
                 except (ValueError, TypeError, KeyError, AttributeError) as error:
                     errors[scope] = str(error)[:400]
+                    if isinstance(error, ResponseContractError):
+                        issues.extend(
+                            {"scope": scope, **deepcopy(issue)}
+                            for issue in error.details.get("issues", [error.details])
+                        )
             pending_evidence.clear()
             for scope, value in candidates.items():
                 if scope not in validated_parts:
@@ -708,6 +867,7 @@ def defaults(semantic_call, *, tools=None):
                 {
                     "response": deepcopy(row),
                     "errors": errors,
+                    **({"issues": deepcopy(issues)} if issues else {}),
                     **(
                         {"pending_evidence": deepcopy(pending_evidence)}
                         if pending_evidence
@@ -722,14 +882,32 @@ def defaults(semantic_call, *, tools=None):
             }
             if missing:
                 structure_repair = True
+                if claim_repair is None:
+                    # Keep the raw assessment; normalization only determines
+                    # which citation fields were actually invalid.
+                    try:
+                        assessed = claim_locations(deepcopy(global_row), evidence)
+                    except (ValueError, TypeError, AttributeError):
+                        assessed = global_row
+                    claim_repair = (
+                        deepcopy(global_row),
+                        claim_contract_issues(assessed, evidence),
+                    )
                 error = ResponseContractError("response", str(missing))
                 error.details["invalid_fields"] = missing
                 error.details["preserved_fields"] = list(validated_parts)
+                if issues:
+                    error.details["issues"] = [
+                        issue for issue in issues if issue["scope"] in missing
+                    ]
                 error.recovery_instruction = (
                     "Repair only the invalid response structure using the same evidence. "
                     "Preserve already valid global/inquiry verdicts; do not reassess them, "
                     "change the standard, or seek a different semantic outcome."
                 )
+                for issue in error.details.get("issues", []):
+                    if "repair_instruction" in issue:
+                        error.recovery_instruction += " " + issue["repair_instruction"]
                 raise error
             # Structurally valid but unread parts remain provisional. Return
             # them to ask's preview-read protocol, never to the preservation cache.
@@ -770,11 +948,21 @@ def defaults(semantic_call, *, tools=None):
             "Do not infer confirmation from a person's role or a tool's availability. Missing support "
             "is unverified, not proof the assertion is false. Explain whether that uncertainty violates "
             "the standard (e.g. asserting certainty without support) or needs verification. "
+            "Every supported or contradicted claim REQUIRES nonempty evidence_refs citing exact "
+            "supplied observed evidence handles for that judgment. Empty evidence_refs are allowed "
+            "only for unverified claims. Every claim MUST include evidence_refs as a list, "
+            "including unverified claims ([] when unavailable). claim_refs locate a claim; they are not automatically "
+            "evidence for its truth or contradiction. Never invent citations to complete the schema. "
             "Use the evidence-access option when a preview is insufficient. Write claims first, then "
             "claim_refs must contain exact supplied handles only; put chapter names or quotes in "
             "claim_location, not inside a handle. The supplied rubric/test is a standard, not proof "
             "that the product satisfies it. Audit only claims material to this test's standard. "
-            "summarize status/reason/gap; pass requires the audited material claims to be supported. "
+            "summarize status/reason/gap; pass requires ALL material claims to be supported "
+            "by actual observed evidence. A material unverified or contradicted claim is "
+            "incompatible with pass. If status contradicts the preserved claim assessment, "
+            "minimally correcting status/reason/gap for consistency is permitted; the model "
+            "must author that verdict. Do not upgrade an unsupported claim to supported, "
+            "downgrade material to advisory, delete a claim or invent proof to make pass. "
             "Keep ancillary improvement observations as advisory claims with verdict_relevance=advisory "
             "and relevance_reason explaining why they do not affect THIS standard's verdict. "
             "They may remain unverified without blocking supported required outcomes; do not delete "
@@ -791,7 +979,7 @@ def defaults(semantic_call, *, tools=None):
                         ],
                         "claim_location": "optional chapter/quote; this locator is not independently verified",
                         "evidence_refs": [
-                            "exact observed evidence refs; empty if unavailable"
+                            "exact supplied observed evidence refs; nonempty REQUIRED for supported/contradicted; empty allowed only for unverified"
                         ],
                         "observation": "what the evidence establishes, does not establish, or contradicts",
                         "judgment": "supported/contradicted/unverified",
