@@ -85,11 +85,61 @@ def arm_prompts(pack, method, protocol=LEGACY, *, adversarial_review_enabled=Fal
             + "\n\nOptional exploration (not a new requirement):\n"
             + prompts["C"]
         )
+    if pack.get("public_delivery_contract"):
+        from reward_engine.core.outcome.public_delivery import actor_instruction
+
+        public = actor_instruction(pack["public_delivery_contract"])
+        prompts = {
+            arm: "\n\n".join(p for p in (public, text) if p)
+            for arm, text in prompts.items()
+        }
     return prompts
 
 
-def select_delivery(ranking, arm_products, measurements):
+def select_delivery(
+    ranking, arm_products, measurements, *, public_delivery_contract=None
+):
     """Original is the fallback. Relative preference is fallible, not a GT guarantee."""
+    if public_delivery_contract is not None:
+        from reward_engine.core.outcome.public_delivery import fingerprint
+
+        gates = {
+            a: deepcopy(measurements.get(a, {}).get("public_delivery_gate"))
+            for a in arm_products
+        }
+        conforming = {
+            a: p
+            for a, p in arm_products.items()
+            if isinstance(gates[a], dict)
+            and gates[a].get("contract_sha256") == fingerprint(public_delivery_contract)
+            and gates[a].get("status") == "pass"
+        }
+        if "A" in conforming:
+            chosen = select_delivery(ranking, conforming, measurements)
+        else:
+            positions = {
+                p: i for i, group in enumerate(ranking.get("groups", [])) for p in group
+            }
+            eligible = [
+                (positions[p], a) for a, p in conforming.items() if p in positions
+            ]
+            arm = (
+                min(eligible)[1]
+                if eligible and ranking.get("status") == "compared"
+                else None
+            )
+            chosen = {
+                "arm": arm,
+                "reason": "Best ranked public-path-conforming delivery; Original cannot bypass the prerequisite"
+                if arm
+                else "No supported public-path-conforming selection; no acceptable fallback",
+            }
+        return {
+            **chosen,
+            "public_delivery_gates": gates,
+            "public_delivery_acceptable": chosen["arm"] is not None,
+            "boundary": "Public path prerequisite only; no host overall-quality verdict",
+        }
     fallback = {
         "arm": "A" if "A" in arm_products else None,
         "reason": "Keep Original unless a supported improvement clears known check regressions",
@@ -170,6 +220,15 @@ async def run_task(
     if construction_strategy not in {"legacy", "counterexample_validated"}:
         raise ValueError("Unknown construction strategy")
     hardened = construction_strategy == "counterexample_validated"
+    contract = task.get("public_delivery_contract")
+    if contract:
+        from reward_engine.core.outcome.public_delivery import validate
+
+        validate(contract, task)
+        if hardened or delivery_selector is not None or defer_final_selection:
+            raise ValueError(
+                "Public delivery v1 supports legacy construction/current-round selection only; no silent bypass"
+            )
     if hardened and (construction_rounds != 1 or rounds != 1):
         raise ValueError(
             "Counterexample construction runs once, without fixed-loop layering"
@@ -232,6 +291,11 @@ async def run_task(
 
         def save(name, data, prefix=prefix):
             # A retaining recorder must see the same snapshot as a JSON writer.
+            if contract and name == "jury":
+                from reward_engine.core.outcome.public_delivery import bind_definition
+
+                record(prefix + "/jury_semantic", deepcopy(data))
+                data = bind_definition(data, contract)
             record(prefix + "/" + name, deepcopy(data))
 
         context, evidence = build_context(
@@ -557,6 +621,7 @@ async def run_task(
             # Keep that receipt in the delivery row; audit the actual delivery anew.
             if (
                 full_audit
+                or contract
                 or measured is None
                 or measured["pack_id"] != current_pack["pack_id"]
             ):
@@ -666,7 +731,12 @@ async def run_task(
                     # A mismatched checkpoint must never silently become a fresh selection.
                     raise
             if delivery_selector is None:
-                selection = select_delivery(ranking, arm_products, measurements)
+                selection = select_delivery(
+                    ranking,
+                    arm_products,
+                    measurements,
+                    **({"public_delivery_contract": contract} if contract else {}),
+                )
             else:
                 selection = {
                     k: selected.get(k)

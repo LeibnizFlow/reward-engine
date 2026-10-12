@@ -23,6 +23,11 @@ REPO = Path(__file__).resolve().parents[1]
 
 def prepare(args):
     output = args.output.resolve()
+    public_contract = getattr(args, "public_delivery_contract", None)
+    if public_contract and args.benchmark != "workbuddy":
+        raise ValueError(
+            "The current public workspace collector is WorkBuddy-only; Claw remains unbound"
+        )
     if args.benchmark == "claw_eval":
         from experiments.claw_eval.opencode.campaign import prepare as freeze
 
@@ -37,6 +42,9 @@ def prepare(args):
             output,
             upstream=REPO / "local/workbuddy/runner/upstream",
             task_ids=[args.task_id],
+            **(
+                {"public_delivery_contract": public_contract} if public_contract else {}
+            ),
         )
     config.update(
         validation_benchmark=args.benchmark,
@@ -206,6 +214,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark", choices=("claw_eval", "workbuddy"))
     parser.add_argument("--task-id")
+    parser.add_argument("--public-delivery-contract", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
@@ -215,6 +224,10 @@ def main():
         help="Explicit role-only provider request; the provider may still report reasoning tokens",
     )
     args = parser.parse_args()
+    if args.execute and args.public_delivery_contract:
+        parser.error(
+            "Public delivery contracts must be frozen during prepare, not changed at execute time"
+        )
     if args.execute:
         return asyncio.run(run(read(args.output.resolve() / "config.json")))
     if not args.benchmark or not args.task_id:

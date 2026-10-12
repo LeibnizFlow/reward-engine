@@ -346,7 +346,12 @@ async def test_ranking_preservation_survives_syntax_retry_and_evidence_closure(
         assert req["evidence_access_closed"]
         return deepcopy(changed)
 
-    with pytest.raises(ResponseContractError, match="already-valid ordering"):
+    with pytest.raises(
+        ResponseContractError,
+        match="already-valid ordering"
+        if syntax_retry
+        else "Evidence and tools are closed",
+    ):
         await jury.rank(
             ctx,
             evidence,
@@ -356,9 +361,8 @@ async def test_ranking_preservation_survives_syntax_retry_and_evidence_closure(
             },
             make("chooser", reply, bounded=bounded),
         )
-    # Plain ask can use its existing per-evidence-stage allowance; bounded
-    # Roles retain their single contract repair across the whole operation.
-    assert count == (3 if syntax_retry else 4 if bounded else 5)
+    # Repair-origin reads stop before a new evidence stage or preference reroll.
+    assert count == 3
 
 
 @pytest.mark.parametrize("bounded", [False, True])
@@ -376,9 +380,11 @@ async def test_newly_attached_evidence_allows_ranking_reassessment(roles, bounde
         ],
     )
     original = {**ranking(), "groups": [["product_1"], ["product_2"]]}
+    original["observations"][0]["evidence_refs"] = ["product_1:source:0"]
     invalid = deepcopy(original)
     invalid["observations"][0].pop("reason")
     changed = {**deepcopy(original), "groups": list(reversed(original["groups"]))}
+    fixed = deepcopy(original)
     count = 0
 
     def reply(req):
@@ -387,12 +393,15 @@ async def test_newly_attached_evidence_allows_ranking_reassessment(roles, bounde
         if count == 1:
             return deepcopy(invalid)
         if count == 2:
-            return {"need_evidence": ["product_1:source:0"]}
+            return deepcopy(
+                fixed
+            )  # Valid provisional ranking triggers host preview verification.
         assert (
             req["requested_evidence"]["product_1:source:0"]
             == evidence["product_1:source:0"]
         )
         assert "response_recovery" not in req
+        assert req["provisional_check"] == fixed
         return deepcopy(changed)
 
     result = await jury.rank(
@@ -454,7 +463,7 @@ async def test_redundant_inline_read_cannot_unlock_ranking(roles, bounded, ref):
         assert req["requested_evidence"][ref] == evidence[ref]
         return deepcopy(changed)
 
-    with pytest.raises(ResponseContractError, match="already-valid ordering"):
+    with pytest.raises(ResponseContractError, match="Evidence and tools are closed"):
         await jury.rank(
             ctx,
             evidence,
@@ -464,7 +473,7 @@ async def test_redundant_inline_read_cannot_unlock_ranking(roles, bounded, ref):
             },
             make("chooser", reply, bounded=bounded),
         )
-    assert count == (3 if bounded else 4)
+    assert count == 2  # No source expansion or subsequent model reroll.
 
 
 @pytest.mark.parametrize("bounded", [False, True])

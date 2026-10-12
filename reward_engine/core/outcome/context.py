@@ -123,6 +123,7 @@ def build_context(task, candidates=(), *, skills=(), checks=(), memories=()):
     """
     if not task.get("task_id") or not task.get("prompt", "").strip():
         raise ValueError("A public Task identity and prompt are required")
+    candidates = tuple(candidates)
     evidence = {"task": task["prompt"]}
     products = []
     for i, candidate in enumerate(candidates, 1):
@@ -190,6 +191,19 @@ def build_context(task, candidates=(), *, skills=(), checks=(), memories=()):
         "memories": deepcopy(list(memories)),
         "available_evidence_refs": list(evidence),
     }
+    if task.get("public_delivery_contract"):
+        from reward_engine.core.outcome.public_delivery import attach_context
+
+        context, evidence = attach_context(
+            task["public_delivery_contract"], context, evidence
+        )
+    for product, candidate in zip(products, candidates, strict=True):
+        if task.get(
+            "public_delivery_contract"
+        ) or "public_delivery_inventory" in candidate.get("environment", {}):
+            from reward_engine.core.outcome.public_delivery import fingerprint
+
+            product["candidate_sha256"] = fingerprint(candidate)
     if task.get("documents"):
         from reward_engine.core.outcome.task_inputs import attach
 

@@ -4,9 +4,14 @@ from collections import Counter
 from copy import deepcopy
 
 
-def diagnostics(draft, expectations):
+def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
+    if not isinstance(draft, dict):
+        return [{"path": [], "reason": "Outcome definition must be an object"}]
     issues = []
     criteria = draft.get("criteria", [])
+    if not isinstance(criteria, list):
+        issues.append({"path": ["criteria"], "reason": "Criteria must be a list"})
+        criteria = []
     criterion_ids = [
         row["id"]
         for row in criteria
@@ -19,7 +24,7 @@ def diagnostics(draft, expectations):
         and len(criterion_ids) == len(criteria)
         and len(set(criterion_ids)) == len(criterion_ids)
     )
-    for i, criterion in enumerate(draft.get("criteria", [])):
+    for i, criterion in enumerate(criteria):
         if not isinstance(criterion, dict):
             continue
         invalid_fields = [
@@ -66,11 +71,44 @@ def diagnostics(draft, expectations):
                     "with part_id, criterion_ids and retained_text.",
                 }
             )
-    for i, gap in enumerate(draft.get("gaps", [])):
-        if isinstance(gap, dict) and (
-            not isinstance(gap.get("expected_basis"), str)
-            or gap["expected_basis"] not in {"task", "user", "domain"}
-        ):
+    gaps = draft.get("gaps", [])
+    if not isinstance(gaps, list):
+        issues.append({"path": ["gaps"], "reason": "Gaps must be a list"})
+        gaps = []
+    for i, gap in enumerate(gaps):
+        if not isinstance(gap, dict):
+            continue
+        if evidence is not None and product_ref is not None:
+            targets, refs = gap.get("product_ids"), gap.get("evidence_refs")
+            available_refs = [
+                ref
+                for ref in (refs if isinstance(refs, list) else [])
+                if isinstance(ref, str) and ref in evidence
+            ]
+            missing = [
+                product
+                for product in (targets if isinstance(targets, list) else [])
+                if isinstance(product, str)
+                and not any(
+                    product_ref(ref, product, evidence) for ref in available_refs
+                )
+            ]
+            if missing:
+                issues.append(
+                    {
+                        "path": ["gaps", i, "evidence_refs"],
+                        "gap_id": gap.get("gap_id"),
+                        "missing_product_ids": missing,
+                        "reason": "Each affected product needs its own available product evidence "
+                        "or recorded check. Inspect the supplied evidence for each listed product; "
+                        "task refs and another product's refs do not establish its observation. "
+                        "Do not invent a reference or treat missing evidence as a verdict. "
+                        "An unsupported observation must remain unresolved.",
+                    }
+                )
+        if not isinstance(gap.get("expected_basis"), str) or gap[
+            "expected_basis"
+        ] not in {"task", "user", "domain"}:
             issues.append(
                 {
                     "path": ["gaps", i, "expected_basis"],
@@ -181,39 +219,85 @@ def diagnostics(draft, expectations):
 
 def apply_edits(draft, reply):
     """Apply exact existing paths atomically; never guess a replacement ID or source."""
-    edits = reply.get("edits")
-    if not isinstance(edits, list) or not 1 <= len(edits) <= 64:
-        raise ValueError("Repair needs one to 64 explicit edits")
-    result = deepcopy(draft)
-    for edit in edits:
-        if not isinstance(edit, dict) or edit.get("op") not in {"replace", "remove"}:
-            raise ValueError("Repair operation must be replace or remove")
-        path = edit.get("path")
-        if (
-            not isinstance(path, list)
-            or not path
-            or path[0] not in {"criteria", "gaps", "coverage", "uncertainties"}
-            or any(type(k) not in {str, int} for k in path)
-            or not isinstance(edit.get("reason"), str)
-            or not edit["reason"].strip()
-        ):
-            raise ValueError(
-                "Repair needs an existing public definition path and reason"
-            )
-        target = result
-        for key in path[:-1]:
-            target = child(target, key)
-        key = path[-1]
-        child(
-            target, key
-        )  # Reject nonexistent keys, negative indices and bool indices.
-        if edit["op"] == "remove":
-            del target[key]
-        else:
-            if "value" not in edit:
-                raise ValueError("Replacement needs an explicit value")
-            target[key] = deepcopy(edit["value"])
+    result, _index, edit = draft, None, None
+    try:
+        edits = reply.get("edits")
+        if not isinstance(edits, list) or not 1 <= len(edits) <= 64:
+            raise ValueError("Repair needs one to 64 explicit edits")
+        result = deepcopy(draft)
+        for _index, edit in enumerate(edits):
+            if not isinstance(edit, dict) or edit.get("op") not in {
+                "replace",
+                "remove",
+            }:
+                raise ValueError("Repair operation must be replace or remove")
+            path = edit.get("path")
+            if (
+                not isinstance(path, list)
+                or not path
+                or path[0] not in {"criteria", "gaps", "coverage", "uncertainties"}
+                or any(type(k) not in {str, int} for k in path)
+                or not isinstance(edit.get("reason"), str)
+                or not edit["reason"].strip()
+            ):
+                raise ValueError(
+                    "Repair needs an existing public definition path and reason"
+                )
+            target = result
+            for key in path[:-1]:
+                target = child(target, key)
+            key = path[-1]
+            child(
+                target, key
+            )  # Reject nonexistent keys, negative indices and bool indices.
+            if edit["op"] == "remove":
+                del target[key]
+            else:
+                if "value" not in edit:
+                    raise ValueError("Replacement needs an explicit value")
+                target[key] = deepcopy(edit["value"])
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        # Retain the exact rejection and acceptance rules. Describe only the
+        # discarded working copy; neither a valid prefix nor a guessed fix commits.
+        error.details = edit_failure(result, _index, edit)
+        raise
     return result
+
+
+def edit_failure(result, index, edit):
+    path = edit.get("path") if isinstance(edit, dict) else None
+    details = {
+        "edit_index": index,
+        "op": edit.get("op") if isinstance(edit, dict) else None,
+        "path": deepcopy(path),
+        "batch_applied": False,
+        "applied_edit_count": 0,
+        "repair_base": "validation_repair.invalid_draft",
+        "reason": "The entire edit batch was rejected atomically: no edits were applied, "
+        "including any valid prefix. Repair against invalid_draft, not a partially edited draft. "
+        "Edit indices and array paths are zero-based. Parent details describe the temporary "
+        "working copy immediately before the failing edit; that copy was discarded.",
+    }
+    if not isinstance(path, list) or not path:
+        return details
+    parent, parent_path = result, []
+    for key in path[:-1]:
+        try:
+            parent = child(parent, key)
+        except ValueError:
+            details["unresolved_component_index"] = len(parent_path)
+            break
+        parent_path.append(key)
+    details.update(
+        parent_path=parent_path,
+        parent_type=type(parent).__name__,
+        requested_parent_exists=len(parent_path) == len(path) - 1,
+    )
+    if isinstance(parent, dict):
+        details["parent_keys"] = list(parent)
+    elif isinstance(parent, list):
+        details["parent_length"] = len(parent)
+    return details
 
 
 def child(target, key):

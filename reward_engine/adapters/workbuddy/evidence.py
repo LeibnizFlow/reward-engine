@@ -186,19 +186,45 @@ def source_chunks(records, label, chunk_chars=14000):
 
 
 def collect(
-    workspace, *, candidate_id, final_response, initial_hashes=None, output=None
+    workspace,
+    *,
+    candidate_id,
+    final_response,
+    initial_hashes=None,
+    output=None,
+    public_delivery=False,
 ):
     workspace = Path(workspace)
     inventory, sources, products = [], [], []
-    for path in sorted(workspace.rglob("*")):
+    collected = None
+    if public_delivery:
+        from reward_engine.adapters.workbuddy.public_delivery import scan_workspace
+
+        collected = scan_workspace(
+            workspace, excluded=EXCLUDED, initial_hashes=initial_hashes
+        )
+    paths = (
+        [workspace / r["path"] for r in collected["files"]]
+        if collected is not None
+        else sorted(workspace.rglob("*"))
+    )
+    collected_rows = (
+        {r["path"]: r for r in collected["files"]} if collected is not None else {}
+    )
+    for path in paths:
         relative = path.relative_to(workspace)
         if set(relative.parts) & EXCLUDED or not path.is_file() or path.is_symlink():
+            if collected is not None:
+                raise ValueError("Workspace path changed during collection")
             continue
         name = relative.as_posix()
         row = {"path": name, "sha256": file_hash(path), "bytes": path.stat().st_size}
         row["changed"] = (
             initial_hashes is not None and initial_hashes.get(name) != row["sha256"]
         )
+        if collected is not None:
+            if row != collected_rows[name]:
+                raise ValueError("Workspace bytes changed during collection")
         inventory.append(row)
         try:
             if row["bytes"] > 20_000_000:
@@ -233,7 +259,11 @@ def collect(
             "visual_quality": "unmeasured",
         },
     }
+    if collected is not None:
+        candidate["environment"]["public_delivery_inventory"] = collected
     if output:
+        if collected is not None:
+            write(Path(output) / "public_delivery_inventory.json", collected)
         write(Path(output) / "inventory.json", inventory)
         write(Path(output) / "candidate.json", candidate)
     return candidate, {r["path"]: r["sha256"] for r in inventory}

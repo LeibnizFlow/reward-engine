@@ -277,10 +277,14 @@ def measurement_plan(pack, overview_result, *, previous=None, max_tests=3):
                 and claim not in inquiry["claim_checks"]
             ):
                 inquiry["claim_checks"].append(deepcopy(claim))
+    from reward_engine.core.outcome.public_delivery import mandatory_tests
+
+    mandatory = mandatory_tests(pack)
+    optional = [t for t in requested if t not in mandatory]
     return {
-        "requested_tests": requested,
-        "selected_tests": requested[:max_tests],
-        "deferred_tests": requested[max_tests:],
+        "requested_tests": list(dict.fromkeys(mandatory + requested)),
+        "selected_tests": mandatory + optional[:max_tests],
+        "deferred_tests": optional[max_tests:],
         "measurement_inquiries": inquiries,
     }
 

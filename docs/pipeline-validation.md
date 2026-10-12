@@ -19,10 +19,37 @@ validation configuration uses the recorded Yibu routes and the private root
 .venv/bin/python -m experiments.validate_pipeline \
   --benchmark workbuddy --task-id api-usage-explain-cli-l3-001 \
   --role-thinking disabled \
+  --public-delivery-contract configs/public_delivery/api-usage-explain-cli-l3-001.v1.json \
   --output runs/full_workbuddy_validation
 
 .venv/bin/python -m experiments.pipeline_audit runs/full_claw_validation
 .venv/bin/python -m experiments.pipeline_audit runs/full_workbuddy_validation
+```
+
+The WorkBuddy example explicitly supplies a public delivery contract. Its required
+root `final_answer.md` path is an executor translation of the quoted public task
+instructions, bound to the exact prompt hash. This is not automatic extraction of
+all natural-language requirements. The runtime supports other explicitly supplied
+safe relative file paths; matching filenames in other directories are not aliases.
+Claw has no workspace-path contract in this validation.
+
+This opt-in prerequisite runs in every B review and final measurement, outside the
+semantic targeted-check quota. Missing files fail when collection establishes
+absence; incomplete collection remains unknown. A selected delivery must satisfy
+the prerequisite. File presence alone makes no content-quality claim. Raw model
+Jury/Pack records remain in `jury_semantic.json` and `pack_semantic.json`; effective
+records explicitly identify the added executor prerequisite.
+
+After WorkBuddy terminates, run its additional public-contract audit using the
+frozen implementation. It reconstructs semantic Jury and Pack contents from
+retained provider responses and declared repairs or reuse, then checks the public
+projection, actual snapshot bytes, reviews and selection. Reconstruction makes no
+provider or measurement-tool calls. Both this audit and the original pipeline
+audit must pass:
+
+```bash
+(cd runs/full_workbuddy_validation/code && \
+  ../../../.venv/bin/python -m reward_engine.adapters.workbuddy.public_delivery_audit ..)
 ```
 
 The examples explicitly request disabled thinking for structured roles only. Providers
@@ -81,6 +108,16 @@ are tested separately through the document parsers. Mocked HTTP/model fixtures
 are identified as controlled tests, including the offline Docker/OpenCode test.
 
 ## Current validation artifacts
+
+The 2026-10-12 validation is still incomplete. Latest attempts Claw v9 and
+WorkBuddy v7 both failed the strict audit after one completed round. Claw failed
+ranking; WorkBuddy failed second-round Jury construction. Repairs and an explicit
+public delivery-path prerequisite have passed controlled tests and bounded source review.
+The transport/trial provenance repair snapshot passed 2,878 tests with no skips or source drift;
+The reviewed counterexamples are closed. No fresh three-round success is claimed. See the
+[current evidence and failure history](validation-2026-10-12.md).
+
+## Historical validation artifacts
 
 The 2026-10-10 validation ended with both strict pipeline audits failing.
 Claw completed two rounds before a third-round Jury failure; WorkBuddy completed

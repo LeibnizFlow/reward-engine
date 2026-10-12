@@ -210,6 +210,64 @@ async def build(
     registry,
     call,
     *,
+    record=lambda *_: None,
+    previous=None,
+    **options,
+):
+    """Retain model compilation unchanged; install only an explicit public binding."""
+    from reward_engine.core.outcome.public_delivery import CRITERION
+
+    if any(c.get("id") == CRITERION for c in jury.get("criteria", [])):
+        raise ValueError("Model Jury cannot author the reserved public prerequisite")
+    contract = context["task"].get("public_delivery_contract")
+    if not contract:
+        return await _build_semantic(
+            context,
+            evidence,
+            jury,
+            registry,
+            call,
+            record=record,
+            previous=previous,
+            **options,
+        )
+    from reward_engine.core.outcome.public_delivery import (
+        bind_pack,
+        install,
+        semantic_pack,
+        validate,
+    )
+
+    # Do not invite the model to manufacture bindings for this reserved checker.
+    validate(contract, context["task"])
+    semantic_previous = semantic_pack(previous)
+
+    def semantic_record(name, data):
+        record("pack_semantic" if name == "pack" else name, data)
+
+    raw = await _build_semantic(
+        context,
+        evidence,
+        jury,
+        registry,
+        call,
+        record=semantic_record,
+        previous=semantic_previous,
+        **options,
+    )
+    pack = bind_pack(raw, contract)
+    install(registry)
+    record("pack", pack)
+    return pack
+
+
+async def _build_semantic(
+    context,
+    evidence,
+    jury,
+    registry,
+    call,
+    *,
     author=None,
     previous=None,
     construction_rounds=1,
@@ -228,8 +286,11 @@ async def build(
     checker_catalog = {
         k: v
         for k, v in registry.catalog().items()
-        if not (refined or bounded)
-        or (k not in registry.recipes and "::builder:" not in k)
+        if k != "public_delivery.paths.v1"
+        and (
+            not (refined or bounded)
+            or (k not in registry.recipes and "::builder:" not in k)
+        )
     }
     scope = {
         **requirement_scope(context, evidence),
@@ -331,7 +392,7 @@ async def build(
     if reusable:
         changed = [c for c in jury["criteria"] if c["id"] not in reusable]
         fresh = (
-            await build(
+            await _build_semantic(
                 context,
                 evidence,
                 {**jury, "criteria": changed},
@@ -738,6 +799,16 @@ def compile_contract(result, jury, registry, *, roles=None):
         )
         for r in (roles or {}).get(key, [])
     }
+    from reward_engine.core.outcome.public_delivery import CHECKER, CRITERION, TEST
+
+    if any(
+        t.get("checker") == CHECKER
+        or t.get("test_id") == TEST
+        or t.get("criterion_id") == CRITERION
+        for t in result.get("tests", [])
+        if isinstance(t, dict)
+    ):
+        raise ValueError("Model Builder cannot author the reserved public prerequisite")
     originals = {c["id"]: c for c in jury["criteria"]}
     rubrics = result.get("rubrics", [])
     if isinstance(rubrics, dict):

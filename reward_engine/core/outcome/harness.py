@@ -1387,6 +1387,18 @@ def defaults(semantic_call, *, tools=None):
 def measurement_context(pack, context, evidence):
     """Carry published task-scoped sources into fresh delivery measurements."""
     context, evidence = deepcopy(context), deepcopy(evidence)
+    if pack.get("public_delivery_contract"):
+        from reward_engine.core.outcome.public_delivery import (
+            attach_context,
+            mandatory_tests,
+        )
+
+        mandatory_tests(pack)
+        context, evidence = attach_context(
+            pack["public_delivery_contract"], context, evidence
+        )
+    elif context["task"].get("public_delivery_contract"):
+        raise ValueError("Public delivery contract missing from published Pack")
     for validation in pack.get("validation", {}).get("records", []):
         if not validation.get("cases"):
             continue
@@ -1478,11 +1490,18 @@ async def measure(
         validate_binding(context, evidence)
         install(registry)
     context, evidence, input_sha256 = _bound_measurement_inputs(pack, context, evidence)
+    mandatory = []
+    if pack.get("public_delivery_contract"):
+        from reward_engine.core.outcome.public_delivery import install, mandatory_tests
+
+        install(registry)
+        mandatory = mandatory_tests(pack)
     tests = pack["tests"]
     for test in tests:
         if test.get("execution_recipe") and test["checker"] != "evidence.review":
             registry.bind_recipe(test["checker"], test["execution_recipe"])
     if test_ids is not None:
+        test_ids = list(dict.fromkeys(list(test_ids) + mandatory))
         if not set(test_ids) <= {t["test_id"] for t in tests}:
             raise ValueError("Unknown test selection")
         tests = [t for t in tests if t["test_id"] in test_ids]
@@ -1553,6 +1572,13 @@ async def measure(
             "boundary": "Returned check receipts only; interrupted calls may be missing. See model request logs for usage.",
         },
     }
+    if pack.get("public_delivery_contract"):
+        from reward_engine.core.outcome.public_delivery import TEST
+
+        rows = [r for r in results if r["test_id"] == TEST]
+        summary["public_delivery_gate"] = (
+            deepcopy(rows[0].get("public_delivery_receipt")) if len(rows) == 1 else None
+        )
     if pack.get("reward_protocol"):
         from reward_engine.core.outcome.public_reward import score
 

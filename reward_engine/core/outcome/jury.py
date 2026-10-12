@@ -989,12 +989,20 @@ async def _reduce_targeted(context, evidence, inputs, reducer, *, record):
                 "Provenance must reflect the actual task/user/domain source; never invent authority. "
                 "criteria[*].subrequirements contains nonempty strings only; "
                 "coverage[*].subrequirements contains part-decision objects. Keep these two shapes distinct. "
+                "In projected requests, {$reducer_text: key} stands for the exact string in shared_texts; "
+                "it is not a malformed authored field. Do not rewrite valid text merely to expand it. "
                 "Return one to 64 edits only; group repeated field corrections into a replacement of "
                 "their existing parent list when needed. Each edit has op replace/remove, an array path, value for replace, and "
-                "reason. Paths address the evolving document; remove array entries in descending index "
-                "order. Every path must already exist. Example: {edits: [{op: replace, "
+                "reason. Paths and edit indices are zero-based and address the evolving document; "
+                "remove array entries in descending index order. Every path must already exist. "
+                "Replace an existing row instead of removing then adding it: add is unsupported. "
+                "To supply a missing field, replace its existing parent object, preserving the other grounded fields. "
+                "Example: {edits: [{op: replace, "
                 "path: [gaps, 0, expected_basis], value: domain, reason: Professional prior only}]}. "
-                "If invalid_edits is present, correct those edits against invalid_draft.",
+                "If invalid_edits is present, the ENTIRE batch was rejected atomically: no edits were applied, "
+                "including any valid prefix. Correct the batch against validation_repair.invalid_draft, "
+                "not a partially edited draft. edit_failure describes the failing edit's temporary parent, "
+                "which was discarded with the batch.",
                 {
                     "edits": [
                         {
@@ -1016,7 +1024,17 @@ async def _reduce_targeted(context, evidence, inputs, reducer, *, record):
                     apply_edits(invalid_draft, reply) if "edits" in reply else reply
                 )
             except (ValueError, TypeError, KeyError) as error:
-                diagnostic = {"error_type": type(error).__name__, "reason": str(error)}
+                diagnostic = {
+                    "error_type": type(error).__name__,
+                    "reason": str(error),
+                    "edit_failure": deepcopy(getattr(error, "details", {})),
+                    "field_issues": diagnostics(
+                        invalid_draft,
+                        expectations + observed,
+                        evidence=evidence,
+                        product_ref=product_ref,
+                    ),
+                }
                 record(f"jury_reduce_validation_{attempt}", diagnostic)
                 if attempt == 2:
                     raise
@@ -1024,9 +1042,6 @@ async def _reduce_targeted(context, evidence, inputs, reducer, *, record):
                     "validation_repair": {
                         "invalid_draft": invalid_draft,
                         "invalid_edits": reply,
-                        "field_issues": diagnostics(
-                            invalid_draft, expectations + observed
-                        ),
                         **diagnostic,
                     }
                 }
@@ -1118,7 +1133,16 @@ async def _reduce_targeted(context, evidence, inputs, reducer, *, record):
             output["proposal_expectations"] = observed
             output["coverage"] = reconcile_coverage(expectations + observed, output)
         except (ValueError, TypeError) as error:
-            diagnostic = {"error_type": type(error).__name__, "reason": str(error)}
+            diagnostic = {
+                "error_type": type(error).__name__,
+                "reason": str(error),
+                "field_issues": diagnostics(
+                    reduced,
+                    expectations + observed,
+                    evidence=evidence,
+                    product_ref=product_ref,
+                ),
+            }
             if str(error) == "Unknown expectation in coverage":
                 allowed = {r["expectation_id"] for r in expectations + observed}
                 diagnostic["unknown_expectation_ids"] = [
@@ -1152,7 +1176,6 @@ async def _reduce_targeted(context, evidence, inputs, reducer, *, record):
                 "validation_repair": {
                     "invalid_draft": reduced,
                     **diagnostic,
-                    "field_issues": diagnostics(reduced, expectations + observed),
                 }
             }
         else:
@@ -1605,24 +1628,53 @@ def validate_ranking(result, context, evidence):
 
 
 class _RankingRepair:
-    """Bind a valid partition while repairing other fields on the same evidence."""
+    """Preserve validated fields during repair, never bypass evidence closure."""
 
-    def __init__(self, call, context, evidence):
+    def __init__(self, call, context, evidence, record=lambda _: None):
         self.call = call
         self.context = context
         self.evidence = evidence
+        self.record = record
         self.attached = {}
         self.unread = None
         self.preserved = None
+        self.fields = {}
+        self.correction = None
+        self.repair_active = False
+        self.attempts = []
 
     def __getattr__(self, name):
         return getattr(self.call, name)
 
+    def prepare_request(self, request):
+        if hasattr(self.call, "prepare_request"):
+            request = self.call.prepare_request(request)
+        if "response_recovery" in request:
+            self.repair_active = True
+            request["response_recovery"]["instruction"] += (
+                " Evidence and tools are closed during same-evidence ranking repair, "
+                "including syntax retries. Correct only invalid fields; preserve "
+                "valid assessments. Automatic verification of cited unread previews "
+                "runs after a valid full or composed response."
+            )
+        if self.correction and "response_recovery" in request:
+            # Syntax recovery replaces generic recovery details. Keep this
+            # operation's offer and closed tools independently of that envelope.
+            recovery = request["response_recovery"]
+            recovery["field_correction_reply"] = deepcopy(self.correction["offer"])
+            recovery["instruction"] += (
+                " Preferred repair reply: return ONLY field_corrections with "
+                "explicit model-authored groups and unknown. Preserve all other "
+                "fields; do not regenerate observations. No evidence/tool requests "
+                "during this same-evidence structural repair. A complete JSON "
+                "reply remains supported only with unchanged valid fields."
+            )
+        return request
+
     async def __call__(self, request):
         if self.unread is None:
-            # Judge availability from the actual projected model context.
-            # Task, artifacts, checks and fully inlined sources are already
-            # observations; moving them into requested_evidence adds no facts.
+            # Use the actual projected view: inline/previously read records
+            # cannot unlock a same-evidence assessment.
             self.unread = set(
                 used_previews(
                     {"evidence_refs": list(self.evidence)}, request["context"]
@@ -1630,53 +1682,196 @@ class _RankingRepair:
             )
         attached = request.get("requested_evidence", {})
         newly_read = (set(attached) - set(self.attached)) & self.unread
-        if newly_read:
-            # Only expansion of a previously unread source can justify a new
-            # assessment. Reattaching inline data or rereading an opened source
-            # cannot reopen a preference during protocol repair.
+        if newly_read and "response_recovery" not in request:
             self.preserved = None
+            self.fields = {}
+            self.correction = None
+            self.repair_active = False
             self.unread.difference_update(newly_read)
         self.attached = deepcopy(attached)
-        return await self.call(request)
+        attempt = {
+            "schema": "ranking-response-attempt/v1",
+            "attempt": len(self.attempts) + 1,
+            "request_sha256": fingerprint(request),
+        }
+        self.attempts.append(attempt)
+        try:
+            value = await self.call(request)
+            attempt["response"] = deepcopy(value)
+            attempt["response_kind"] = (
+                "field_correction"
+                if isinstance(value, dict) and "field_corrections" in value
+                else "full_response"
+            )
+            # ask also accepts a single response envelope. Check its control
+            # payload before it can bypass the persistent repair-time tool lock.
+            control = (
+                value["response"]
+                if isinstance(value, dict)
+                and set(value) == {"response"}
+                and isinstance(value["response"], dict)
+                else value
+            )
+            if (
+                self.repair_active
+                and isinstance(control, dict)
+                and any(
+                    key in control
+                    for key in (
+                        "need_evidence",
+                        "need_tools",
+                        "tool_calls",
+                        "tool_call",
+                    )
+                )
+            ):
+                raise ResponseContractError(
+                    "groups/unknown",
+                    "Evidence and tools are closed during same-evidence ranking repair",
+                )
+            return value
+        except Exception as error:
+            attempt.update(error_type=type(error).__name__, error=str(error))
+            if hasattr(error, "doc"):
+                attempt["raw_response"] = error.doc
+            raise
+        finally:
+            self.record(deepcopy(self.attempts))
 
     def check_preserved(self, value):
-        if self.preserved is None:
-            return
-        # Order within a tie/unknown set carries no semantic preference.
-        if [set(g) for g in value["groups"]] != [
-            set(g) for g in self.preserved["groups"]
-        ] or set(value["unknown"]) != set(self.preserved["unknown"]):
-            error = ResponseContractError(
-                "groups/unknown",
-                "Ranking repair changed an already-valid ordering or unknown "
-                "assignment on the same evidence",
+        if self.preserved is not None:
+            try:
+                # Order within a tie/unknown set carries no preference.
+                same = [set(g) for g in value["groups"]] == [
+                    set(g) for g in self.preserved["groups"]
+                ] and set(value["unknown"]) == set(self.preserved["unknown"])
+            except (KeyError, TypeError):
+                same = False
+            if not same:
+                error = ResponseContractError(
+                    "groups/unknown",
+                    "Ranking repair changed an already-valid ordering or unknown "
+                    "assignment on the same evidence",
+                )
+                error.details["preserved_ranking"] = deepcopy(self.preserved)
+                raise error
+        for field, original in self.fields.items():
+            if field not in value or value[field] != original:
+                raise ResponseContractError(
+                    field,
+                    "Ranking repair must preserve the already-valid "
+                    + field
+                    + " on the same evidence",
+                )
+
+    def compose(self, raw):
+        if (
+            self.correction is None
+            or set(raw) != {"field_corrections"}
+            or not isinstance(raw["field_corrections"], dict)
+            or set(raw["field_corrections"]) != {"groups", "unknown"}
+        ):
+            raise ResponseContractError(
+                "field_corrections",
+                "An active offer requires exactly groups and unknown; "
+                "no sibling fields, extra fields, or paths",
             )
-            error.details["preserved_ranking"] = deepcopy(self.preserved)
-            raise error
+        state = self.correction
+        value = deepcopy(state["base"])
+        value.update(deepcopy(raw["field_corrections"]))
+        fields = {
+            key: {
+                "kind": "replacement" if key in ("groups", "unknown") else "preserved",
+                "source_attempt": len(self.attempts)
+                if key in ("groups", "unknown")
+                else state["attempt"],
+                "source_field": "field_corrections." + key
+                if key in ("groups", "unknown")
+                else state["source_prefix"] + key,
+            }
+            for key in value
+        }
+        self.attempts[-1].update(
+            response_kind="field_correction",
+            composed_response=deepcopy(value),
+            field_provenance={
+                "base_attempt": state["attempt"],
+                "correction_attempt": len(self.attempts),
+                "fields": fields,
+            },
+        )
+        return value
 
     def validate(self, value):
         try:
-            result = validate_ranking(value, self.context, self.evidence)
-        except ResponseContractError as error:
-            issues = error.details.get("issues", [])
-            if issues and not any(r["field"] == "groups/unknown" for r in issues):
-                # The ordinary strict validator independently accepted the
-                # whole partition. Keep it even if observations/reason failed.
-                self.check_preserved(value)
-                if self.preserved is None:
-                    self.preserved = deepcopy(
-                        {k: value[k] for k in ("groups", "unknown")}
+            if "field_corrections" in value:
+                value = self.compose(value)
+            self.check_preserved(value)
+            try:
+                result = validate_ranking(value, self.context, self.evidence)
+            except ResponseContractError as error:
+                issues = error.details.get("issues", [])
+                invalid = {r["field"] for r in issues}
+                if issues:
+                    if "groups/unknown" not in invalid:
+                        if self.preserved is None:
+                            self.preserved = deepcopy(
+                                {k: value[k] for k in ("groups", "unknown")}
+                            )
+                        error.details["preserved_ranking"] = deepcopy(self.preserved)
+                    for field in ("observations", "reason"):
+                        if not any(
+                            k == field or k.startswith(field + "[") for k in invalid
+                        ):
+                            self.fields.setdefault(field, deepcopy(value[field]))
+                    error.recovery_instruction = (
+                        "Correct only reported contract defects against the same "
+                        "evidence. Preserve already-valid groups/unknown, observations "
+                        "and reason. Do not reverse valid ordering, split/merge ties, "
+                        "change unknown assignments, or invent evidence."
                     )
-                error.details["preserved_ranking"] = deepcopy(self.preserved)
-                error.recovery_instruction = (
-                    "Correct only the reported contract defects against the same "
-                    "evidence. Preserve the valid groups/unknown partition in "
-                    "preserved_ranking: do not reverse ordering, split or merge "
-                    "ties, or change unknown assignments. Do not invent evidence."
-                )
+                    if (
+                        invalid == {"groups/unknown"}
+                        and getattr(self.call, "bounded_stage", False)
+                        and self.correction is None
+                    ):
+                        self.correction = {
+                            "base": deepcopy(value),
+                            "source_prefix": "response."
+                            if self.attempts[-1]["response"].get("response") == value
+                            else "",
+                            "attempt": len(self.attempts),
+                            "offer": {
+                                "schema": "ranking-field-correction/v1",
+                                "base_attempt": len(self.attempts),
+                                "allowed_fields": ["groups", "unknown"],
+                                "required_fields": ["groups", "unknown"],
+                                "product_ids": sorted(
+                                    p["product_id"] for p in self.context["products"]
+                                ),
+                                "instruction": 'Return {"field_corrections": {"groups": <model-authored tie groups>, '
+                                '"unknown": <model-authored unjudgeable IDs>}}. Each supplied product '
+                                "must occur exactly once across these two fields. No default ordering "
+                                "or unknown assignment is supplied. All other fields are preserved.",
+                            },
+                        }
+                raise
+            self.attempts[-1]["contract_valid"] = True
+            # This is not a final accepted ranking: ask still verifies previews
+            # and may fail at the evidence read limit. Never restore an old value.
+            return result
+        except ResponseContractError as error:
+            # This lock belongs to every failed ranking contract, not just the
+            # optional partition-correction offer. Syntax retries cannot erase it.
+            self.repair_active = True
+            self.attempts[-1].update(
+                contract_valid=False,
+                error_type=type(error).__name__,
+                details=deepcopy(error.details),
+            )
             raise
-        self.check_preserved(result)
-        return result
+        finally:
+            self.record(deepcopy(self.attempts))
 
 
 def continuation_decision(raw, context, evidence, known_gaps):
@@ -1773,8 +1968,13 @@ async def rank(
         "observation or explanation defects. Do not manufacture certainty."
     )
 
-    async def one(call):
-        repair = _RankingRepair(call, context, evidence)
+    async def one(call, key):
+        repair = _RankingRepair(
+            call,
+            context,
+            evidence,
+            record=lambda rows: record(f"ranking_member_{key}_responses", rows),
+        )
         return validate_ranking(
             await ask(
                 repair,
@@ -1784,6 +1984,7 @@ async def rank(
                 instruction,
                 schema,
                 validate=repair.validate,
+                verify_used_previews=True,
                 max_contract_retries=1,
                 max_syntax_retries=1,
                 max_evidence_rounds=2,
@@ -1794,7 +1995,8 @@ async def rank(
         )
 
     batch = await collect_batch(
-        {k: lambda c=c: one(c) for k, c in members.items()}, policy or BatchPolicy()
+        {k: lambda c=c, k=k: one(c, k) for k, c in members.items()},
+        policy or BatchPolicy(),
     )
     record("ranking_map", batch.summary())
     good = [r.value for r in batch.items if r.status == "ok"]
@@ -1820,7 +2022,12 @@ async def rank(
                 "product_ids": ["affected current product IDs"],
                 "evidence_refs": ["actual supporting product/check refs"],
             }
-        repair = _RankingRepair(reducer, context, evidence)
+        repair = _RankingRepair(
+            reducer,
+            context,
+            evidence,
+            record=lambda rows: record("ranking_reduce_responses", rows),
+        )
         result = validate_ranking(
             await ask(
                 repair,
@@ -1843,6 +2050,7 @@ async def rank(
                 extra=extra,
                 max_bytes=reduce_max_bytes,
                 validate=repair.validate,
+                verify_used_previews=True,
                 max_contract_retries=1,
                 max_syntax_retries=1,
                 max_evidence_rounds=2,

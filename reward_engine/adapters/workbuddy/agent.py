@@ -116,6 +116,7 @@ class OutcomeOpenCodeAgent(OpenCodeTransport):
             final_response=final_response,
             initial_hashes=getattr(self, "initial_hashes", None),
             output=target,
+            public_delivery=bool(self.spec["task"].get("public_delivery_contract")),
         )
 
     async def start(self, prompt):
@@ -202,6 +203,18 @@ class OutcomeOpenCodeAgent(OpenCodeTransport):
             environment,
             self.render_instruction(instruction),
         )
+        if self.spec["task"].get("public_delivery_contract"):
+            from reward_engine.core.outcome.public_delivery import (
+                actor_instruction,
+                validate,
+            )
+
+            contract = validate(
+                self.spec["task"]["public_delivery_contract"], self.spec["task"]
+            )
+            public = actor_instruction(contract)
+            if public not in self.spec.get("prompt", ""):
+                self.instruction += "\n\n" + public
         self._instruction = self.instruction
         _, self.initial_hashes = await self.snapshot("initial")
         memory, review = Memory(), None

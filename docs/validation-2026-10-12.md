@@ -2,6 +2,32 @@
 
 **Incomplete. Neither benchmark has yet passed a new complete three-round run.**
 
+The latest diagnostic pair (Claw v7 / WorkBuddy v6) is stopped after confirmed
+execution failures. Adapter and bounded field-correction repairs have passed
+2,697 unit/integration tests and bounded independent review. Fresh Claw v8 and
+WorkBuddy v7 runs started on commit `1d6e90c`. Claw v8 subsequently failed its
+first B review and was stopped. Claw v9 on `b382448` and WorkBuddy v7 on
+its original `1d6e90c` also ended after one completed round: Claw failed ranking,
+and WorkBuddy failed second-round Jury construction. No native run is currently
+active and no attempt is a complete pipeline success. Repairs are in progress.
+
+Claw v7 subsequently recorded a first-round Jury adapter failure: GLM's ordinary
+JSON reply included empty `tool_calls: []` placeholders, which were mistaken
+for a native tool request despite `finish_reason=stop`. Only two of three
+expectation members completed, so this attempt cannot pass the strict audit.
+Its original stream and failure are retained. Both drivers are now stopped.
+
+Both new attempts later recorded correctly rejected claim-changing repairs in
+construction measurements. Claw v7 tried promoting all advisory findings to
+material while retaining pass, and rewrote claims while adding an omitted
+root-level citation list. WorkBuddy v6 corrected a conflicting pass to unknown
+but also rewrote an existing claim and observation. These remain execution
+failures; neither attempt is a clean success. The runtime preservation guard is
+not relaxed. A bounded field-correction reply is implemented so models can
+submit explicit repairs without regenerating immutable analysis. Raw replies,
+composed results and field provenance must remain distinguishable; all existing
+validation and retry budgets still apply.
+
 The objective remains one Claw-eval task and one WorkBuddy task through the
 Reward Engine Jury, Reward Builder, hypothesis generation, reward-guided
 critique/revision, selection, and memory updates across three learning rounds.
@@ -74,6 +100,355 @@ unread-source positive controls continue to permit reassessment. New native
 attempts follow these checks; neither these fixes nor passing tests alone
 establish pipeline success.
 
+## Native attempt v5
+
+Both fresh runs use code matching the final 2,534-test snapshot and the closed
+source-review findings. WorkBuddy is running and has completed its three seeds.
+Claw exited before producing a seed because `/data0` fell just below its existing
+20 GiB free-space admission floor. This is an infrastructure failure, not a
+benchmark verdict. Its failure receipt is retained.
+
+The passive `data/claw_eval/transport` archive was relocated to
+`/var/tmp/reward-engine-storage/jiqi/claw-transport-20261012` on another volume.
+All 111,392 regular files (4,684,211,782 bytes) were compared by SHA-256 before
+replacing the original path with a symlink and removing the verified duplicate.
+Historical evidence is
+retained; neither old run results nor the storage admission floor are changed.
+The reserve was restored to over 24 GiB. `runs/full_claw_20261012_v6` is now
+running alongside the unchanged WorkBuddy v5 run. Neither is yet certified.
+
+## Claw v6 construction failure and repair
+
+Both tasks completed first-round Jury expectations, Jury proposals and hypothesis
+panels (three of three each), and generated their Reward Builder packs. WorkBuddy
+has nine checks per seed and no execution errors in its 27 construction checks.
+Claw has eight checks per seed; one of its 24 construction checks failed to
+execute correctly. The original model twice returned a `contradicted` claim with
+empty `claims[7].evidence_refs`. The generic recovery message did not identify
+that claim. This retained error prevents Claw v6 from passing the strict audit;
+its remaining execution is diagnostic evidence, not a clean successful run.
+
+The harness now identifies the offending claim index, field, judgment and empty
+value in its recovery diagnostics. Its prompt also states the existing nonempty
+evidence requirement explicitly. Acceptance rules, repair budgets and verdicts
+are unchanged; the harness does not invent citations or fill them from claim
+locations. Portable tests retain the captured eight-claim response, exercise the
+actual Role transport with scripted replies, and reject repeated or invented
+citations. The full suite passed **2,541 tests**, with no skips, nine dependency
+warnings and no source changes during execution.
+
+A separate prospective live measurement on the original seed/check completed
+successfully with two model requests and full-source evidence expansion. The
+input fingerprint matches the historical candidate. This fresh response did not
+repeat the missing-reference error, so it demonstrates successful execution on
+that input, not live coverage of the indexed structural-repair branch. Its
+receipt is stored separately and was never used by the original learning loop.
+Neither that measurement nor controlled tests erase Claw v6's failure.
+
+At the retained progress snapshot, both first-round B actors had completed their
+initial delivery plus two same-session revisions. Both final delivery reviews
+still requested improvement within the exhausted revision budget; that outcome
+is distinct from a measurement execution error. C applied the generated
+hypothesis in both tasks. WorkBuddy's raw first-round native scores were
+**A: 0.9475, B: 0.9344, C: 0.9475**. These scores do not certify Reward Engine
+correctness or establish an improvement from revision. Candidate selection and
+the complete three-round loop were still pending.
+
+WorkBuddy subsequently recorded an execution error in A's full delivered-pack
+measurement, `caveats_unsupported_ambiguous_check`: after reading the full
+artifact, the model returned `status=pass` while retaining an
+`unverified`/`material` claim. Its repair repeated that contradiction. The
+unchanged strict audit rejects this original measurement, so WorkBuddy v5 also
+cannot count as a clean full-pipeline success. The native scores above remain
+raw benchmark results, not a substitute for that failed Reward Engine check.
+The original response ledger is retained while a further diagnostic repair is
+developed; the 2,541-test result applies only to its recorded earlier hashes.
+
+Both diagnostic attempts subsequently completed round one and entered round two.
+Reviewing all intermediate versions, rather than only the final B measurement,
+also exposed a Claw B version-one check with all 12 claim-level `evidence_refs`
+fields omitted. Its generic repair repeated the omission. A further WorkBuddy
+B full-pack check repeated the same material-claim/pass contradiction as A.
+The after-round-one strict audits retain these failures. Claw's three full
+delivered-pack measurements did execute without errors, and its native scores
+were **A: 0.868, B: 0.904, C: 0.882**; neither fact cancels its earlier errors.
+Claw's selector chose B. These are diagnostic execution observations, not
+successful benchmark-pipeline validation or evidence of general quality gains.
+
+The next indexed status-dependency diagnostic snapshot passed **2,549 tests**
+(no skips, nine dependency warnings, unchanged source hashes). That result is
+bound to `full_tests_after_claim_status_diagnostic.json`; a narrow copy of its
+harness and new tests is retained in `claim_status_tested_snapshot/`. It is an
+intermediate snapshot: the omitted-reference case requires reporting multiple
+simultaneous claim errors, and same-evidence repairs are being checked for
+semantic drift in otherwise valid claim assessments before new native runs.
+
+Independent review then reproduced **CS-1** through the actual Role/harness:
+same-evidence structural repair accepted a pass after upgrading an unverified
+material claim, relabeling it advisory, or deleting it. The issue also exists in
+the preceding diagnostic snapshot; prompt wording alone does not enforce
+preservation. The failing review is retained in
+`source_integrity_claim_status_review.md/.json`. Runtime preservation of valid
+claim assessments and aggregated claim-error reporting are now being repaired.
+
+Claw v6 and WorkBuddy v5 were interrupted with SIGINT after that confirmation.
+Each had completed one round, three A/B/C deliveries and three native grades,
+and had entered round two. Each `diagnostic_stop.json` records the reason and
+hashes of completed measurements and review histories. These are failed
+diagnostic attempts, never clean pipeline successes. The interruption and need
+for fresh runs follow code integrity and execution errors, not native quality
+scores. Earlier receipts remain unchanged.
+
+The latest patch collects all claim-field errors and summary dependencies in
+the single existing repair request. It compares each repaired claim with the
+original, permitting changes only to invalid fields and an inconsistent
+summary. It preserves valid assessments through syntax recovery; only newly
+attached, previously unread preview evidence reopens assessment. The model
+still authors every semantic verdict. The focused suite passed **425 tests**,
+including 29 new cases for the 12 omitted fields, the CS-1 counterexamples,
+conservative summaries and genuine evidence expansion. The full suite then
+passed **2,578 tests**, with no skips, nine dependency warnings and unchanged
+source hashes. Independent follow-up closed CS-1 for the reviewed hashes:
+79 focused tests, 90 acceptance comparisons, the original attacks, aggregate
+diagnostics and the earlier SI-1/2 controls passed within that review's scope.
+This is same-family, provisional source review, not a native benchmark verdict.
+
+## Fresh pair on commit 3c77aa5
+
+`runs/full_claw_20261012_v7` and `runs/full_workbuddy_20261012_v6` ran the
+same tasks from fresh seeds. Their frozen runtime files match the 2,578-test
+snapshot (72 package/driver files verified in each). Three rounds, full delivered
+pack measurements, the role limits and `quality_resampling=false` are unchanged.
+No stopped run's candidates, grades or measurements were reused. Both drivers
+were interrupted after the execution failures above. Claw completed one round;
+WorkBuddy completed no full round, despite producing three A/B/C outputs and
+three native grades. Both have terminal cancellation receipts and
+`diagnostic_stop.json` records. Retained receipt hashes remain unchanged.
+
+## Adapter and bounded field-correction validation
+
+The adapter distinguishes empty streaming tool placeholders from actual native
+tool records, retaining raw chunks and rejecting malformed or unsupported tool
+payloads. Its author suite passed 310 focused tests. An independent bounded
+review passed 287 focused tests and 55 actual-Role controls, including replay of
+the captured GLM failure. This is source/protocol evidence, not a native pass.
+
+Field corrections allow only explicitly advertised invalid fields. Models must
+author all correction values, including the complete summary when required.
+The host composes those values with the original valid fields, records per-field
+provenance, and applies the existing validators, claim preservation and evidence
+read rules. Retry and tool budgets are unchanged. Full-response repairs that
+rewrite valid claims remain rejected.
+
+The first field-correction snapshot passed 2,694 tests. Independent review of
+that exact snapshot passed 193 focused tests, 44 actual-Role controls and 80
+baseline validator comparisons. The subsequent guidance-only change exposes
+the existing permitted summary statuses when locked claims invalidate pass.
+The current snapshot passed **2,697 tests**, with nine dependency warnings and
+no source changes during execution. These tests include real Docker/OpenCode
+with a scripted provider; they are not real benchmark pipeline runs.
+
+Separate hybrid fault-injection probes supplied one retained invalid response
+and called the real configured model for its repair. Missing root citations and
+the material-unverified contradiction repaired successfully. The first
+all-advisory probe retained pass and was correctly rejected; after the explicit
+allowed-values guidance change, a new probe received model-authored unknown
+without an execution error. The initial failure is retained. These probes are
+supplementary repair evidence only; none replaces a historical measurement or
+counts as a fresh native pipeline run.
+
+The guidance follow-up passed 38 focused tests and 24 independent offline Role
+replays, with outcomes matching the prior snapshot. The original invalid pass
+remained rejected. Review remains same-family and provisional, restricted to
+source/protocol integrity.
+
+## Fresh pair on commit 1d6e90c
+
+`runs/full_claw_20261012_v8` and `runs/full_workbuddy_20261012_v7` started from
+new seeds. Their frozen source matches the latest test snapshot (147 common
+files for Claw, 85 for WorkBuddy). Three rounds, full audit, the existing role
+limits and `quality_resampling=false` are unchanged. Complete native receipts
+and strict audit results remain pending.
+
+Claw v8's first construction completed 21 checks without execution errors, but
+its first B completeness review failed. The model defined full-score gap IDs
+such as `G1_status_field_omission`, then referenced abbreviations `G1`, `G2`,
+`G3` in its improvements, both initially and after the existing single repair.
+The strict audit rejected `round_1/B_review_execution`; this was an unrecovered
+contract error, unlike its earlier recovered Jury JSON syntax error. Claw was
+interrupted with SIGINT and exited 130. Six completed receipts were hash-bound
+at interruption and verified unchanged afterward. This attempt is retained as
+a diagnostic failure; the stop was unrelated to native quality scores.
+
+WorkBuddy v7 independently completed 27 construction checks without execution
+errors and entered A/B/C. It continues on its original frozen source. The gap-ID
+diagnostic repair does not modify either frozen run.
+
+Commit `b382448` makes the improvement schema and repair diagnostics explicit
+about complete, exact IDs from the model's own gap ledger. The existing single
+repair now receives all invalid fields/indices and allowed IDs together. The
+host supplies no alias mapping or replacement ID. The focused suite passed 548
+tests; full regression passed **2,712 tests**, with nine dependency warnings,
+no source drift and all 282 current file hashes matching. Independent bounded
+review passed 37 focused tests, 93 acceptance comparisons and 24 offline Role
+replays, retaining the same acceptance and retry counts. It remains same-family,
+provisional source evidence. WorkBuddy's first three B review versions have no
+execution errors and request further improvement; the round itself is not yet
+complete.
+
+Fresh Claw v9 started on `b382448`; 147 copied files match its 2,712-test
+snapshot. WorkBuddy v7 continues on `1d6e90c` and its separately bound 2,697-test
+snapshot. Their exact versions remain distinct; the gap-ID diagnostic change
+is not retroactively attributed to WorkBuddy's execution. Both still require
+three completed rounds and strict receipt audits.
+
+WorkBuddy v7 subsequently completed round one and entered round two. The strict
+audit snapshot `workbuddy_v7_after_round1.json` passes every first-round stage,
+including two changed-artifact same-session B revisions, three original full
+pack measurements, ranking/selection, and memory/checkpoint persistence. Overall
+status remains pending because rounds two and three are unfinished.
+
+Raw native first-round scores are **A 0.9213, B 0.1049, C 0.9082**; the Jury
+selected B. B's native deterministic result is 8/61 and its native LLM component
+is 0.0, despite its Reward Engine full measurement recording nine passes. This
+disagreement was traced to the submission path: B wrote
+`output/final_answer.md` in every delivery snapshot instead of the public Task's
+required root-level `final_answer.md`. The native verifier received empty
+declared-artifact text. Internal semantic checks accepted the wrong-location
+file; their passes do not establish correct Task delivery. The low score is
+retained, not normalized or used to trigger quality resampling; no
+quality-improvement claim is supported. The separate read-only report is
+`workbuddy_v7_round1_quality_diagnosis.md` under the local evidence directory.
+
+That report also retains native-contract conflicts without altering grades:
+three alleged input-file modifications are byte-identical across inspected
+initial/final snapshots, and a rule penalizes A/C for creating the Task-requested
+root file. Neither observation cancels B's missing required submission.
+
+WorkBuddy v7 then exited 1 during round-two Jury construction. Its initial
+definition lacked product-specific evidence for every affected product; the two
+targeted repairs used an unsupported `add` operation and then a nonexistent path.
+`construction_failure.json` retains `Repair path must already exist`. The final
+strict audit fails; one completed round does not validate the three-round loop.
+
+Claw v9 completed round one and entered round two, but its first-round strict
+audit fails ranking/selection. One ranking member initially returned nested
+`products` instead of top-level `groups`. Its single repair corrected the groups
+but rewrote a valid observation and added the unavailable `product_3:source:8`
+reference. Only two of three members completed, so ranking was unavailable and
+the driver selected fallback A. That fallback is not validated ranking. All
+three full delivered-pack measurements and two actual B revisions passed their
+execution checks. Raw native scores remain A 0.916, B 0.958, C 0.840.
+
+Claw v9 was interrupted for this confirmed execution failure and exited 130.
+Its `diagnostic_stop.json` binds 19 completed receipts; hashes were unchanged
+after termination. Targeted Jury repair diagnostics and protection of valid
+ranking observations are now being repaired. No frozen code or historical
+measurement is modified, and no native quality result prompted a rerun.
+
+The new targeted-repair diagnostics passed 201 focused tests and 1,824 edit
+acceptance/exception/atomicity comparisons with the prior implementation. A
+separate hybrid probe then froze that diagnostic patch over `b382448`, replayed
+one retained invalid round-two Jury draft, and called the configured real reducer
+for its repair. The model supplied five explicit edits in one call; normal Jury
+validation succeeded. The raw draft, edit reply and resulting definition are
+retained under `live_jury_repair_probe_6b9dbb80`. All original and probe-source
+hashes remained unchanged. This verifies the bounded repair path on that frozen
+snapshot only; it is neither a fresh native run nor repaired historical evidence.
+
+Ranking field corrections then passed 477 focused tests, including 40 new
+controls. A second isolated hybrid probe reconstructed the original Claw ranking
+context exactly, injected its retained malformed reply, and made two real model
+calls. The first supplied only model-authored partition corrections; observations
+and reason were preserved exactly in the separately recorded composition. The
+second request attached 12 previously unread full evidence records, then returned
+a valid full ranking. `live_ranking_field_probe_7c057913` retains all attempts and
+provenance; original/source hashes remained unchanged. This separate Map-stage
+probe does not replace the original failed ranking or validate the full loop.
+
+Independent review of the ranking patch subsequently reproduced a further
+defect through the public `jury.rank` path and offline production Role adapter:
+a contract-repair response could request previously unread evidence and then
+reverse an already valid partition. Four controls reproduce this with bounded
+and unbounded Role modes, with and without an intervening malformed JSON reply.
+These are scripted counterexamples, not native results. The original review
+receipts remain under `source_integrity_jury_repair_ranking_review_evidence/`;
+the successful narrow hybrid probe above does not establish that this bypass
+was closed. A follow-up fix and independent verification are required.
+
+The WorkBuddy public-path prerequisite is also under implementation and testing.
+It binds an explicit executor translation of public instruction lines 1 and 21
+to their exact text and prompt hash. It checks regular-file presence at the
+specified workspace-relative path; it does not establish content quality or
+automatically extract every natural-language requirement. Model-authored Jury
+and Pack records are retained separately from the declared deterministic
+projection. Every B review and final measurement must include the prerequisite,
+and selection cannot accept a nonconforming fallback. The unchanged original
+pipeline auditor and a separate byte/provenance audit must both pass. Neither
+implementation nor final native validation is complete yet.
+
+The combined RR1 repair and public-delivery implementation subsequently passed
+the full unit/integration suite: **2,869 passed, zero skipped, nine existing
+Pydantic deprecation warnings, 217.01 seconds**. The captured 291 source,
+configuration and fixture hashes remained unchanged. The enabled Docker/OpenCode
+integration uses a scripted provider, so this is controlled validation, not
+native benchmark success. Metadata and log are retained as
+`full_tests_before_claw_v10_workbuddy_v8.{json,log}`. Independent review 007 is
+still in progress; no fresh native runs have been launched at this checkpoint.
+
+Review 007 then reproduced **PD1**: jointly replacing `jury_semantic.json` and
+the effective `jury.json` with an unauthored standard passes the added projection
+audit. The original Jury/Builder substages also accept it, while the retained
+reducer response and construction raw record remain unchanged. This is a
+scripted counterexample, not a claimed complete native-audit pass. It shows that
+two mutually consistent copied definitions do not establish model origin.
+`PD1_counterexample.json` and the forged copies are retained in the review's
+evidence directory. The additional auditor is being strengthened to reconstruct
+the semantic definition from actual retained construction records; the original
+pipeline auditor remains unchanged. The 2,869-test result predates this fix.
+
+The PD1 repair now reconstructs semantic Jury and Pack contents with the shipped
+construction code and an offline adapter that matches retained requests and
+parses original provider output. It validates ordered model-authored edits,
+atomic rejection of invalid batches, and full or partial reuse of previously
+audited Packs. Only the generated Pack UUID is treated as host randomness;
+semantic fields must reconstruct exactly. The original forged Jury and analogous
+Pack/parsed-answer controls reject. **401 focused tests passed**, followed by
+**2,873 full-suite tests passed**, zero skipped, nine existing deprecation warnings,
+and no drift across the captured 291 files. The new suite is retained as
+`full_tests_after_pd1_origin_binding.{json,log}`; independent review 010 is still
+running. No live model calls, tools or historical-record rewrites occur in this
+origin check. Final native validation is still pending.
+
+Independent review 010 closes the original PD1 Jury/Pack rewrite counterexample
+but still returns **FAIL** on two further source-consistency gaps. **PD1-F1**:
+an invented successful checker trial can override independently retained failed
+tool results during origin reconstruction. **PD1-F2**: a recorded syntax-failure
+summary can authorize recovery despite contradictory original provider stream
+bytes. Both are simulated counterexamples with their unchanged source receipts
+retained in `source_integrity_pd1_origin_followup_evidence/`. The internal
+sub-Pack UUID concern was withdrawn because those UUIDs are legitimately
+independent. The additional auditor and its tests are being repaired; all
+previous test results and FAIL reports remain bound to their original snapshots.
+No fresh native task has started.
+
+The subsequent two-file audit repair verifies physical provider payloads before
+authorizing syntax recovery and replays the production checker-author protocol
+against distinct, matching tool records in the same recorder scope. It retains
+the failed source hashes and preserves legitimate streaming/nonstream recovery,
+failed-trial correction and exhausted failure. **406 focused tests** and then
+**2,878 full-suite tests** passed, with no skips or drift across the captured
+291 files. The full run took 237.80 seconds with nine existing deprecation
+warnings; metadata/log are `full_tests_after_origin_transport_trials.{json,log}`.
+Independent review 011 subsequently passed its bounded F1/F2 closure checks.
+It rejected the exact original attacks and verified legitimate authoring,
+recovery and reuse in four three-round simulations; original construction,
+measurement, B review and selection checks were exercised. This is still
+controlled evidence, not native success. All 291 source hashes matched and
+10,470 protected historical files remained unchanged. Original failed reviews,
+counterexamples and the unchanged original strict auditor are retained. The
+review is same-family/provisional; fresh native validation remains required.
+
 ## Local evidence
 
 - `runs/pipeline_validation_20261012/full_tests.json` and `.log`: first failed suite.
@@ -93,6 +468,26 @@ establish pipeline success.
   independent closure of the four recorded source findings; same-family/provisional.
 - Each v4 run's `diagnostic_stop.json` and `validation_status.json`: reason,
   observed output counts, and actual termination status.
+- `runs/pipeline_validation_20261012/full_tests_after_claim_diagnostic.json` and
+  `.log`: 2,541-test passing suite and exact source hashes.
+- `runs/pipeline_validation_20261012/pipeline_facts_continuation_1.json`:
+  the first-round progress snapshot described above and input hashes.
+- `runs/pipeline_validation_20261012/claim_repair_probe_af3f6306/`:
+  separate prospective measurement, input binding and source provenance.
+- `runs/pipeline_validation_20261012/workbuddy_v5_audit_material_claim_failure.json`:
+  strict audit rejecting A's original full-pack measurement contradiction.
+- `runs/pipeline_validation_20261012/{claw_v6,workbuddy_v5}_after_round1.json`:
+  strict audits including intermediate review execution failures.
+- `runs/pipeline_validation_20261012/pipeline_facts_round1_with_review_history.json`:
+  progress snapshot including every retained review version.
+- `runs/pipeline_validation_20261012/full_tests_after_claim_preservation_fix.json`
+  and `.log`: 2,578-test passing suite and exact source hashes.
+- `runs/pipeline_validation_20261012/source_integrity_claim_status_review.md`
+  and `.json`: original CS-1 FAIL and reproductions, retained unchanged.
+- `runs/pipeline_validation_20261012/source_integrity_claim_preservation_followup.md`
+  and `.json`: bounded, provisional closure and independent control results.
+- `runs/pipeline_validation_20261012/live_claw_v7_workbuddy_v6_handles.json`:
+  new driver handles, code bindings and distinct coverage prefixes.
 
 The earlier [2026-10-10 report](validation-2026-10-10.md) remains historical.
 Successful native process exit, grader scores, and source-line execution will

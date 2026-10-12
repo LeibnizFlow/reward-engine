@@ -81,6 +81,7 @@ def prepare(
     per_model_concurrency=2,
     canary_from=None,
     selection_policy="legacy",
+    public_delivery_contract=None,
 ):
     if selection_policy not in {"legacy", POOL_SELECTION}:
         raise ValueError("Unknown selection policy")
@@ -315,6 +316,14 @@ def prepare(
             )
         config["reused_slots"] = freeze_sources(reuse_first_round_from, tasks)
         config["reuse_first_round_from"] = str(reuse_first_round_from)
+    if public_delivery_contract is not None:
+        if selection_policy != "legacy" or recover_from or reuse_first_round_from:
+            raise ValueError("Public delivery v1 requires a fresh legacy run")
+        from reward_engine.adapters.workbuddy.public_delivery import freeze_contract
+
+        config["public_delivery_contract"] = freeze_contract(
+            public_delivery_contract, output, config["tasks_root"], tasks
+        )
     config["identity"] = digest(config)
     write(output / "config.json", config)
     versions = {
@@ -345,6 +354,11 @@ def prepare(
             ),
             "versions": versions,
             "config_identity": config["identity"],
+            **(
+                {"public_delivery_contract": config["public_delivery_contract"]}
+                if config.get("public_delivery_contract")
+                else {}
+            ),
         },
     )
     write(
@@ -369,6 +383,23 @@ def verify(config):
         != config["identity"]
     ):
         raise ValueError("Campaign configuration changed after preparation")
+    if config.get("public_delivery_contract"):
+        binding = config["public_delivery_contract"]
+        if manifest.get("public_delivery_contract") != binding:
+            raise ValueError("Public contract manifest mismatch")
+        from reward_engine.adapters.workbuddy.public_delivery import read_bound_contract
+
+        read_bound_contract(
+            binding,
+            {
+                "task_id": binding["task_id"],
+                "prompt": (
+                    Path(config["tasks_root"]) / binding["task_id"] / "instruction.md"
+                )
+                .read_bytes()
+                .decode("utf-8"),
+            },
+        )
     for name, expected in manifest["code_hashes"].items():
         if file_hash(Path(config["code"]) / name) != expected:
             raise ValueError(f"Frozen implementation changed: {name}")
@@ -502,6 +533,12 @@ async def one_task(config, task_id):
         "task_id": task_id,
         "prompt": (Path(config["tasks_root"]) / task_id / "instruction.md").read_text(),
     }
+
+    binding = config.get("public_delivery_contract")
+    if binding and binding["task_id"] == task_id:
+        from reward_engine.adapters.workbuddy.public_delivery import read_bound_contract
+
+        task["public_delivery_contract"] = read_bound_contract(binding, task)
 
     def record(name, value):
         write(root / (name + ".json"), value)
@@ -727,6 +764,7 @@ def main():
         help="Use a completed prior canary as pipeline validation only",
     )
     parser.add_argument("--selection-policy", choices=("legacy", POOL_SELECTION))
+    parser.add_argument("--public-delivery-contract", type=Path)
     args = parser.parse_args()
     if (
         args.task_id
@@ -736,6 +774,7 @@ def main():
         or args.model_concurrency
         or args.per_model_concurrency
         or args.selection_policy
+        or args.public_delivery_contract
     ) and args.action != "prepare":
         parser.error("Task selection and replay sources are frozen at prepare time")
     output = args.output.resolve()
@@ -753,6 +792,7 @@ def main():
             per_model_concurrency=args.per_model_concurrency or 2,
             canary_from=args.canary_from.resolve() if args.canary_from else None,
             selection_policy=args.selection_policy or "legacy",
+            public_delivery_contract=args.public_delivery_contract,
         )
         print(output / "config.json")
     elif args.action == "run":
