@@ -1,6 +1,12 @@
 """One full-score Outcome objective shared by delivery and runtime feedback."""
 
-from reward_engine.core.outcome.context import ResponseContractError, require_refs
+from copy import deepcopy
+
+from reward_engine.core.outcome.context import (
+    CONTRACT_REPAIR_INSTRUCTION,
+    ResponseContractError,
+    require_refs,
+)
 
 INSTRUCTION = (
     "Your objective is to help the Actor deliver a FULL-SCORE OUTCOME. Work backwards from "
@@ -29,7 +35,12 @@ INSTRUCTION = (
     "Task outcome, and state how to verify the change. More words, more tools or a keyword "
     "list alone are not quality gains. Ground opportunities in this Task and current evidence; "
     "do not invent user requirements, private grading rules, exact scores or new facts. "
-    "Retain stable gap/improvement IDs across follow-ups. Reassess earlier suggestions using "
+    "Retain stable gap/improvement IDs across follow-ups. Use "
+    "improvements[].gap_ids as exact references to full_score_gaps[].id in THIS response's "
+    "own ledger: copy each complete ID string, including every suffix, with identical case. "
+    "Each action needs a nonempty list of those exact IDs. Prefixes, ordinal shorthand, "
+    "action IDs and evidence handles are not gap-ID aliases. Preserve the ledger IDs; "
+    "do not rename them to fit abbreviated references. Reassess earlier suggestions using "
     "the actual new work: adoption is not proof of improvement, and a change can introduce a "
     "regression. Keep unresolved gaps in the ledger. When no gaps remain, explain how the "
     "current work satisfies the full-quality target; lack of an idea is not that explanation. "
@@ -49,7 +60,7 @@ def schema():
         "outcome_goal": "Concrete full-score result for this Task, not merely minimum compliance",
         "full_score_gaps": [
             {
-                "id": "stable gap ID",
+                "id": "stable complete gap ID; improvements[].gap_ids must copy this exact string",
                 "gap": "Current shortfall from full quality",
                 "evidence_refs": [
                     "Task/current-work/knowledge refs supporting this opportunity"
@@ -59,7 +70,10 @@ def schema():
         "improvements": [
             {
                 "id": "stable action ID",
-                "gap_ids": ["full_score_gaps IDs addressed"],
+                "gap_ids": [
+                    "exact complete full_score_gaps[].id from THIS response's own ledger; "
+                    "nonempty list, no abbreviated prefixes/action IDs/evidence handles"
+                ],
                 "action": "Specific next change or verification; locate what to improve",
                 "expected_gain": "Why this helps achieve the full-score Task outcome",
                 "verification": "Observable evidence that would show the change helped",
@@ -107,6 +121,49 @@ def validate(row, evidence):
             "improvements",
             "Prioritize at most three next actions; keep other gaps in the ledger",
         )
+    allowed_ids = [gap["id"] for gap in gaps]
+    invalid_ids = []
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict):
+            continue  # The ordinary action-shape validator below rejects this.
+        ids = action.get("gap_ids")
+        invalid_indices = (
+            [
+                j
+                for j, value in enumerate(ids)
+                if not isinstance(value, str) or value not in gap_ids
+            ]
+            if isinstance(ids, list)
+            else []
+        )
+        if not isinstance(ids, list) or not ids or invalid_indices:
+            invalid_ids.append(
+                {
+                    "field": f"improvements[{i}].gap_ids",
+                    "actual": deepcopy(ids),
+                    "missing": "gap_ids" not in action,
+                    "invalid_indices": invalid_indices,
+                }
+            )
+    if invalid_ids:
+        error = ResponseContractError(
+            invalid_ids[0]["field"],
+            "Reference existing full-score gap IDs. Invalid fields: "
+            + ", ".join(issue["field"] for issue in invalid_ids)
+            + f". Allowed exact IDs from THIS response's full_score_gaps: {allowed_ids!r}. "
+            "Use nonempty lists of complete strings; prefixes and ordinal shorthand are not aliases.",
+        )
+        error.details.update(allowed_ids=allowed_ids, issues=invalid_ids)
+        error.recovery_instruction = (
+            CONTRACT_REPAIR_INSTRUCTION
+            + " Correct every listed improvements[i].gap_ids field, using only the exact "
+            "complete strings in details.allowed_ids from the rejected response's own ledger. "
+            "The model must select the IDs that each action addresses; the host does not infer "
+            "or map aliases. Preserve full_score_gaps IDs, gap descriptions and all unaffected "
+            "action content. Do not shorten/rename ledger IDs to match abbreviations. Return "
+            "the complete response with the necessary reference corrections using the same evidence."
+        )
+        raise error
     for i, action in enumerate(actions):
         field = f"improvements[{i}]"
         if not isinstance(action, dict):
@@ -116,13 +173,6 @@ def validate(row, evidence):
         if action["id"] in action_ids:
             fail(field + ".id", "Duplicate action ID")
         action_ids.add(action["id"])
-        ids = action.get("gap_ids")
-        if (
-            not isinstance(ids, list)
-            or not ids
-            or any(not isinstance(g, str) or g not in gap_ids for g in ids)
-        ):
-            fail(field + ".gap_ids", "Reference existing full-score gap IDs")
         refs(action.get("evidence_refs"), field + ".evidence_refs")
     if gaps and not actions:
         fail(
