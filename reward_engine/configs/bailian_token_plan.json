@@ -20,14 +20,14 @@
     "reward_calibration_judge": 32768,
     "jury_member_1": 32768,
     "jury_member_2": 32768,
-    "jury_member_3": 32768,
+    "jury_member_3": 65536,
     "hypothesis_member_1": 32768,
     "hypothesis_member_2": 32768,
-    "hypothesis_member_3": 32768
+    "hypothesis_member_3": 65536
   },
   "model_aliases": {},
   "role_request_options_by_model": {
-    "glm-5.3": {}
+    "glm-5.3": {"reasoning_effort": "low"}
   },
   "concurrency": {
     "model_concurrency": 2,

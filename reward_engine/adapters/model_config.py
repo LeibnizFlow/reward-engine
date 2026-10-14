@@ -7,6 +7,8 @@ aliases replace the entire alias map (omission means exact model IDs only).
 Internal-role token budgets are 1..131072; actor/native-grader budgets stay 32768.
 Concurrency keys are model_concurrency and per_model_concurrency, bounded by the
 existing benchmark transport ceiling. No retries, model substitutions or jury rules.
+Per-model request options are {}, the complete disabled-thinking object, or
+{"reasoning_effort": "low" | "high" | "max"}; these forms cannot be combined.
 """
 
 import hashlib
@@ -50,6 +52,34 @@ def _name(value):
         and bool(value)
         and len(value) <= 256
         and not any(c.isspace() or ord(c) < 32 for c in value)
+    )
+
+
+def _validate_request_options(options, *, per_model=False):
+    """Share the exact allowlist between frozen profiles and Role requests."""
+    if isinstance(options, dict):
+        if not options:
+            return {}
+        if (
+            set(options) == {"thinking", "enable_thinking"}
+            and options.get("thinking") == {"type": "disabled"}
+            and options.get("enable_thinking") is False
+        ):
+            return {"thinking": {"type": "disabled"}, "enable_thinking": False}
+        if (
+            per_model
+            and set(options) == {"reasoning_effort"}
+            and isinstance(options["reasoning_effort"], str)
+            and options["reasoning_effort"] in {"low", "high", "max"}
+        ):
+            return {"reasoning_effort": options["reasoning_effort"]}
+    raise ValueError(
+        "role_request_options must be {} or the complete disabled-thinking object"
+        + (
+            " or {'reasoning_effort': 'low'|'high'|'max'} for a configured model"
+            if per_model
+            else ""
+        )
     )
 
 
@@ -99,21 +129,9 @@ def parse_profile(raw):
     ):
         raise ValueError("Unsupported concurrency field or value outside 1..128")
     for model, options in profile.get("role_request_options_by_model", {}).items():
-        if (
-            not _name(model)
-            or not isinstance(options, dict)
-            or (
-                options
-                and (
-                    set(options) != {"thinking", "enable_thinking"}
-                    or options.get("thinking") != {"type": "disabled"}
-                    or options.get("enable_thinking") is not False
-                )
-            )
-        ):
-            raise ValueError(
-                "Per-model request options must be {} or the complete disabled-thinking object"
-            )
+        if not _name(model):
+            raise ValueError("Per-model request options must name exact model IDs")
+        _validate_request_options(options, per_model=True)
     for model, aliases in profile.get("model_aliases", {}).items():
         if (
             not _name(model)
@@ -156,7 +174,10 @@ def apply_profile(config, profile):
         raise ValueError(
             "Request options must name a model actually requested by this run"
         )
-    result["role_request_options_by_model"] = deepcopy(options)
+    result["role_request_options_by_model"] = {
+        model: _validate_request_options(value, per_model=True)
+        for model, value in options.items()
+    }
     result["validation_role_limits"]["role_max_tokens"].update(
         profile.get("role_max_tokens", {})
     )

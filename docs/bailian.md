@@ -29,10 +29,12 @@ REWARD_ENGINE_BACKEND_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compat
 
 这个显式模型配置使用 `qwen3.8-flash` 运行 actor 和独立的原生 grader；
 Jury 与 Hypothesis 的三个席位分别使用 `qwen3.8-max`、`deepseek-v4.1-flash`、`glm-5.3`。
-Reducer、Builder 等角色使用 `qwen3.8-max`。内部角色输出上限为 32,768 tokens，
+Reducer、Builder 等角色使用 `qwen3.8-max`。GLM 席位输出上限为 65,536 tokens，其他内部角色为 32,768 tokens，
 全局和单模型并发上限均为 2。角色模型、参数和配置原文在调用前冻结，不会在失败后静默换模型。
 
-GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它保留 provider 默认思考设置。
+GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它使用 `reasoning_effort=low`，保留思考。
+默认思考曾在真实 Jury 请求中耗尽 32,768 tokens，导致最终 JSON 截断；该失败记录不能算作完整流程通过。
+推理强度的支持范围见[官方 GLM 文档](https://help.aliyun.com/zh/model-studio/glm)。
 其他内部角色使用命令中的关闭思考请求。是否实际产生思考 tokens，以回执用量为准。
 未知配置字段、不支持的角色名以及执行时覆盖模型配置都会报错。
 
@@ -50,14 +52,17 @@ GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它保留
 ```sh
 .venv/bin/python -m pip install '.[demo]'
 .venv/bin/python -m reward_engine.examples.minimal --live \
-  --model qwen3.8-flash \
+  --model qwen3.8-max \
   --base-url https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 \
   --key-env BAILIAN_TOKEN_PLAN_KEY --credentials .env.bailian \
   --request-timeout 600 --stage-timeout 1800 \
   --role-concurrency 1 --thinking disabled \
+  --jury-repair-mode targeted \
   --output runs/minimal_bailian
 ```
 
 这是真实模型调用，但不是 WorkBuddy 原生测试。它不会在 provider 或协议失败时切换成脚本结果。
 这些选项显式降低并发，并给模型更长的响应时间；实际参数记录在运行目录中。
+`targeted` 显式选择原生适配器使用的 Jury coverage/edits 协议，最多两次外层修复；
+默认 `full` 协议最多一次。内层证据读取、协议修复和阶段超时仍由核心控制，实际调用可能多于外层次数。
 失败记录保留 HTTP 状态或超时类型，不保存密钥或未经筛选的错误响应。

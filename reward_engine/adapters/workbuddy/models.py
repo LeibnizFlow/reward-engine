@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 
 from reward_engine.adapters.claw_eval.reply_format import normalize_reply
+from reward_engine.adapters.model_config import _validate_request_options
 from reward_engine.adapters.outcome_measurement import measurement_registry
 from reward_engine.adapters.workbuddy.io import (
     auth,
@@ -34,25 +35,6 @@ class ProviderStreamError(RuntimeError):
         super().__init__("Provider returned a stream error")
 
 
-def _validate_request_options(options):
-    if not isinstance(options, dict) or (
-        options
-        and (
-            set(options) != {"thinking", "enable_thinking"}
-            or options.get("thinking") != {"type": "disabled"}
-            or options.get("enable_thinking") is not False
-        )
-    ):
-        raise ValueError(
-            "role_request_options must be {} or "
-            "{'thinking': {'type': 'disabled'}, 'enable_thinking': False}"
-        )
-    # These request provider behavior; providers may still emit reasoning tokens.
-    return (
-        {"thinking": {"type": "disabled"}, "enable_thinking": False} if options else {}
-    )
-
-
 def _role_request_options(config, model=None):
     options = _validate_request_options(config.get("role_request_options", {}))
     overrides = config.get("role_request_options_by_model", {})
@@ -61,7 +43,8 @@ def _role_request_options(config, model=None):
     ):
         raise ValueError("role_request_options_by_model must name configured models")
     validated = {
-        name: _validate_request_options(value) for name, value in overrides.items()
+        name: _validate_request_options(value, per_model=True)
+        for name, value in overrides.items()
     }
     return validated.get(model, options)
 
@@ -399,7 +382,7 @@ class Role:
         body = {k: v for k, v in body.items() if k != "stream_options"}
         body["stream"] = False
         write(root / "request_body.json", body)
-        if "thinking" in body:
+        if "thinking" in body or "reasoning_effort" in body:
             write(
                 root / "thinking_parameters.json",
                 read(failed_root / "thinking_parameters.json"),
