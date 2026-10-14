@@ -20,6 +20,9 @@ INSTRUCTION = (
     "Also return revision_decisions connecting original subrequirement part_ids to revised "
     "criterion_id and zero-based part_index (clauses order, or subrequirements order). "
     "Group unchanged parts with action=retain and ordered one-to-one targets. "
+    "Retain preserves every parent field, including why and priority_reason, as well as the exact "
+    "part text. Do not omit why when re-emitting a criterion; for an unchanged entire criterion "
+    "prefer inherit_from without any overrides. "
     "Use rewrite or merge for changed text OR changed parent meaning, conditions, alternatives, "
     "origin, priority, evidence or verification; include reason and supporting evidence_refs. "
     "Use delete/defer with empty targets and a reason; deletion also requires evidence. "
@@ -59,6 +62,42 @@ def meaning(row, index):
     part = row["subrequirements"][index]
     result["text"] = part["text"] if isinstance(part, dict) else part
     return result
+
+
+def retain_differences(parts, keys, source, targets):
+    """Describe rejected equality only; never construct a replacement proposal."""
+    mismatches = []
+    for part, key in zip(parts, keys, strict=False):
+        before, after = meaning(*source[part]), meaning(*targets[key])
+        if before == after:
+            continue
+        fields = []
+        for name in sorted(before.keys() | after.keys()):
+            if name in before and name in after and before[name] == after[name]:
+                continue
+            fields.append(
+                {
+                    "field": name,
+                    "source_present": name in before,
+                    "target_present": name in after,
+                    **(
+                        {"source_value": deepcopy(before[name])}
+                        if name in before
+                        else {}
+                    ),
+                    **(
+                        {"target_value": deepcopy(after[name])} if name in after else {}
+                    ),
+                }
+            )
+        mismatches.append(
+            {
+                "source_part_id": part,
+                "target": {"criterion_id": key[0], "part_index": key[1]},
+                "field_differences": fields,
+            }
+        )
+    return mismatches
 
 
 def materialize(raw, initial, evidence):
@@ -150,7 +189,7 @@ def materialize(raw, initial, evidence):
                     }
                 )
     used, addressed_targets = set(), set()
-    for d in decisions:
+    for decision_index, d in enumerate(decisions):
         if not isinstance(d, dict):
             error("Revision decisions must be objects")
         parts, action, dest = d.get("source_parts"), d.get("action"), d.get("targets")
@@ -184,9 +223,24 @@ def materialize(raw, initial, evidence):
                 meaning(*source[p]) != meaning(*targets[k])
                 for p, k in zip(parts, keys, strict=True)
             ):
-                error(
-                    "Retain must preserve wording AND scope/priority/provenance/verification; use rewrite with evidence"
+                failure = ResponseContractError(
+                    "revision_decisions",
+                    "Retain must preserve wording AND scope/priority/provenance/verification; use rewrite with evidence",
                 )
+                failure.details.update(
+                    decision_index=decision_index,
+                    source_count=len(parts),
+                    target_count=len(keys),
+                    retain_mismatches=retain_differences(parts, keys, source, targets),
+                    instruction="Compare these exact source/target fields. text denotes the selected "
+                    "subrequirement text; clause denotes its structured clause fields. Presence matters: "
+                    "a missing field is not an unchanged value. Retain needs ordered one-to-one targets "
+                    "and exact original fields, including why. For an unchanged entire criterion, use "
+                    "inherit_from alone; otherwise explicitly author the complete preserved fields or "
+                    "use rewrite/merge with reason and evidence for actual changes. These diagnostics "
+                    "do not apply edits, supply defaults, or authorize weakening a requirement.",
+                )
+                raise failure
         else:
             if not isinstance(d.get("reason"), str) or not d["reason"].strip():
                 error("Changed or withheld clauses require an explicit reason")

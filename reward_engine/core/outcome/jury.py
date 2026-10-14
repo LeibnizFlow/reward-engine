@@ -730,6 +730,9 @@ async def _propose_once(
             + (jury_revision.INSTRUCTION if revision_protocol else ""),
             {
                 **schema,
+                "criteria": [
+                    {**schema["criteria"][0], "why": "importance to the Task outcome"}
+                ],
                 **(
                     {"revision_decisions": [jury_revision.SCHEMA]}
                     if revision_protocol
