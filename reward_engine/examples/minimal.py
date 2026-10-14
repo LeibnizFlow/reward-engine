@@ -211,6 +211,7 @@ async def run(output, *, backend=None):
     config = getattr(backend, "config", None)
     concurrency = config.role_concurrency if config else 1
     stage_timeout = config.stage_timeout if config else 180
+    jury_repair_mode = config.jury_repair_mode if config else "full"
     # Three panel seats may run sequentially. Do not leave the core's 240s
     # default batch cutoff ahead of explicitly configured long role stages.
     policy = BatchPolicy(
@@ -228,6 +229,18 @@ async def run(output, *, backend=None):
         "runtime_settings": {
             "provider": config.public_settings() if config else None,
             "stage_timeout_s": stage_timeout,
+            "jury_reduce": {
+                "repair_mode": jury_repair_mode,
+                "initial_response_protocol": "explicit expectation/part coverage"
+                if jury_repair_mode == "targeted"
+                else "part_decisions with exact-alias-v1",
+                "outer_repair_limit": 2 if jury_repair_mode == "targeted" else 1,
+                "outer_attempt_limit": 3 if jury_repair_mode == "targeted" else 2,
+                "budget_scope": "Existing core outer Reduce attempts, not total HTTP calls. "
+                "Each inner ask retains its existing evidence/contract/syntax budgets "
+                "and a separate stage timeout; there is no shared outer stage deadline. "
+                "Batch deadlines still apply to mapped jobs. No transport retries are added.",
+            },
             "batch_policy": {
                 "concurrency": policy.concurrency,
                 "deadline_s": policy.deadline_s,
@@ -252,6 +265,8 @@ async def run(output, *, backend=None):
 
             call.bounded_stage = True
             call.stage_timeout_s = stage_timeout
+            if role == "jury_reducer":
+                call.jury_repair_mode = jury_repair_mode
             return call
 
         registry = defaults(roles("measurement", "measurement"), tools=NoTools())
@@ -404,6 +419,11 @@ def main(argv=None):
         help="Default: omit overrides; disabled sends thinking.type=disabled and enable_thinking=false",
     )
     parser.add_argument(
+        "--jury-repair-mode",
+        choices=("full", "targeted"),
+        help="Live Jury Reduce protocol: full (default, 1 outer repair) or native targeted coverage/edits (2 outer repairs); inner ask budgets remain unchanged",
+    )
+    parser.add_argument(
         "--credentials",
         type=Path,
         help="Optional dotenv file; defaults to .env if present; environment takes precedence",
@@ -418,6 +438,7 @@ def main(argv=None):
         or args.stage_timeout is not None
         or args.role_concurrency is not None
         or args.thinking is not None
+        or args.jury_repair_mode is not None
     ):
         parser.error("Provider options require --live; no silent offline fallback")
     try:
@@ -441,6 +462,7 @@ def main(argv=None):
                     if args.role_concurrency is not None
                     else 1,
                     thinking=args.thinking or "provider_default",
+                    jury_repair_mode=args.jury_repair_mode or "full",
                 )
             )
         summary = asyncio.run(run(args.output, backend=backend))

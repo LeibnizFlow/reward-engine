@@ -110,7 +110,10 @@ def test_invalid_urls_fail_before_any_http(clean_config_environment, url):
         LiveConfig.load(model="single-model", base_url=url)
 
 
-def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
+@pytest.mark.parametrize("jury_repair_mode", ["full", "targeted"])
+def test_live_transport_controller_end_to_end_is_explicit_simulation(
+    tmp_path, jury_repair_mode
+):
     requests = []
     scripted = Offline()
 
@@ -127,7 +130,35 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         )
         messages = payload["messages"]
         if messages[0]["content"].startswith("You are an internal"):
-            answer = await scripted.role(json.loads(messages[-1]["content"]))
+            role_request = json.loads(messages[-1]["content"])
+            if role_request["mode"] == "outcome_jury_repair":
+                assert jury_repair_mode == "targeted"
+                assert set(role_request["response"]) == {"edits"}
+                assert (
+                    role_request["validation_repair"]["invalid_draft"]["criteria"][0][
+                        "kind"
+                    ]
+                    == "invalid-enum"
+                )
+                answer = {
+                    "edits": [
+                        {
+                            "op": "replace",
+                            "path": ["criteria", 0, "kind"],
+                            "value": "hard",
+                            "reason": "Model fixture corrects kind to the explicit task requirement.",
+                        }
+                    ]
+                }
+            else:
+                answer = await scripted.role(role_request)
+                if role_request["mode"] == "outcome_jury_reduce":
+                    if jury_repair_mode == "targeted":
+                        assert "coverage" in role_request["response"]
+                        assert "part_decisions" not in role_request["response"]
+                        answer["criteria"][0]["kind"] = "invalid-enum"
+                    else:
+                        assert "part_decisions" in role_request["response"]
         else:
             # Model-authored simulation: continuation corrects the prior total.
             revised = any(m["role"] == "assistant" for m in messages)
@@ -141,6 +172,7 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
     backend.config.timeout = 600
     backend.config.stage_timeout = 1800
     backend.config.thinking = "disabled"
+    backend.config.jury_repair_mode = jury_repair_mode
     backend.config.private_future_field = "must-not-serialize-new-config-fields"
     root = tmp_path / "mock-http-only"
     summary = asyncio.run(run(root, backend=backend))
@@ -157,6 +189,31 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
     provider = settings["provider"]
     assert provider["request_timeout_s"] == 600 and provider["role_concurrency"] == 1
     assert provider["thinking"] == "disabled" and provider["transport_retries"] == 0
+    assert provider["jury_repair_mode"] == jury_repair_mode
+    reduce_settings = settings["jury_reduce"]
+    assert reduce_settings["repair_mode"] == jury_repair_mode
+    assert reduce_settings["outer_repair_limit"] == (
+        2 if jury_repair_mode == "targeted" else 1
+    )
+    assert (
+        reduce_settings["outer_attempt_limit"]
+        == reduce_settings["outer_repair_limit"] + 1
+    )
+    assert "not total HTTP calls" in reduce_settings["budget_scope"]
+    repairs = [
+        p
+        for p in requests
+        if p["messages"][0]["content"].startswith("You are an internal")
+        and json.loads(p["messages"][-1]["content"])["mode"] == "outcome_jury_repair"
+    ]
+    assert len(repairs) == (3 if jury_repair_mode == "targeted" else 0)
+    if jury_repair_mode == "targeted":
+        for n in range(1, 4):
+            raw = json.loads((root / f"round_{n}/jury_reduce_raw.json").read_text())
+            final = json.loads((root / f"round_{n}/jury.json").read_text())
+            assert raw["criteria"][0]["kind"] == "invalid-enum"
+            assert final["criteria"][0]["kind"] == "hard"
+            assert (root / f"round_{n}/jury_reduce_repair_1_edits.json").is_file()
     assert set(provider) == {
         "model",
         "base_url",
@@ -173,6 +230,7 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         "max_tokens",
         "response_format",
         "transport_retries",
+        "jury_repair_mode",
     }
     for path in root.rglob("*.json"):
         assert "test-only-key" not in path.read_text()

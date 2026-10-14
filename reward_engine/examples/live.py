@@ -29,6 +29,7 @@ class LiveConfig:
     stage_timeout: float = 180
     role_concurrency: int = 1
     thinking: str = "provider_default"
+    jury_repair_mode: str = "full"
 
     def __post_init__(self):
         for value in (self.timeout, self.stage_timeout):
@@ -43,6 +44,11 @@ class LiveConfig:
             raise ValueError("Role concurrency must be a positive integer")
         if self.thinking not in {"provider_default", "disabled"}:
             raise ValueError("Thinking must be provider_default or disabled")
+        if not isinstance(self.jury_repair_mode, str) or self.jury_repair_mode not in {
+            "full",
+            "targeted",
+        }:
+            raise ValueError("Jury repair mode must be full or targeted")
 
     def thinking_options(self):
         return (
@@ -68,6 +74,7 @@ class LiveConfig:
             "max_tokens": self.max_tokens,
             "response_format": {"type": "json_object"},
             "transport_retries": 0,
+            "jury_repair_mode": self.jury_repair_mode,
         }
 
     @classmethod
@@ -82,6 +89,7 @@ class LiveConfig:
         stage_timeout=180,
         role_concurrency=1,
         thinking="provider_default",
+        jury_repair_mode="full",
     ):
         values = {}
         path = Path(credentials) if credentials else Path(".env")
@@ -118,6 +126,7 @@ class LiveConfig:
             stage_timeout=stage_timeout,
             role_concurrency=role_concurrency,
             thinking=thinking,
+            jury_repair_mode=jury_repair_mode,
         )
         if not config.model or not config.api_key:
             raise ValueError(

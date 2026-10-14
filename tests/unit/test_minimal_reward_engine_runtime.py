@@ -130,6 +130,9 @@ def test_recorder_never_copies_unmarked_exception_text(tmp_path, error):
         {"role_concurrency": 1.5},
         {"role_concurrency": True},
         {"thinking": "enabled"},
+        {"jury_repair_mode": "automatic"},
+        {"jury_repair_mode": None},
+        {"jury_repair_mode": []},
     ],
 )
 def test_invalid_runtime_settings_rejected(options):
@@ -165,6 +168,8 @@ def test_cli_passes_explicit_live_runtime_settings(monkeypatch, tmp_path, capsys
                 "1",
                 "--thinking",
                 "disabled",
+                "--jury-repair-mode",
+                "targeted",
             ]
         )
         == 0
@@ -176,6 +181,7 @@ def test_cli_passes_explicit_live_runtime_settings(monkeypatch, tmp_path, capsys
         seen[0].role_concurrency,
         seen[0].thinking,
     ) == (600, 1800, 1, "disabled")
+    assert seen[0].jury_repair_mode == "targeted"
     assert "test-only-key" not in capsys.readouterr().out
 
 
@@ -186,6 +192,7 @@ def test_cli_passes_explicit_live_runtime_settings(monkeypatch, tmp_path, capsys
         ["--stage-timeout", "1800"],
         ["--role-concurrency", "1"],
         ["--thinking", "provider_default"],
+        ["--jury-repair-mode", "targeted"],
     ],
 )
 def test_live_only_options_cannot_silently_run_offline(tmp_path, option, capsys):
