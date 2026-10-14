@@ -35,6 +35,7 @@
 | native WorkBuddy v1 | 第一轮 GLM Jury 席位耗尽 32,768 输出 tokens，其中 32,766 为思考 tokens，最终 JSON 截断。严格审计失败；正常中断，退出码 130，保留原始记录。 |
 | native WorkBuddy v2 | 三个 Jury 席位均完成；Reduce 两次协议修复后仍把非空 criterion_ids 与 deferred/excluded 状态组合使用，严格拒绝。完成 0 轮，退出码 1。 |
 | native WorkBuddy v3 | 三个 Jury 席位均完成；一个 gap 的任务要求依据仅引用环境观察，缺少 Task 引用。诊断未定位 expected_refs 字段，模型两次提交非法编辑路径。完成 0 轮，两项审计失败，退出码 1。 |
+| native WorkBuddy v4 | 第一轮 Jury、Builder、Hypothesis 和三路 Actor 已执行；C 路独立原生 grader 首次与修复回复均缺少要求的 verdict 字段，严格审计失败。正常中断，退出码 130，完成 0 轮。 |
 
 WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求三个席位均成功。
 其审计失败原因为 `Map contains failed/inactive seats`，不是完整流程通过。
@@ -58,12 +59,23 @@ WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求�
 `740bb7e` 补齐了 gap 的 `expected_refs` 字段诊断：区分要求来源与观察证据，
 仍由模型依据实际 Task 明确提交编辑，不自动补引用、不放宽校验。
 同时将 Qwen Max 内部角色配置为低强度思考、65,536 输出预算。
-`native_workbuddy_v4` 在该提交冻结，重新生成三个种子；本记录更新时第一轮 Jury Reduce、检查包构建和三个 Hypothesis 席位已完成，正在对种子执行检查，尚无完整三轮通过结论。
+`native_workbuddy_v4` 在该提交冻结，重新生成三个种子；第一轮 Jury Reduce、检查包构建、三个 Hypothesis 席位及三路 Actor 均完成，但 C 路原生评分格式错误使严格审计失败。
 模型配置 SHA-256：`ac8fa6746b9eab300292a77a61a5b00ef9ed6a1f6e6be2ba4092f309068bd86f`。
 
 本次检查还定位到 Map 回复格式遗漏 `why`：Expectations 要求该字段，严格 retain 校验也要求保留，
 但下一步的格式示例没有列出它。后续源码补齐该字段与精确差异诊断，保留原校验和修复次数。
 该变更未注入已冻结的 v4，也未修改历史回复；v4 三个 proposal 均保留中间失败记录。
+
+v4 的初始候选检查共 39 项：38 pass、1 unknown；unknown 保留未读到相关文件导致的不确定性。
+第一轮 B 的真实评审为 `full_score_target_satisfied`，只有一个版本、没有实际修订、Memory 新增 0。
+A 的后续完整检查为 12 pass、1 fail，其中结构检查把模型自己提出的反面假设当成 material claim，
+其否定判定与 pass 冲突；模型在修复中明确返回 fail。历史结果保留，后续只补充初次评估的提示，
+说明失败锚点与调查假设不等于 Task 或产物的主张，不改判定、不放宽修复。提示能否改善真实可靠性仍待验证。
+
+C 的原生 grader 使用 `qwen3.8-flash`，首次返回 `result`、修复返回 `decision`，均不符合原生 `verdict` 字段要求。
+虽然原生工具生成了数字总分，独立评分契约仍将它标记为 failed；不得把这个总分当作有效评分。
+原有 pipeline 与 public-delivery 审计均退出 1；正常中断后保留 1,800 个 JSON 文件的 SHA-256 清单。
+尚无原生三轮、候选选择、Memory 写入或真实修订分支的完整通过结论。
 
 ## 回归测试边界
 
@@ -76,5 +88,7 @@ WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求�
 - `740bb7e`：单元与集成测试合并执行，3299 passed、0 skipped，9 条已有 Pydantic 警告；测试期间源码未变化。包含 Docker/OpenCode 同会话修订用例，其 provider 仍为本地脚本。
 
 - 后续 retain 格式与诊断修复：296 项相关测试通过，包含 14 个新增回归用例；该子集与全量测试重叠，不作累计总数。
+
+- 后续初次评估提示澄清：393 项现有 harness/claim/recovery 测试通过；未改验收、修复规则或预算，也不据此声称模型误判已解决。
 
 上述测试包含模拟 provider 的用例，不能当作真实模型结果。真实调用结论仅来自单独保存的运行记录。
