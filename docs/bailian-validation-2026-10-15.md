@@ -37,6 +37,7 @@
 | native WorkBuddy v3 | 三个 Jury 席位均完成；一个 gap 的任务要求依据仅引用环境观察，缺少 Task 引用。诊断未定位 expected_refs 字段，模型两次提交非法编辑路径。完成 0 轮，两项审计失败，退出码 1。 |
 | native WorkBuddy v4 | 第一轮 Jury、Builder、Hypothesis 和三路 Actor 已执行；C 路独立原生 grader 首次与修复回复均缺少要求的 verdict 字段，严格审计失败。正常中断，退出码 130，完成 0 轮。 |
 | native WorkBuddy v5 | 第一轮构建完成；种子检查的根级引用错误只有泛化诊断，模型修复时改动了原本有效的 claims 字段，被严格拒绝。C 路新的独立 grader 正常 scored；随后中断，退出码 130，完成 0 轮，两项完整审计失败。 |
+| native WorkBuddy v6 | 初始检查无执行错误，A/B/C 原生评分均有效；B 路补充证据后的评审再次漏掉 outcome_goal，一次协议修复额度已用完，严格拒绝并标记 check_unavailable。随后中断，退出码 130，完成 0 轮，两项审计失败。 |
 
 WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求三个席位均成功。
 其审计失败原因为 `Map contains failed/inactive seats`，不是完整流程通过。
@@ -95,6 +96,23 @@ v5 第一轮初始候选检查仍未完整通过：38 pass、1 unknown，其中 
 该运行在确认 C 路原生评分完成后正常中断，保留 1,247 个 JSON 文件的 SHA-256 清单；
 没有完整轮次、候选选择或 Memory 写入的通过结论。
 
+`native_workbuddy_v6` 在 `c81987c` 冻结，重新生成三个种子。第一轮 33 项初始检查为
+32 pass、1 unknown、执行错误 0；unknown 是缺少两个文件的直接读取证据，未硬判通过。
+三路 Actor 及独立原生评分均完成，scoring_errors 均为空。B 评审首先漏掉 outcome_goal，
+原有一次协议修复补齐；强制扩展公开源码证据后的新评审又遗漏该字段，剩余修复额度为 0。
+字段在四次请求的回复格式中均明确列出，属于模型输出遗漏，系统没有自动沿用旧值。
+严格审计以 B_review_execution unavailable 失败；只有一个版本，Memory 新增 0。
+正常中断后保留 1,790 个 JSON 文件的 SHA-256 清单，尚无完整轮次通过。
+
+另用实际 Token Plan 端点对 Qwen Max 的 strict JSON Schema 做了小型能力检查：
+HTTP 200、返回模型正确、finish_reason=stop，支持必填字段、非空字符串与分支 Schema。
+此项只是格式约束能力预检，不是原生流程验证；功能依据见[官方结构化输出文档](https://help.aliyun.com/zh/model-studio/qwen-structured-output)。
+
+后续为 WorkBuddy 交付评审增加显式选择的 strict JSON Schema，保留完整评审与请求更多证据的分支。
+它约束八个必填字段，不替模型填值；原有语义校验、证据扩展和共享修复预算不变。
+配置和 Schema 内容摘要均冻结，实际请求格式进入缓存标识；端点拒绝时直接记录失败，不自动回退。
+尚须对历史公开候选的失败路径做独立真实模型回归，再以新种子验证完整原生流程。
+
 ## 回归测试边界
 
 - `ff4c87b` 全量回归：3205 passed、0 skipped，9 条已有警告；测试期间源码未变化。
@@ -114,5 +132,9 @@ v5 第一轮初始候选检查仍未完整通过：38 pass、1 unknown，其中 
 - `24c8d5e` 全量单元与集成回归：3374 passed、0 skipped，9 条已有 Pydantic 警告；源码无漂移。Docker/OpenCode 修订集成仍使用本地脚本 provider。
 
 - 根级／inquiry 产物引用诊断：412 项相关测试通过，包含 19 个新增离线回归；未改接受条件、修复次数或审计规则。
+
+- `c81987c` 全量单元与集成回归：3393 passed、0 skipped，9 条已有 Pydantic 警告；源码无漂移。
+
+- 交付评审 Schema 及相关配置、请求、预算、冻结绑定回归：432 passed、0 skipped；为离线测试，不代表真实原生流程通过。
 
 上述测试包含模拟 provider 的用例，不能当作真实模型结果。真实调用结论仅来自单独保存的运行记录。

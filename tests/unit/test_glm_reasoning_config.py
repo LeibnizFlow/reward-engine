@@ -28,6 +28,7 @@ def role_profile_bytes(benchmark):
         # these Claw controls exercise only the shared internal-role settings.
         profile = json.loads(raw)
         profile.pop("native_grader", None)
+        profile.pop("delivery_review_json_schema_models", None)
         return json.dumps(profile).encode()
     return raw
 

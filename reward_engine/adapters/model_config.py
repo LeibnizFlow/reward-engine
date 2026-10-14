@@ -18,6 +18,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from reward_engine.adapters import delivery_review_schema
 from reward_engine.adapters.workbuddy.io import read
 
 SCHEMA = "reward_engine.model_config.v1"
@@ -85,6 +86,31 @@ def _validate_request_options(options, *, per_model=False):
     )
 
 
+def _review_schema_models(value):
+    if (
+        not isinstance(value, list)
+        or not all(_name(model) for model in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError(
+            "delivery_review_json_schema_models must be unique exact model IDs"
+        )
+    return list(value)
+
+
+def delivery_review_schema_models(config):
+    """Share frozen-profile and runtime checks; never match aliases or infer support."""
+    key = delivery_review_schema.CONFIG_KEY
+    if key not in config:
+        return []
+    selected = _review_schema_models(config[key])
+    if config.get("validation_benchmark") != "workbuddy":
+        raise ValueError("Delivery review JSON schema is WorkBuddy-only")
+    if not set(selected) <= set(config["roles"].values()):
+        raise ValueError("Delivery review JSON schema must name actual role models")
+    return selected
+
+
 def validate_native_grader(value):
     """Validate the entire opt-in native route, without inheriting role options."""
     if not isinstance(value, dict) or set(value) != {
@@ -141,6 +167,7 @@ def parse_profile(raw):
         "concurrency",
         "role_request_options_by_model",
         "native_grader",
+        delivery_review_schema.CONFIG_KEY,
     }:
         raise ValueError("Unknown model profile fields")
     for field in (
@@ -185,6 +212,8 @@ def parse_profile(raw):
             raise ValueError("Model aliases must be explicit, unique model ID lists")
     if "native_grader" in profile:
         validate_native_grader(profile["native_grader"])
+    if delivery_review_schema.CONFIG_KEY in profile:
+        _review_schema_models(profile[delivery_review_schema.CONFIG_KEY])
     return profile
 
 
@@ -201,6 +230,11 @@ def apply_profile(config, profile):
     ) <= set(result["validation_role_limits"]["role_max_tokens"]):
         raise ValueError("Model profile names a role unavailable in this run")
     result["roles"].update(profile.get("roles", {}))
+    schema_key = delivery_review_schema.CONFIG_KEY
+    result.pop(schema_key, None)
+    if schema_key in profile:
+        result[schema_key] = deepcopy(profile[schema_key])
+        result[schema_key] = delivery_review_schema_models(result)
     models = set(result["roles"].values())
     result.pop("native_grader", None)
     if "native_grader" in profile:
@@ -242,6 +276,7 @@ def apply_profile(config, profile):
     if result.get("validation_benchmark") == "workbuddy":
         result["official_protocol"] = workbuddy_official_protocol(result)
     config.pop("native_grader", None)
+    config.pop(schema_key, None)
     config.update(result)
 
 
@@ -265,6 +300,16 @@ def effective_settings(config):
                     "official_protocol": config["official_protocol"],
                 }
                 if "native_grader" in config
+                else {}
+            ),
+            **(
+                {
+                    delivery_review_schema.CONFIG_KEY: delivery_review_schema_models(
+                        config
+                    ),
+                    "delivery_review_json_schema": delivery_review_schema.binding(),
+                }
+                if delivery_review_schema.CONFIG_KEY in config
                 else {}
             ),
         }
@@ -294,6 +339,7 @@ def verify_profile(config):
             "model_config" in manifest
             or (root / FILENAME).exists()
             or "native_grader" in config
+            or delivery_review_schema.CONFIG_KEY in config
         ):
             raise ValueError("Frozen model profile binding is missing")
         return

@@ -58,6 +58,14 @@ DeepSeek 内部角色使用命令中的关闭思考请求。是否实际产生�
 原文与有效配置都绑定到本次运行，不能在执行时覆盖；网关保存接收与实际发出的请求，确保显式预算和选项进入上游请求。
 此前 Flash grader 曾在自身修复后仍返回错误字段名；切换模型是后续配置选择，不保证杜绝格式错误。
 
+该 profile 还通过 `delivery_review_json_schema_models: ["qwen3.8-max"]`，
+为 WorkBuddy 的交付评审启用 strict JSON Schema，约束八个必填字段，并保留评审请求更多证据的返回分支。
+它只作用于 `outcome_delivery_review`，不改变其他角色或原生 grader 的输出格式。
+模型名单、Schema 版本及内容摘要随配置冻结；实际 Schema 进入请求记录与缓存标识。
+引用、判断、行动等语义仍由原有校验器检查；不自动补字段、不增加修复次数，也不在端点拒绝 Schema 时回退。
+此项依赖端点对该模型的结构化输出支持，见[官方文档](https://help.aliyun.com/zh/model-studio/qwen-structured-output)。
+省略此可选配置时保留原有输出格式。
+
 运行结束后按 [pipeline 验证指南](pipeline-validation.md)执行严格审计与 public-contract 审计。
 只有实际阶段记录通过审计，才能宣称对应完整路径已验证；模型连通性检查不能替代它。
 

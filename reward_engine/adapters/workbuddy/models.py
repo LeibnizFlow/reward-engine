@@ -6,8 +6,12 @@ from uuid import uuid4
 
 import httpx
 
+from reward_engine.adapters import delivery_review_schema
 from reward_engine.adapters.claw_eval.reply_format import normalize_reply
-from reward_engine.adapters.model_config import _validate_request_options
+from reward_engine.adapters.model_config import (
+    _validate_request_options,
+    delivery_review_schema_models,
+)
 from reward_engine.adapters.outcome_measurement import measurement_registry
 from reward_engine.adapters.workbuddy.io import (
     auth,
@@ -85,11 +89,20 @@ class Role:
                     "role_response_format must be json_object when supplied"
                 )
             response_format = {"type": "json_object"}
+        schema_models = delivery_review_schema_models(self.config)
+        review_schema = (
+            request.get("mode") == delivery_review_schema.MODE
+            and model in schema_models
+        )
+        if review_schema:
+            response_format = delivery_review_schema.for_request(request)
         identity_inputs = {"request": request, "model": model}
         identity_inputs.update(self.protocol_settings)
         if options:
             identity_inputs["role_request_options"] = options
-        if response_format:
+        if review_schema:
+            identity_inputs["delivery_review_response_format"] = response_format
+        elif response_format:
             identity_inputs["role_response_format"] = self.config[
                 "role_response_format"
             ]
