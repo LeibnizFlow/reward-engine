@@ -1025,9 +1025,24 @@ def defaults(semantic_call, *, tools=None):
             if row["status"] != "unknown" and not has_product_evidence(
                 row["evidence_refs"], evidence, receipts
             ):
-                raise ValueError(
-                    "Known check results need observed product evidence, not just the Task"
+                error = ResponseContractError(
+                    "evidence_refs",
+                    "Known check results need observed product evidence, not just the Task",
                 )
+                error.details.update(
+                    actual=deepcopy(row["evidence_refs"]),
+                    missing=False,
+                    repair_instruction="Correct only the top-level evidence_refs list for this verdict. "
+                    "Explicitly cite existing observed product evidence supporting the unchanged assessment: "
+                    "a supplied product reference, or a trusted observed workspace.read receipt with text "
+                    "and observed_product_refs bound to supplied product evidence. Task/rubric refs and "
+                    "workspace.inspect receipts alone do not meet this requirement, even when an inspection "
+                    "lists nested source refs. The model must verify and author the root references; do not "
+                    "invent or automatically copy refs. Preserve every claim, its citations, observation, "
+                    "judgment and relevance, and the existing status/reason/gap. Do not request new tools "
+                    "or evidence during this same-evidence correction.",
+                )
+                raise error
             return row
 
         def validate_inquiry(row):
@@ -1037,7 +1052,23 @@ def defaults(semantic_call, *, tools=None):
             if row["status"] != "unknown" and not has_product_evidence(
                 row["evidence_refs"], evidence, receipts
             ):
-                raise ValueError("An inquiry conclusion needs actual product evidence")
+                error = ResponseContractError(
+                    "inquiry_result.evidence_refs",
+                    "An inquiry conclusion needs actual product evidence",
+                )
+                error.details.update(
+                    actual=deepcopy(row["evidence_refs"]),
+                    missing=False,
+                    repair_instruction="Correct only inquiry_result.evidence_refs using existing observed "
+                    "product evidence supporting the unchanged inquiry assessment. Explicitly author a "
+                    "supplied product reference, or a trusted observed workspace.read receipt with text "
+                    "and observed_product_refs bound to supplied product evidence. Task/rubric refs and "
+                    "workspace.inspect receipts alone do not qualify; do not invent or automatically copy "
+                    "their nested refs. Preserve inquiry_result status/reason/gap and all global claims, "
+                    "citations, observations, judgments, relevance and summary. No new tools or evidence "
+                    "during this same-evidence correction.",
+                )
+                raise error
             return row
 
         def validate_reply(row):

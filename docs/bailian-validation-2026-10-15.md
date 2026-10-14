@@ -36,6 +36,7 @@
 | native WorkBuddy v2 | 三个 Jury 席位均完成；Reduce 两次协议修复后仍把非空 criterion_ids 与 deferred/excluded 状态组合使用，严格拒绝。完成 0 轮，退出码 1。 |
 | native WorkBuddy v3 | 三个 Jury 席位均完成；一个 gap 的任务要求依据仅引用环境观察，缺少 Task 引用。诊断未定位 expected_refs 字段，模型两次提交非法编辑路径。完成 0 轮，两项审计失败，退出码 1。 |
 | native WorkBuddy v4 | 第一轮 Jury、Builder、Hypothesis 和三路 Actor 已执行；C 路独立原生 grader 首次与修复回复均缺少要求的 verdict 字段，严格审计失败。正常中断，退出码 130，完成 0 轮。 |
+| native WorkBuddy v5 | 第一轮构建完成；种子检查的根级引用错误只有泛化诊断，模型修复时改动了原本有效的 claims 字段，被严格拒绝。C 路新的独立 grader 正常 scored；随后中断，退出码 130，完成 0 轮，两项完整审计失败。 |
 
 WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求三个席位均成功。
 其审计失败原因为 `Map contains failed/inactive seats`，不是完整流程通过。
@@ -80,7 +81,19 @@ v4 原生 grader 的实际请求只包含 model/messages；worker 设置的预�
 
 后续新增可选的独立原生 grader 冻结配置，Bailian profile 使用 `qwen3.8-max`、
 `reasoning_effort=low` 和实际请求中的 `max_tokens=32768`。Actor 仍为 Flash；
-原生 grader 的 prompt、解析器、修复次数与评分规则不变。该配置尚待新的真实运行验证。
+原生 grader 的 prompt、解析器、修复次数与评分规则不变。`native_workbuddy_v5` 在 `24c8d5e` 冻结，从三个新种子开始。
+配置 SHA-256：`1be03ca75186124ee7ac0594639fa818187f91456f283019b7734a22ca962bf5`。
+C 路真实原生评分状态为 scored、scoring_errors 为空，实际返回模型为 Qwen Max，
+接收请求与发出请求验证了预算和 low 参数进入上游；这仅验证该次原生评分路径。
+
+v5 第一轮初始候选检查仍未完整通过：38 pass、1 unknown，其中 unknown 带 error=true，
+属于引用协议修复失败，不能算作普通证据不确定。原始根级引用仅有工具观察与 Task，
+模型在修复中又改动 claims 的有效引用和观察文本；保留校验正确拒绝。
+后续补齐根级 `evidence_refs` 与 `inquiry_result.evidence_refs` 的结构化诊断，启用已有的定点修复协议。
+只允许模型修正对应引用列表；claims、观察、判断、summary 与判定均受原有保留约束。
+直接产物引用和合格 workspace.read 的接受条件不变，workspace.inspect 单独引用仍不被接受。
+该运行在确认 C 路原生评分完成后正常中断，保留 1,247 个 JSON 文件的 SHA-256 清单；
+没有完整轮次、候选选择或 Memory 写入的通过结论。
 
 ## 回归测试边界
 
@@ -97,5 +110,9 @@ v4 原生 grader 的实际请求只包含 model/messages；worker 设置的预�
 - 后续初次评估提示澄清：393 项现有 harness/claim/recovery 测试通过；未改验收、修复规则或预算，也不据此声称模型误判已解决。
 
 - 独立原生 grader 路由与配置：339 项相关测试通过，涵盖实际两字段请求的参数补充、原始请求保留、Actor 隔离和冻结配置篡改拒绝。
+
+- `24c8d5e` 全量单元与集成回归：3374 passed、0 skipped，9 条已有 Pydantic 警告；源码无漂移。Docker/OpenCode 修订集成仍使用本地脚本 provider。
+
+- 根级／inquiry 产物引用诊断：412 项相关测试通过，包含 19 个新增离线回归；未改接受条件、修复次数或审计规则。
 
 上述测试包含模拟 provider 的用例，不能当作真实模型结果。真实调用结论仅来自单独保存的运行记录。
