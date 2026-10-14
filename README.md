@@ -1,6 +1,27 @@
-# Reward Engine — WorkBuddy Office 与 Claw-Eval
+# Reward Engine
 
-两个实验的代码、最终结果、完整证据与离线复现入口。数据按实验、任务、seed、算法轮次和 A/B/C 组织。
+从任务与候选产物构建 Jury 和可执行奖励检查，再通过反馈修订、候选选择和记忆更新运行三轮学习。仓库同时提供 WorkBuddy Office 与 Claw-Eval 的原生适配器及历史实验材料。
+
+## 快速开始
+
+Python 3.11+，无需 Docker、API key 或下载历史实验数据：
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/python -m reward_engine.examples.minimal --output runs/minimal
+```
+
+该入口运行实际核心控制器的三轮流程，使用明确标记的确定性角色与本地文本任务。它用于理解流程和检查安装，**不是真实模型或 benchmark 验证，也不证明质量提升**。真实模型配置、输出说明与论文对应关系见 [使用指南](docs/quickstart.md)。每次运行使用新的输出目录。
+
+- [最小完整流程与 API 配置](docs/quickstart.md)
+- [三轮原生 pipeline 验证](docs/pipeline-validation.md)
+- [原生任务烟测与环境安装](docs/native-smoke.md)
+- [本次安装与流程验证记录](docs/usability-validation-2026-10-14.md)
+
+## 历史实验
+
+两个实验的最终结果、完整证据与离线复现入口。数据按实验、任务、seed、算法轮次和 A/B/C 组织；这些历史结果与上述最小示例分开记录。
 
 | 实验 | 任务 | 轮次记录 | 有效分数 | 最终报告 |
 |---|---:|---:|---:|---|

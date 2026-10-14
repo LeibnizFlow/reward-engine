@@ -22,6 +22,10 @@ def frozen(request, tmp_path, monkeypatch):
     code = output / "code"
     binary = output / "harness/bin/opencode"
     original = {}
+    credentials = tmp_path / "provider.env"
+    credentials.write_text(
+        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=http://offline.invalid/v1\n"
+    )
 
     def freeze(destination, **kwargs):
         assert destination == output
@@ -66,7 +70,9 @@ def frozen(request, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "prepare", freeze)
     monkeypatch.setenv("OPENCODE_BINARY", "/unused/offline-opencode")
     config = validation.prepare(
-        SimpleNamespace(output=output, benchmark=benchmark, task_id="task")
+        SimpleNamespace(
+            output=output, benchmark=benchmark, task_id="task", credentials=credentials
+        )
     )
     verify = campaign.verify_freeze if benchmark == "claw_eval" else experiment.verify
     return SimpleNamespace(

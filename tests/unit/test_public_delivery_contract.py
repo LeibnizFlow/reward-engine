@@ -1177,7 +1177,9 @@ def test_validation_prepare_forwards_freezes_and_binds_cli_contract(
     output = tmp_path / "run"
     captured = []
 
-    def prepare(run, *, upstream, task_ids, public_delivery_contract):
+    def prepare(
+        run, *, upstream, task_ids, public_delivery_contract, **provider_options
+    ):
         captured.append(public_delivery_contract)
         run.mkdir()
         code = run / "code"

@@ -15,7 +15,12 @@ from pathlib import Path
 
 import uvicorn
 
-from reward_engine.adapters.workbuddy.gateway import application
+from reward_engine.adapters.provider_config import (
+    add_provider_arguments,
+    application,
+    prepare_options,
+    provider_arguments_supplied,
+)
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
 REPO = Path(__file__).resolve().parents[1]
@@ -28,20 +33,28 @@ def prepare(args):
         raise ValueError(
             "The current public workspace collector is WorkBuddy-only; Claw remains unbound"
         )
+    provider = prepare_options(args, default_credentials=REPO / ".env")
     if args.benchmark == "claw_eval":
         from experiments.claw_eval.opencode.campaign import prepare as freeze
 
         os.environ.setdefault(
             "OPENCODE_BINARY", str(REPO / "data/claw_eval/environment/bin/opencode")
         )
-        config = freeze(output, task_ids=[args.task_id])
+        config = freeze(output, task_ids=[args.task_id], **provider)
     else:
         from experiments.workbuddy.experiment import prepare as freeze
 
         config = freeze(
             output,
-            upstream=REPO / "local/workbuddy/runner/upstream",
+            upstream=Path(
+                getattr(args, "workbuddy_root", None)
+                or os.environ.get("WORKBUDDY_ROOT", REPO / "local/workbuddy/runner")
+            )
+            .expanduser()
+            .resolve()
+            / "upstream",
             task_ids=[args.task_id],
+            **provider,
             **(
                 {"public_delivery_contract": public_contract} if public_contract else {}
             ),
@@ -51,9 +64,6 @@ def prepare(args):
         validation_task_id=args.task_id,
         rounds=3,
         full_audit=True,
-        credentials_file=str(REPO / ".env"),
-        backend_key_env="YIBU_API_KEY",
-        backend_url="https://yibuapi.com/v1",
         model_concurrency=6,
         per_model_concurrency=6,
         quality_resampling=False,
@@ -216,6 +226,8 @@ def main():
     parser.add_argument("--task-id")
     parser.add_argument("--public-delivery-contract", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    add_provider_arguments(parser)
+    parser.add_argument("--workbuddy-root", type=Path)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--role-thinking",
@@ -224,6 +236,8 @@ def main():
         help="Explicit role-only provider request; the provider may still report reasoning tokens",
     )
     args = parser.parse_args()
+    if args.execute and (provider_arguments_supplied(args) or args.workbuddy_root):
+        parser.error("Provider and native paths are frozen at prepare time")
     if args.execute and args.public_delivery_contract:
         parser.error(
             "Public delivery contracts must be frozen during prepare, not changed at execute time"

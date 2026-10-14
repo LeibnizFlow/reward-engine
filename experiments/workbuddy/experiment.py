@@ -19,6 +19,12 @@ from pathlib import Path
 import httpx
 
 from reward_engine.adapters.paths import WORKBUDDY_ROOT
+from reward_engine.adapters.provider_config import (
+    add_provider_arguments,
+    provider_arguments_supplied,
+    provider_key,
+    resolve_provider,
+)
 from reward_engine.adapters.workbuddy.io import (
     digest,
     file_hash,
@@ -106,10 +112,12 @@ def prepare(
     canary_from=None,
     selection_policy="legacy",
     public_delivery_contract=None,
+    credentials=None,
+    key_env=None,
+    backend_url=None,
 ):
     if selection_policy not in {"legacy", POOL_SELECTION}:
         raise ValueError("Unknown selection policy")
-    from dotenv import dotenv_values
     from workbuddy_bench.runner.prepare_tasks import (
         ensure_apt_mirror,
         ensure_composite_verifier_contract,
@@ -142,9 +150,13 @@ def prepare(
                 "Selected task IDs must be unique members of the pinned Office 50"
             )
         tasks = list(task_ids)
-    credentials = dotenv_values(upstream / ".env")
-    if not credentials.get("YIBU_API_KEY") or not credentials.get("YIBU_BASE_URL"):
-        raise ValueError("Existing Yibu endpoint credentials unavailable")
+    provider = resolve_provider(
+        credentials=credentials,
+        key_env=key_env,
+        backend_url=backend_url,
+        default_credentials=upstream / ".env",
+    )
+    provider_key(provider)
     output.mkdir(parents=True)
     code = output / "code"
     code.mkdir()
@@ -221,9 +233,8 @@ def prepare(
             "deepseek-v4-flash": ["deepseek-v4-flash-0731", "deepseek-flash"]
         },
         "batch": {"concurrency": 3, "group_concurrency": 2, "deadline_s": 1800},
-        "credentials_file": str(upstream / ".env"),
+        **provider,
         "auth_file": str(token),
-        "backend_url": credentials["YIBU_BASE_URL"].rstrip("/"),
         "gateway_port": port,
         "gateway_local": f"http://127.0.0.1:{port}",
         "gateway_container": f"http://host.docker.internal:{port}",
@@ -233,12 +244,10 @@ def prepare(
         "minimum_free_bytes": 5 * 1024**3,
         "quality_resampling": False,
         "package_mirrors": mirrors,
-        "official_protocol": "pinned WorkBuddy CompositeVerifier with Yibu deepseek-v4-flash",
+        "official_protocol": "pinned WorkBuddy CompositeVerifier with deepseek-v4-flash",
     }
     if selection_policy != "legacy":
         config.update(selection_policy=selection_policy)
-    if not config["backend_url"].endswith("/v1"):
-        config["backend_url"] += "/v1"
     if canary_from:
         from experiments.workbuddy.scoring import scoring_errors
 
@@ -724,7 +733,7 @@ async def campaign(config, *, canary_only=False):
             gateway = await asyncio.create_subprocess_exec(
                 sys.executable,
                 "-m",
-                "reward_engine.adapters.workbuddy.gateway",
+                "reward_engine.adapters.provider_config",
                 "--config",
                 str(root / "config.json"),
                 cwd=config["code"],
@@ -789,7 +798,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("prepare", "run", "report"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--upstream", type=Path, default=UPSTREAM)
+    native_paths = parser.add_mutually_exclusive_group()
+    native_paths.add_argument("--upstream", type=Path)
+    native_paths.add_argument("--workbuddy-root", type=Path)
+    add_provider_arguments(parser)
     parser.add_argument("--canary-only", action="store_true")
     parser.add_argument("--recover-from", type=Path)
     parser.add_argument("--reuse-first-round-from", type=Path)
@@ -824,13 +836,27 @@ def main():
         or args.per_model_concurrency
         or args.selection_policy
         or args.public_delivery_contract
+        or provider_arguments_supplied(args)
+        or args.upstream
+        or args.workbuddy_root
     ) and args.action != "prepare":
-        parser.error("Task selection and replay sources are frozen at prepare time")
+        parser.error(
+            "Task, provider, native paths and replay sources are frozen at prepare time"
+        )
     output = args.output.resolve()
     if args.action == "prepare":
         prepare(
             output,
-            args.upstream.resolve(),
+            (
+                args.upstream
+                or (
+                    args.workbuddy_root / "upstream"
+                    if args.workbuddy_root
+                    else UPSTREAM
+                )
+            )
+            .expanduser()
+            .resolve(),
             args.recover_from.resolve() if args.recover_from else None,
             task_ids=args.task_id,
             reuse_first_round_from=args.reuse_first_round_from.resolve()
@@ -842,6 +868,9 @@ def main():
             canary_from=args.canary_from.resolve() if args.canary_from else None,
             selection_policy=args.selection_policy or "legacy",
             public_delivery_contract=args.public_delivery_contract,
+            credentials=args.credentials,
+            key_env=args.key_env,
+            backend_url=args.backend_url,
         )
         print(output / "config.json")
     elif args.action == "run":

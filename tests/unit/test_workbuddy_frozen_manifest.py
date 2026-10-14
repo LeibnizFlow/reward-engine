@@ -11,11 +11,15 @@ import pytest
 
 from experiments import validate_pipeline as validation
 from experiments.workbuddy import experiment
+from reward_engine.adapters import provider_config
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
 SCOPE = "all-regular-files-except-__pycache__-v1"
 FILES = {
     "reward_engine/__init__.py": b"# temporary package\n",
+    "reward_engine/adapters/provider_config.py": Path(
+        provider_config.__file__
+    ).read_bytes(),
     "reward_engine/legacy/adapters/opencode_plugin.mjs": b"export default {};\n",
     "reward_engine/configs/.runtime.json": b'{"mode":"offline"}\n',
     "reward_engine/data/resource": b"\x00\x01runtime resource\xff",
@@ -83,14 +87,21 @@ def prepare_tree(tmp_path, monkeypatch):
     monkeypatch.setattr(experiment, "REPO", repo)
     monkeypatch.setattr(validation, "REPO", repo)
 
-    def prepare(*, with_launcher=False):
+    def prepare(*, with_launcher=False, **provider_options):
         output = tmp_path / "frozen"
         if with_launcher:
             config = validation.prepare(
-                SimpleNamespace(output=output, benchmark="workbuddy", task_id="task_00")
+                SimpleNamespace(
+                    output=output,
+                    benchmark="workbuddy",
+                    task_id="task_00",
+                    **{"credentials": upstream / ".env", **provider_options},
+                )
             )
         else:
-            config = experiment.prepare(output, upstream=upstream, task_ids=["task_00"])
+            config = experiment.prepare(
+                output, upstream=upstream, task_ids=["task_00"], **provider_options
+            )
         return SimpleNamespace(
             config=config,
             output=output,

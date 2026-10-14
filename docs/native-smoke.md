@@ -28,18 +28,17 @@ image described by the restored Claw benchmark. The OpenCode 1.18.16 binary and
 WorkBuddy task/build inputs are included in the restored evidence. Models use an
 external API; no local GPU is required.
 
-The following setup reuses the host Python packages on this server and installs
-the additional native interfaces in the repository's virtual environment:
+On a fresh host, install the runtime and WorkBuddy dependencies in an isolated
+environment, plus the restored Claw benchmark's own requirements:
 
 ```sh
-python3.12 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install -e '.[runtime,analysis,dev]'
-.venv/bin/python -m pip install --no-deps 'harbor==0.18.0'
-.venv/bin/python -m pip install shortuuid toml pathspec jinja2 filelock dirhash tenacity typer PyJWT
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[runtime,workbuddy]'
+.venv/bin/python -m pip install -r data/claw_eval/benchmark/requirements.txt
 ```
 
-For a separate host, install Harbor's full dependencies with `.[workbuddy]` and
-the restored Claw benchmark's requirements as well. WorkBuddy uses its native
+Install `.[analysis,dev]` as well if you need reports or regression checks.
+WorkBuddy uses its native
 CompositeVerifier; Claw uses the native task grader and freshly started mock services.
 
 Copy `.env.example` to `.env`, keep it private (`chmod 600 .env`), and fill in
@@ -65,18 +64,33 @@ the native `RESULT.json` and `OFFICIAL.private.json` receipts.
 ```
 
 Use `--backend-url`, `--credentials`, and `--key-env` to select another compatible
-provider. The configured actor route is `deepseek-v4-flash`; accepted response
+provider; these flags also apply to `experiments.validate_pipeline`. Provider
+settings are resolved before benchmark preparation, with explicit CLI arguments
+first, then process environment, then the selected dotenv file, then defaults.
+`REWARD_ENGINE_CREDENTIALS_FILE` selects the dotenv file,
+`REWARD_ENGINE_KEY_ENV` selects the key variable, and
+`REWARD_ENGINE_BACKEND_URL` selects the API root. The matching provider base URL
+(for example `YIBU_BASE_URL` for `YIBU_API_KEY`) is also supported. API keys use
+process environment before dotenv. Use the API root including any required path,
+such as `https://your-provider.example/v1`. Prepared runs freeze provider settings;
+start a new run to change the endpoint or key-variable name.
+
+The configured actor route is `deepseek-v4-flash`; accepted response
 aliases are recorded in the frozen configuration. The smoke test exits nonzero
 unless both the actor and native grading complete successfully. A valid low or
 zero score is retained as measured, rather than retried for a higher score.
+
+Changing the endpoint does not remap the native roles' model names. Your service
+must supply the models in the frozen configuration. For a configurable single-model
+example without native benchmark setup, use the [quickstart](quickstart.md).
 
 ## Regression checks
 
 ```sh
 .venv/bin/python -m pytest -q tests/unit tests/integration
 node --test tests/integration/test_opencode_adapter.mjs
-python -m ruff check .
-python -m ruff format --check .
+.venv/bin/python -m ruff check .
+.venv/bin/python -m ruff format --check .
 ```
 
 The optional Claw Docker integration witness additionally needs `CLAW_EVAL_ROOT`,

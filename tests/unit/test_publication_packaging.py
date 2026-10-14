@@ -60,8 +60,25 @@ def test_modified_evidence_fails_before_creating_export(tmp_path):
 def test_complete_export_preserves_all_dataset_members(tmp_path):
     evidence_tree(tmp_path)
     (tmp_path / "README.md").write_text("Fixture publication\n")
+    contract = tmp_path / "configs/public_delivery/api-usage-explain-cli-l3-001.v1.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text('{"required_paths": ["final_answer.md"]}\n')
+    instruction = contract.parent / "api-usage-explain-cli-l3-001.instruction.md"
+    instruction.write_text("Deliver final_answer.md.\n")
+    (tmp_path / ".gitignore").write_text(".env\nconfigs/private.json\n")
+    for private in ("configs/.env", "configs/private.json"):
+        (tmp_path / private).write_text("fake-private-value\n")
     output = tmp_path / "export"
     result = export(tmp_path, output)
+    for resource in (contract, instruction):
+        relative = resource.relative_to(tmp_path)
+        assert (output / "github" / relative).read_bytes() == resource.read_bytes()
+        with tarfile.open(output / "zenodo/source-and-reports.tar.gz") as archive:
+            assert archive.extractfile(str(relative)).read() == resource.read_bytes()
+    with tarfile.open(output / "zenodo/source-and-reports.tar.gz") as archive:
+        for private in ("configs/.env", "configs/private.json"):
+            assert not (output / "github" / private).exists()
+            assert private not in archive.getnames()
     assert {row["experiment"] for row in result["archives"]} == {
         "workbuddy_office",
         "claw_eval",

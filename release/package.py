@@ -20,6 +20,9 @@ SOURCE_FILES = (
     ".gitignore",
     ".gitattributes",
     ".env.example",
+    # Explicit public inputs only: configs/ can also hold private local settings.
+    "configs/public_delivery/api-usage-explain-cli-l3-001.v1.json",
+    "configs/public_delivery/api-usage-explain-cli-l3-001.instruction.md",
 )
 IGNORED = {
     "__pycache__",
@@ -34,7 +37,7 @@ IGNORED = {
 def source_files(root):
     for name in SOURCE_FILES:
         p = root / name
-        if p.is_file():
+        if p.is_file() and not p.is_symlink():
             yield p
     for name in SOURCE_TREES:
         for p in sorted((root / name).rglob("*")):

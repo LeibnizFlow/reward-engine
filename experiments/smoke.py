@@ -15,7 +15,12 @@ from pathlib import Path
 
 import uvicorn
 
-from reward_engine.adapters.workbuddy.gateway import application
+from reward_engine.adapters.provider_config import (
+    add_provider_arguments,
+    application,
+    prepare_options,
+    provider_arguments_supplied,
+)
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
 REPO = Path(__file__).resolve().parents[1]
@@ -23,13 +28,14 @@ REPO = Path(__file__).resolve().parents[1]
 
 def prepare(args):
     output = args.output.resolve()
+    provider = prepare_options(args, default_credentials=REPO / ".env")
     if args.benchmark == "claw_eval":
         from experiments.claw_eval.opencode.campaign import prepare as prepare_claw
 
         os.environ.setdefault(
             "OPENCODE_BINARY", str(REPO / "data/claw_eval/environment/bin/opencode")
         )
-        config = prepare_claw(output, task_ids=[args.task_id])
+        config = prepare_claw(output, task_ids=[args.task_id], **provider)
         if args.task_id not in config["task_ids"]:
             raise ValueError("Task is not in the pinned Claw-Eval manifest")
         config["task_ids"] = [args.task_id]
@@ -39,16 +45,20 @@ def prepare(args):
 
         config = prepare_office(
             output,
-            upstream=args.workbuddy_root.resolve() / "upstream",
+            upstream=Path(
+                getattr(args, "workbuddy_root", None)
+                or os.environ.get("WORKBUDDY_ROOT", REPO / "local/workbuddy/runner")
+            )
+            .expanduser()
+            .resolve()
+            / "upstream",
             task_ids=[args.task_id],
+            **provider,
         )
     config.update(
         smoke_benchmark=args.benchmark,
         smoke_task_id=args.task_id,
         smoke_scope="one fresh native actor followed by the official grader",
-        credentials_file=str(args.credentials.resolve()),
-        backend_key_env=args.key_env,
-        backend_url=args.backend_url.rstrip("/"),
         model_concurrency=2,
         per_model_concurrency=2,
     )
@@ -183,14 +193,12 @@ def main():
     parser.add_argument("--benchmark", choices=("claw_eval", "workbuddy"))
     parser.add_argument("--task-id")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--credentials", type=Path, default=REPO / ".env")
-    parser.add_argument("--backend-url", default="https://yibuapi.com/v1")
-    parser.add_argument("--key-env", default="YIBU_API_KEY")
-    parser.add_argument(
-        "--workbuddy-root", type=Path, default=REPO / "local/workbuddy/runner"
-    )
+    add_provider_arguments(parser)
+    parser.add_argument("--workbuddy-root", type=Path)
     parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.execute and (provider_arguments_supplied(args) or args.workbuddy_root):
+        parser.error("Provider and native paths are frozen at prepare time")
     if args.execute:
         return asyncio.run(run(read(args.output.resolve() / "config.json")))
     if not args.benchmark or not args.task_id:

@@ -1,15 +1,22 @@
 # Full-pipeline validation — 2026-10-12
 
-**Incomplete. Neither benchmark has yet passed a new complete three-round run.**
+**Paired native validation remains incomplete.** Claw v11 passed its strict
+three-round audit on frozen commit `33d39e0`; WorkBuddy has no clean complete
+strict pass. Subsequent attempts on `bf85cdd` stopped with provider failures,
+including a separately confirmed quota-reservation rejection. No native driver
+remains active. The chronology below preserves earlier failures and repairs;
+the successful Claw run does not validate later source changes or establish
+quality improvement.
 
-The latest diagnostic pair (Claw v7 / WorkBuddy v6) is stopped after confirmed
+An earlier diagnostic pair (Claw v7 / WorkBuddy v6) stopped after confirmed
 execution failures. Adapter and bounded field-correction repairs have passed
 2,697 unit/integration tests and bounded independent review. Fresh Claw v8 and
 WorkBuddy v7 runs started on commit `1d6e90c`. Claw v8 subsequently failed its
 first B review and was stopped. Claw v9 on `b382448` and WorkBuddy v7 on
 its original `1d6e90c` also ended after one completed round: Claw failed ranking,
 and WorkBuddy failed second-round Jury construction. No native run is currently
-active and no attempt is a complete pipeline success. Repairs are in progress.
+active at that point and no attempt had yet completed successfully. Later
+attempts and the Claw v11 success are recorded below.
 
 Claw v7 subsequently recorded a first-round Jury adapter failure: GLM's ordinary
 JSON reply included empty `tool_calls: []` placeholders, which were mistaken

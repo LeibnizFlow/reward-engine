@@ -22,6 +22,12 @@ from experiments.claw_eval.opencode.runtime import (
     free_port,
     public_task,
 )
+from reward_engine.adapters.provider_config import (
+    add_provider_arguments,
+    provider_arguments_supplied,
+    provider_key,
+    resolve_provider,
+)
 from reward_engine.adapters.workbuddy.io import auth, digest, file_hash, read, write
 from reward_engine.adapters.workbuddy.models import Role, registry
 from reward_engine.core.batch import BatchPolicy
@@ -99,7 +105,7 @@ def verify_freeze(config):
             raise ValueError("Frozen file changed: " + relative)
 
 
-def prepare(output, *, task_ids=None):
+def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_url=None):
     manifest = read(MANIFEST)
     if len(manifest["task_ids"]) != 104 or len(set(manifest["task_ids"])) != 104:
         raise ValueError("Expected exactly 104 unique task IDs")
@@ -110,6 +116,15 @@ def prepare(output, *, task_ids=None):
         or not set(selected) <= set(manifest["task_ids"])
     ):
         raise ValueError("Selected tasks must be unique members of the pinned Claw 104")
+    provider = resolve_provider(
+        credentials=credentials,
+        key_env=key_env,
+        backend_url=backend_url,
+        default_credentials=REPO / ".env",
+        default_key_env="OPENLUX_API_KEY",
+        default_backend_url="https://api.openlux.ai/v1",
+    )
+    provider_key(provider)
     output.mkdir(parents=True, exist_ok=False)
     code = output / "code"
     code.mkdir()
@@ -184,13 +199,7 @@ def prepare(output, *, task_ids=None):
         "task_concurrency": 3,
         "max_model_concurrency": 128,
         "per_model_concurrency": 128,
-        "credentials_file": str(
-            Path(
-                os.environ.get("REWARD_ENGINE_CREDENTIALS_FILE", REPO / ".env")
-            ).resolve()
-        ),
-        "backend_key_env": "OPENLUX_API_KEY",
-        "backend_url": "https://api.openlux.ai/v1",
+        **provider,
         "auth_file": str(output / "campaign.auth"),
         "gateway_port": port,
         "gateway_local": f"http://127.0.0.1:{port}",
@@ -223,7 +232,7 @@ def prepare(output, *, task_ids=None):
             "provider": "bing_rss",
             "reason": "Native Novada search credentials unavailable; explicit public search adapter",
             "native_tool_contract": "unchanged",
-            "model_provider": "OpenLux",
+            "model_provider": cfg["backend_url"],
         },
     )
     hashes = {
@@ -903,7 +912,7 @@ async def probe(config):
 
 
 async def serve(config, canary_only=False, probe_only=False):
-    from reward_engine.adapters.workbuddy.gateway import application
+    from reward_engine.adapters.provider_config import application
 
     root = Path(config["output"])
     sys.path.insert(0, str(Path(config["benchmark_root"]) / "src"))
@@ -997,16 +1006,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["prepare", "run", "report"])
     parser.add_argument("--output", type=Path, required=True)
+    add_provider_arguments(parser)
     parser.add_argument("--source-campaign", type=Path)
     parser.add_argument("--canary-only", action="store_true")
     parser.add_argument("--probe-only", action="store_true")
     args = parser.parse_args()
+    if provider_arguments_supplied(args) and (
+        args.action != "prepare" or args.source_campaign
+    ):
+        parser.error("Provider settings must be supplied during fresh preparation")
     output = args.output.resolve()
     if args.action == "prepare":
         if args.source_campaign:
             prepare_web_rerun(output, args.source_campaign)
         else:
-            prepare(output)
+            prepare(
+                output,
+                credentials=args.credentials,
+                key_env=args.key_env,
+                backend_url=args.backend_url,
+            )
         print(output)
         return
     config = read(output / "config.json")

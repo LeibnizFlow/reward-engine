@@ -82,6 +82,7 @@ def prepare_public_run(tmp_path, monkeypatch, task, contract):
             benchmark="workbuddy",
             task_id=task["task_id"],
             public_delivery_contract=supplied,
+            credentials=upstream / ".env",
         )
     )
     experiment.verify(config)

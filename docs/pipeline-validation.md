@@ -6,9 +6,16 @@ seeds, three fixed rounds, A/B/C treatments, full generated-check measurements,
 and native benchmark grading. It freezes the source, configuration and benchmark
 inputs before model calls. Historical benchmark outputs are not seed inputs.
 
-Complete the [native environment setup](native-smoke.md) first. The current
-validation configuration uses the recorded Yibu routes and the private root
-`.env`; credentials are never copied into the public report.
+For a small example without benchmark assets, start with the
+[quickstart](quickstart.md). For these native runs, complete the
+[native environment setup](native-smoke.md) first and run from the source
+checkout. The `configs/public_delivery/` files are included in the source
+export; paths below are relative to that checkout. Credentials are never copied
+into the public report.
+
+The same `--credentials`, `--key-env`, `--backend-url` and `--workbuddy-root`
+options as the native smoke launcher are supported. See its
+[provider configuration](native-smoke.md#run-fresh-tasks) for precedence.
 
 ```bash
 .venv/bin/python -m experiments.validate_pipeline \
@@ -109,12 +116,12 @@ are identified as controlled tests, including the offline Docker/OpenCode test.
 
 ## Current validation artifacts
 
-The 2026-10-12 validation is still incomplete. Latest attempts Claw v9 and
-WorkBuddy v7 both failed the strict audit after one completed round. Claw failed
-ranking; WorkBuddy failed second-round Jury construction. Repairs and an explicit
-public delivery-path prerequisite have passed controlled tests and bounded source review.
-The transport/trial provenance repair snapshot passed 2,878 tests with no skips or source drift;
-The reviewed counterexamples are closed. No fresh three-round success is claimed. See the
+The paired 2026-10-12 native validation is still incomplete. Claw v11 passed its
+strict three-round audit on frozen commit `33d39e0`; WorkBuddy has no clean full
+strict pass. Later attempts on `bf85cdd` stopped with provider failures, including
+a separately confirmed quota blocker. That source passed 3,035 controlled tests;
+neither these tests nor the earlier Claw success certify later source changes.
+No native run is currently active. See the
 [current evidence and failure history](validation-2026-10-12.md).
 
 ## Historical validation artifacts
