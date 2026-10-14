@@ -114,6 +114,9 @@ def run_child(root, benchmark):
                 await asyncio.sleep(0)
                 record("task_cleanup_completed")
 
+    # Provisioning is mocked below; the profile verifier still reads the real
+    # manifest to establish that this legacy fixture has no model profile.
+    write(root / "manifest.json", {})
     write(
         root / "config.json",
         {
