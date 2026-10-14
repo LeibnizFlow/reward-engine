@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 
 from experiments.workbuddy.scoring import native_contract, scoring_errors
+from reward_engine.adapters.model_config import validate_native_grader
 from reward_engine.adapters.workbuddy.io import auth, read, write
 
 
@@ -46,11 +47,15 @@ def trial_config(spec, config):
 
     channel = spec["candidate_id"]
     gateway = config["gateway_container"]
-    # Actor and native verifier historically share one configured route. Keep
-    # that convention while honoring the frozen provider's actual model name.
+    # Absence of the opt-in native route retains the historical actor-shared route.
     model = config.get("roles", {}).get("actor", "deepseek-v4-flash")
     if not isinstance(model, str) or not model.strip():
         raise ValueError("The frozen actor model must be a nonempty name")
+    grader = (
+        validate_native_grader(config["native_grader"])
+        if "native_grader" in config
+        else {"model": model, "max_tokens": 32768}
+    )
     limit = spec["actor_timeout_s"] + (6000 if spec.get("pack") else 300)
     return TrialConfig.model_validate(
         {
@@ -101,8 +106,10 @@ def trial_config(spec, config):
                     + channel
                     + "/v1",
                     "WORKBUDDY_VERIFIER_LLM_API_KEY": auth(config),
-                    "WORKBUDDY_VERIFIER_LLM_MODEL": model,
-                    "WORKBUDDY_VERIFIER_LLM_MAX_OUTPUT_TOKENS": "32768",
+                    "WORKBUDDY_VERIFIER_LLM_MODEL": grader["model"],
+                    "WORKBUDDY_VERIFIER_LLM_MAX_OUTPUT_TOKENS": str(
+                        grader["max_tokens"]
+                    ),
                 },
             },
         }

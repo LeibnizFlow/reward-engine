@@ -1,10 +1,12 @@
 """Strict, explicitly authored model profiles for fresh native validation runs.
 
 Schema: reward_engine.model_config.v1. Optional maps: roles, role_max_tokens,
-model_aliases, concurrency, role_request_options_by_model.
+model_aliases, concurrency, role_request_options_by_model; optional native_grader.
 Roles/tokens/concurrency override only named entries;
 aliases replace the entire alias map (omission means exact model IDs only).
-Internal-role token budgets are 1..131072; actor/native-grader budgets stay 32768.
+Internal-role token budgets are 1..131072; actor budgets stay 32768.
+WorkBuddy's optional native_grader independently binds model, max_tokens and
+request_options. Absence retains the historical actor-shared native route.
 Concurrency keys are model_concurrency and per_model_concurrency, bounded by the
 existing benchmark transport ceiling. No retries, model substitutions or jury rules.
 Per-model request options are {}, the complete disabled-thinking object, or
@@ -83,6 +85,45 @@ def _validate_request_options(options, *, per_model=False):
     )
 
 
+def validate_native_grader(value):
+    """Validate the entire opt-in native route, without inheriting role options."""
+    if not isinstance(value, dict) or set(value) != {
+        "model",
+        "max_tokens",
+        "request_options",
+    }:
+        raise ValueError("native_grader requires model, max_tokens and request_options")
+    if not _name(value["model"]):
+        raise ValueError("native_grader model must be an exact model ID")
+    if type(value["max_tokens"]) is not int or not 1 <= value["max_tokens"] <= 131072:
+        raise ValueError("native_grader max_tokens must be an integer in 1..131072")
+    return {
+        "model": value["model"],
+        "max_tokens": value["max_tokens"],
+        "request_options": _validate_request_options(
+            value["request_options"], per_model=True
+        ),
+    }
+
+
+def workbuddy_official_protocol(config):
+    grader = (
+        validate_native_grader(config["native_grader"])
+        if "native_grader" in config
+        else None
+    )
+    model = grader["model"] if grader else config["roles"]["actor"]
+    description = "pinned WorkBuddy CompositeVerifier with " + model
+    if grader:
+        description += (
+            f"; max_tokens={grader['max_tokens']}; request_options="
+            + json.dumps(
+                grader["request_options"], sort_keys=True, separators=(",", ":")
+            )
+        )
+    return description
+
+
 def parse_profile(raw):
     if len(raw) > 65536:
         raise ValueError("Model profile exceeds 64 KiB")
@@ -99,6 +140,7 @@ def parse_profile(raw):
         "model_aliases",
         "concurrency",
         "role_request_options_by_model",
+        "native_grader",
     }:
         raise ValueError("Unknown model profile fields")
     for field in (
@@ -141,6 +183,8 @@ def parse_profile(raw):
             or model in aliases
         ):
             raise ValueError("Model aliases must be explicit, unique model ID lists")
+    if "native_grader" in profile:
+        validate_native_grader(profile["native_grader"])
     return profile
 
 
@@ -158,6 +202,12 @@ def apply_profile(config, profile):
         raise ValueError("Model profile names a role unavailable in this run")
     result["roles"].update(profile.get("roles", {}))
     models = set(result["roles"].values())
+    result.pop("native_grader", None)
+    if "native_grader" in profile:
+        if result.get("validation_benchmark") != "workbuddy":
+            raise ValueError("native_grader is supported only for WorkBuddy validation")
+        result["native_grader"] = validate_native_grader(profile["native_grader"])
+        models.add(result["native_grader"]["model"])
     aliases = profile.get("model_aliases", {})
     if not set(aliases) <= models:
         raise ValueError("Aliases must name a model actually requested by this run")
@@ -170,7 +220,7 @@ def apply_profile(config, profile):
         seen.update(values)
     result["model_aliases"] = deepcopy(aliases)
     options = profile.get("role_request_options_by_model", {})
-    if not set(options) <= models:
+    if not set(options) <= set(result["roles"].values()):
         raise ValueError(
             "Request options must name a model actually requested by this run"
         )
@@ -189,6 +239,9 @@ def apply_profile(config, profile):
         for key in ("model_concurrency", "per_model_concurrency")
     ):
         raise ValueError("Model profile exceeds the frozen transport ceiling")
+    if result.get("validation_benchmark") == "workbuddy":
+        result["official_protocol"] = workbuddy_official_protocol(result)
+    config.pop("native_grader", None)
     config.update(result)
 
 
@@ -206,6 +259,14 @@ def effective_settings(config):
                 "model_concurrency": config["model_concurrency"],
                 "per_model_concurrency": config["per_model_concurrency"],
             },
+            **(
+                {
+                    "native_grader": config["native_grader"],
+                    "official_protocol": config["official_protocol"],
+                }
+                if "native_grader" in config
+                else {}
+            ),
         }
     )
 
@@ -229,7 +290,11 @@ def verify_profile(config):
     root = Path(config["output"])
     manifest = read(root / "manifest.json")
     if "model_config" not in config:
-        if "model_config" in manifest or (root / FILENAME).exists():
+        if (
+            "model_config" in manifest
+            or (root / FILENAME).exists()
+            or "native_grader" in config
+        ):
             raise ValueError("Frozen model profile binding is missing")
         return
     binding = config["model_config"]

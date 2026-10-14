@@ -26,6 +26,11 @@
     "hypothesis_member_3": 65536
   },
   "model_aliases": {},
+  "native_grader": {
+    "model": "qwen3.8-max",
+    "max_tokens": 32768,
+    "request_options": {"reasoning_effort": "low"}
+  },
   "role_request_options_by_model": {
     "glm-5.3": {"reasoning_effort": "low"},
     "qwen3.8-max": {"reasoning_effort": "low"}

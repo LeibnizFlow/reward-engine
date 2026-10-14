@@ -74,8 +74,13 @@ A 的后续完整检查为 12 pass、1 fail，其中结构检查把模型自己�
 
 C 的原生 grader 使用 `qwen3.8-flash`，首次返回 `result`、修复返回 `decision`，均不符合原生 `verdict` 字段要求。
 虽然原生工具生成了数字总分，独立评分契约仍将它标记为 failed；不得把这个总分当作有效评分。
+v4 原生 grader 的实际请求只包含 model/messages；worker 设置的预算环境变量未出现在上游请求中，不能据此声称实际使用了 32,768 上限。
 原有 pipeline 与 public-delivery 审计均退出 1；正常中断后保留 1,800 个 JSON 文件的 SHA-256 清单。
 尚无原生三轮、候选选择、Memory 写入或真实修订分支的完整通过结论。
+
+后续新增可选的独立原生 grader 冻结配置，Bailian profile 使用 `qwen3.8-max`、
+`reasoning_effort=low` 和实际请求中的 `max_tokens=32768`。Actor 仍为 Flash；
+原生 grader 的 prompt、解析器、修复次数与评分规则不变。该配置尚待新的真实运行验证。
 
 ## 回归测试边界
 
@@ -90,5 +95,7 @@ C 的原生 grader 使用 `qwen3.8-flash`，首次返回 `result`、修复返回
 - 后续 retain 格式与诊断修复：296 项相关测试通过，包含 14 个新增回归用例；该子集与全量测试重叠，不作累计总数。
 
 - 后续初次评估提示澄清：393 项现有 harness/claim/recovery 测试通过；未改验收、修复规则或预算，也不据此声称模型误判已解决。
+
+- 独立原生 grader 路由与配置：339 项相关测试通过，涵盖实际两字段请求的参数补充、原始请求保留、Actor 隔离和冻结配置篡改拒绝。
 
 上述测试包含模拟 provider 的用例，不能当作真实模型结果。真实调用结论仅来自单独保存的运行记录。

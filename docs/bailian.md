@@ -34,9 +34,10 @@ REWARD_ENGINE_BACKEND_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compat
   --output runs/workbuddy_bailian
 ```
 
-这个显式模型配置使用 `qwen3.8-flash` 运行 actor 和独立的原生 grader；
+这个显式模型配置使用 `qwen3.8-flash` 运行 actor，独立原生 grader 使用 `qwen3.8-max`、
+`reasoning_effort=low`、32,768 输出 tokens；
 Jury 与 Hypothesis 的三个席位分别使用 `qwen3.8-max`、`deepseek-v4.1-flash`、`glm-5.3`。
-Reducer、Builder 等角色使用 `qwen3.8-max`。Qwen Max 和 GLM 席位输出上限为 65,536 tokens，DeepSeek 内部角色为 32,768 tokens，
+Reducer、Builder 等角色使用 `qwen3.8-max`。Qwen Max 和 GLM 的内部角色输出上限为 65,536 tokens，DeepSeek 内部角色为 32,768 tokens，
 全局和单模型并发上限均为 2。角色模型、参数和配置原文在调用前冻结，不会在失败后静默换模型。
 
 GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它使用 `reasoning_effort=low`，保留思考。
@@ -50,6 +51,12 @@ DeepSeek 内部角色使用命令中的关闭思考请求。是否实际产生�
 这些模型由[官方模型列表](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)列出；
 可用性和套餐权限可能变化。原生 grader 的模型与历史实验不同，因此分数不能直接当作论文复现数值。
 官方评分不进入 Jury 学习或候选选择。
+
+原生 grader 配置位于模型 profile 的可选 `native_grader` 字段，包含 `model`、`max_tokens` 和
+`request_options`。省略时保留旧行为：原生 grader 共用 actor 模型路由。
+显式配置仅作用于独立 grader 通道，原生 prompt、解析、修复次数和评分规则不变；
+原文与有效配置都绑定到本次运行，不能在执行时覆盖；网关保存接收与实际发出的请求，确保显式预算和选项进入上游请求。
+此前 Flash grader 曾在自身修复后仍返回错误字段名；切换模型是后续配置选择，不保证杜绝格式错误。
 
 运行结束后按 [pipeline 验证指南](pipeline-validation.md)执行严格审计与 public-contract 审计。
 只有实际阶段记录通过审计，才能宣称对应完整路径已验证；模型连通性检查不能替代它。

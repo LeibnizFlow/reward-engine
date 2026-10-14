@@ -13,6 +13,7 @@ from dotenv import dotenv_values
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
+from reward_engine.adapters.model_config import validate_native_grader
 from reward_engine.adapters.workbuddy.io import (
     STREAM_TIMEOUT_S,
     auth,
@@ -74,11 +75,17 @@ def application(
         ]
     )
     allowed = set(config["roles"].values())
+    native_grader = (
+        validate_native_grader(config["native_grader"])
+        if "native_grader" in config
+        else None
+    )
+    models = allowed | ({native_grader["model"]} if native_grader else set())
     per_model_limit = config.get("per_model_concurrency", 2)
     if type(per_model_limit) is not int or not 1 <= per_model_limit <= ceiling:
         raise ValueError("Per-model concurrency exceeds configured ceiling")
-    model_gates = {model: asyncio.Semaphore(per_model_limit) for model in allowed}
-    model_inflight = {model: 0 for model in allowed}
+    model_gates = {model: asyncio.Semaphore(per_model_limit) for model in models}
+    model_inflight = {model: 0 for model in models}
     counters = {"inflight": 0, "peak": 0, "requests": 0}
     role_stream_timeout_s = role_timeout_s(config, stream_timeout_s)
 
@@ -123,7 +130,29 @@ def application(
         if not channel.replace("-", "").replace("_", "").isalnum():
             raise HTTPException(400, "Invalid channel")
         body = await request.json()
-        if body.get("model") not in allowed:
+        received_body = None
+        if native_grader and channel.startswith("grade"):
+            if (
+                not channel.startswith("grade-wb-")
+                or not channel.removeprefix("grade-wb-")
+                or body.get("model") != native_grader["model"]
+            ):
+                raise HTTPException(400, "Native grader channel or model differs")
+            parameters = {
+                "max_tokens": native_grader["max_tokens"],
+                **native_grader["request_options"],
+            }
+            if set(body) - {"model", "messages", *parameters} or any(
+                key in body
+                and (type(body[key]) is not type(value) or body[key] != value)
+                for key, value in parameters.items()
+            ):
+                raise HTTPException(
+                    400, "Native grader request differs from frozen parameters"
+                )
+            received_body = body
+            body = {**body, **parameters}
+        elif body.get("model") not in allowed:
             raise HTTPException(400, "Unconfigured model")
         if channel.startswith("wb-"):
             body.setdefault("temperature", 0.95)
@@ -131,6 +160,8 @@ def application(
             "official.private" if channel.startswith("grade") else "transport"
         )
         root = root / channel / uuid4().hex
+        if received_body is not None:
+            write(root / "received_request.json", received_body)
         write(root / "request.json", body)
         record = {
             "channel": channel,

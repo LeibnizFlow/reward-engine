@@ -37,6 +37,12 @@ def prepare(args):
     output = args.output.resolve()
     model_profile_path = getattr(args, "model_config", None)
     model_profile = load_profile(model_profile_path) if model_profile_path else None
+    if (
+        model_profile is not None
+        and "native_grader" in model_profile[1]
+        and args.benchmark != "workbuddy"
+    ):
+        raise ValueError("native_grader is supported only for WorkBuddy validation")
     public_contract = getattr(args, "public_delivery_contract", None)
     if public_contract and args.benchmark != "workbuddy":
         raise ValueError(
@@ -96,10 +102,6 @@ def prepare(args):
     if model_profile is not None:
         raw_profile, profile = model_profile
         apply_profile(config, profile)
-        if args.benchmark == "workbuddy":
-            config["official_protocol"] = (
-                "pinned WorkBuddy CompositeVerifier with " + config["roles"]["actor"]
-            )
         freeze_profile(config, model_profile_path, raw_profile)
     config["identity"] = digest({k: v for k, v in config.items() if k != "identity"})
     code = Path(config["code"])
@@ -134,7 +136,15 @@ def prepare(args):
         del role_protocol["output_tokens"], role_protocol["reducer_output_tokens"]
         role_protocol.update(effective_settings(config))
         role_protocol["actor_output_tokens"] = 32768
-        role_protocol["native_grader_output_tokens"] = 32768
+        role_protocol["native_grader_output_tokens"] = config.get(
+            "native_grader", {}
+        ).get("max_tokens", 32768)
+        if args.benchmark == "workbuddy":
+            role_protocol["native_grader_output_tokens_scope"] = (
+                "frozen gateway request max_tokens"
+                if "native_grader" in config
+                else "configured verifier environment only; no upstream cap asserted"
+            )
     write(
         output / "role_limits.json",
         config["validation_role_limits"],

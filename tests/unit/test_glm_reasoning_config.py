@@ -21,6 +21,17 @@ PUBLIC_PROFILE = Path(profiles.__file__).parents[1] / "configs/bailian_token_pla
 DISABLED = {"thinking": {"type": "disabled"}, "enable_thinking": False}
 
 
+def role_profile_bytes(benchmark):
+    raw = PUBLIC_PROFILE.read_bytes()
+    if benchmark == "claw_eval":
+        # The public profile also configures WorkBuddy's independent native grader;
+        # these Claw controls exercise only the shared internal-role settings.
+        profile = json.loads(raw)
+        profile.pop("native_grader", None)
+        return json.dumps(profile).encode()
+    return raw
+
+
 @pytest.mark.parametrize(
     "options",
     [{}, DISABLED, *[{"reasoning_effort": value} for value in ("low", "high", "max")]],
@@ -89,7 +100,8 @@ def test_reasoning_effort_is_opt_in_per_model_only():
 
 
 def test_public_profile_budgets_and_options_are_frozen_exactly(launcher):
-    raw, profile = profiles.load_profile(PUBLIC_PROFILE)
+    raw = role_profile_bytes(launcher.benchmark)
+    profile = profiles.parse_profile(raw)
     glm_roles = {role for role, model in profile["roles"].items() if model == "glm-5.3"}
     assert glm_roles == {"jury_member_3", "hypothesis_member_3"}
     for role, tokens in profile["role_max_tokens"].items():
@@ -127,7 +139,9 @@ def test_public_profile_budgets_and_options_are_frozen_exactly(launcher):
     "tamper", ["frozen_bytes", "effective_options", "effective_budget"]
 )
 def test_frozen_effort_or_budget_drift_is_rejected(launcher, tamper):
-    config = launcher.prepare(raw=PUBLIC_PROFILE.read_bytes(), role_thinking="disabled")
+    config = launcher.prepare(
+        raw=role_profile_bytes(launcher.benchmark), role_thinking="disabled"
+    )
     if tamper == "frozen_bytes":
         path = launcher.output / "model_config.json"
         value = read(path)
@@ -168,7 +182,9 @@ def _response(
 async def test_actual_role_bodies_keep_model_overrides_separate_from_global_disabled(
     launcher, monkeypatch
 ):
-    config = launcher.prepare(raw=PUBLIC_PROFILE.read_bytes(), role_thinking="disabled")
+    config = launcher.prepare(
+        raw=role_profile_bytes(launcher.benchmark), role_thinking="disabled"
+    )
     calls = []
 
     def reply(request):
@@ -215,7 +231,9 @@ async def test_actual_role_bodies_keep_model_overrides_separate_from_global_disa
 async def test_length_is_still_rejected_with_low_and_larger_budget(
     launcher, monkeypatch, content, completion_tokens
 ):
-    config = launcher.prepare(raw=PUBLIC_PROFILE.read_bytes(), role_thinking="disabled")
+    config = launcher.prepare(
+        raw=role_profile_bytes(launcher.benchmark), role_thinking="disabled"
+    )
     calls = []
 
     def reply(request):
