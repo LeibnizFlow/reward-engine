@@ -14,7 +14,14 @@ REWARD_ENGINE_BACKEND_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compat
 
 ## WorkBuddy 完整三轮
 
-先完成[原生环境安装](native-smoke.md)。从源码仓库根目录使用新的输出目录：
+先完成[原生环境安装](native-smoke.md)中的环境依赖步骤。
+百炼用户使用本页的 `.env.bailian`，将该页默认读取 `.env` 的安装命令替换为：
+
+```sh
+.venv/bin/python -m experiments.setup_native --credentials .env.bailian
+```
+
+无需另备 YIBU 凭据。安装完成后，从源码仓库根目录使用新的输出目录：
 
 ```sh
 .venv/bin/python -m experiments.validate_pipeline \

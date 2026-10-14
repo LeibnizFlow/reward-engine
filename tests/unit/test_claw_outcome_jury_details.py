@@ -585,16 +585,18 @@ def test_repair_locates_empty_criterion_refs_before_unrelated_gap_edits():
 
 
 @pytest.mark.parametrize(
-    "change",
+    "change,invalid_field",
     [
-        {"status": "unmapped"},
-        {"status": "mapped", "criterion_ids": []},
-        {"status": "deferred", "criterion_ids": ["criterion"]},
-        {"reason": ""},
-        {"criterion_ids": "criterion"},
+        ({"status": "unmapped"}, None),
+        ({"status": "mapped", "criterion_ids": []}, None),
+        ({"status": "deferred", "criterion_ids": ["criterion"]}, "criterion_ids"),
+        ({"reason": ""}, None),
+        ({"criterion_ids": "criterion"}, "criterion_ids"),
     ],
 )
-def test_repair_locates_invalid_disposition_without_changing_judgment(change):
+def test_repair_locates_invalid_disposition_without_changing_judgment(
+    change, invalid_field
+):
     from reward_engine.core.outcome.jury_repair import diagnostics
 
     expected = expectations([criterion()], "a", "before_products")
@@ -611,13 +613,22 @@ def test_repair_locates_invalid_disposition_without_changing_judgment(change):
     }
     original = deepcopy(draft)
     issues = diagnostics(draft, expected)
-    assert len(issues) == 1 and issues[0]["path"] == [
-        "coverage",
-        0,
-        "subrequirements",
-        0,
-    ]
-    assert issues[0]["allowed_statuses"] == ["mapped", "deferred", "excluded"]
+    path = ["coverage", 0, "subrequirements", 0]
+    if invalid_field:
+        path.append(invalid_field)
+    assert len(issues) == 1 and issues[0]["path"] == path
+    if part["status"] == "deferred":
+        assert issues[0]["current_status"] == "deferred"
+        assert "allowed_statuses" not in issues[0]
+        if invalid_field:
+            assert issues[0]["value"] == part["criterion_ids"]
+            assert issues[0]["expected_value"] == []
+        else:
+            assert issues[0]["invalid_fields"] == [
+                "reason must be nonempty explanatory text"
+            ]
+    else:
+        assert issues[0]["allowed_statuses"] == ["mapped", "deferred", "excluded"]
     assert draft == original
 
 

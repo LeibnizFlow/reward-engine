@@ -189,6 +189,7 @@ def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
                 )
                 continue
             status, targets = part.get("status"), part.get("criterion_ids", [])
+            unmapped = isinstance(status, str) and status in {"deferred", "excluded"}
             fields = []
             if not isinstance(status, str) or status not in {
                 "mapped",
@@ -198,22 +199,43 @@ def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
                 fields.append("status must be mapped, deferred, or excluded")
             if not isinstance(part.get("reason"), str) or not part["reason"].strip():
                 fields.append("reason must be nonempty explanatory text")
-            if not isinstance(targets, list):
+            if unmapped and targets != []:
+                issues.append(
+                    {
+                        "path": ["coverage", i, "subrequirements", j, "criterion_ids"],
+                        "value": deepcopy(targets),
+                        "current_status": status,
+                        "expected_value": [],
+                        "reason": "The existing deferred/excluded disposition requires an empty "
+                        "criterion_ids list. Preserve the authored valid status and all other valid "
+                        "fields; changing excluded to deferred does not resolve this error. "
+                        "The model must explicitly author the criterion_ids edit; this diagnostic "
+                        "does not apply it or authorize a new mapping or quality judgment.",
+                    }
+                )
+            elif not isinstance(targets, list):
                 fields.append("criterion_ids must be a list")
             elif (status == "mapped") != bool(targets):
                 fields.append(
                     "mapped requires criterion_ids; deferred/excluded require an empty list"
                 )
             if fields:
-                issues.append(
-                    {
-                        "path": ["coverage", i, "subrequirements", j],
-                        "invalid_fields": fields,
-                        "allowed_statuses": ["mapped", "deferred", "excluded"],
-                        "reason": "Correct this part's disposition against the existing evidence and final criteria. "
-                        "Unresolved coverage remains deferred; do not invent a supported mapping.",
-                    }
-                )
+                issue = {
+                    "path": ["coverage", i, "subrequirements", j],
+                    "invalid_fields": fields,
+                    "allowed_statuses": ["mapped", "deferred", "excluded"],
+                    "reason": "Correct this part's disposition against the existing evidence and final criteria. "
+                    "Unresolved coverage remains deferred; do not invent a supported mapping.",
+                }
+                if unmapped:
+                    del issue["allowed_statuses"]
+                    issue.update(
+                        current_status=status,
+                        reason="Correct only the listed invalid fields against the existing evidence. "
+                        "Preserve the authored valid disposition and all other valid fields; "
+                        "do not invent a supported mapping.",
+                    )
+                issues.append(issue)
     return issues
 
 
