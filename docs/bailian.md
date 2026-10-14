@@ -36,13 +36,15 @@ REWARD_ENGINE_BACKEND_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compat
 
 这个显式模型配置使用 `qwen3.8-flash` 运行 actor 和独立的原生 grader；
 Jury 与 Hypothesis 的三个席位分别使用 `qwen3.8-max`、`deepseek-v4.1-flash`、`glm-5.3`。
-Reducer、Builder 等角色使用 `qwen3.8-max`。GLM 席位输出上限为 65,536 tokens，其他内部角色为 32,768 tokens，
+Reducer、Builder 等角色使用 `qwen3.8-max`。Qwen Max 和 GLM 席位输出上限为 65,536 tokens，DeepSeek 内部角色为 32,768 tokens，
 全局和单模型并发上限均为 2。角色模型、参数和配置原文在调用前冻结，不会在失败后静默换模型。
 
 GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它使用 `reasoning_effort=low`，保留思考。
 默认思考曾在真实 Jury 请求中耗尽 32,768 tokens，导致最终 JSON 截断；该失败记录不能算作完整流程通过。
 推理强度的支持范围见[官方 GLM 文档](https://help.aliyun.com/zh/model-studio/glm)。
-其他内部角色使用命令中的关闭思考请求。是否实际产生思考 tokens，以回执用量为准。
+Qwen Max 也显式使用 `reasoning_effort=low`，以保留有限推理来处理复杂协议；
+该参数及预算经真实端点连通性检查，完整流程仍须单独验证。参数范围见[官方 Chat Completions 文档](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions/)。
+DeepSeek 内部角色使用命令中的关闭思考请求。是否实际产生思考 tokens，以回执用量为准。
 未知配置字段、不支持的角色名以及执行时覆盖模型配置都会报错。
 
 这些模型由[官方模型列表](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview)列出；

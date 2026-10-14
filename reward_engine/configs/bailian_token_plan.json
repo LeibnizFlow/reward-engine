@@ -14,20 +14,21 @@
     "hypothesis_member_3": "glm-5.3"
   },
   "role_max_tokens": {
-    "jury_reducer": 32768,
-    "hypothesis_chooser": 32768,
-    "harness_designer": 32768,
-    "reward_calibration_judge": 32768,
-    "jury_member_1": 32768,
+    "jury_reducer": 65536,
+    "hypothesis_chooser": 65536,
+    "harness_designer": 65536,
+    "reward_calibration_judge": 65536,
+    "jury_member_1": 65536,
     "jury_member_2": 32768,
     "jury_member_3": 65536,
-    "hypothesis_member_1": 32768,
+    "hypothesis_member_1": 65536,
     "hypothesis_member_2": 32768,
     "hypothesis_member_3": 65536
   },
   "model_aliases": {},
   "role_request_options_by_model": {
-    "glm-5.3": {"reasoning_effort": "low"}
+    "glm-5.3": {"reasoning_effort": "low"},
+    "qwen3.8-max": {"reasoning_effort": "low"}
   },
   "concurrency": {
     "model_concurrency": 2,

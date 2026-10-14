@@ -78,6 +78,51 @@ def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
     for i, gap in enumerate(gaps):
         if not isinstance(gap, dict):
             continue
+        expected_refs = gap.get("expected_refs", [])
+        basis = gap.get("expected_basis")
+        malformed = (
+            not isinstance(expected_refs, list)
+            and (bool(expected_refs) or basis == "task")
+        ) or (
+            isinstance(expected_refs, list)
+            and any(not isinstance(ref, str) for ref in expected_refs)
+        )
+        # Unknown handles (including the current Task alias) go through the
+        # existing normalization/reference validator. Do not misdiagnose an
+        # alias as missing Task authority using this context-free diagnostic.
+        known_refs = isinstance(expected_refs, list) and all(
+            isinstance(ref, str) and (evidence is None or ref in evidence)
+            for ref in expected_refs
+        )
+        missing_task = basis == "task" and known_refs and "task" not in expected_refs
+        if malformed or missing_task:
+            present = "expected_refs" in gap
+            issues.append(
+                {
+                    "path": ["gaps", i, "expected_refs"] if present else ["gaps", i],
+                    "gap_id": gap.get("gap_id"),
+                    "field": "expected_refs",
+                    "field_present": present,
+                    "current_basis": basis,
+                    "value": deepcopy(gap.get("expected_refs")),
+                    "requirement": (
+                        "A list of exact available evidence handles including task for expected_basis=task."
+                        if basis == "task"
+                        else "A list of exact available evidence handles."
+                    ),
+                    "reason": "expected_refs grounds the expectation; evidence_refs grounds the observation. "
+                    "For task provenance, inspect the supplied Task and verify that it supports this "
+                    "expectation before explicitly authoring a reference correction. Do not append a "
+                    "Task citation or relabel provenance merely to pass validation. Preserve observation "
+                    "references and other valid fields; unsupported expectations must remain unresolved. "
+                    + (
+                        "Replace this existing expected_refs field with the model-authored list."
+                        if present
+                        else "expected_refs is missing: replace this existing gap object to supply it, "
+                        "preserving the other grounded fields. A path to the absent field is not editable."
+                    ),
+                }
+            )
         if evidence is not None and product_ref is not None:
             targets, refs = gap.get("product_ids"), gap.get("evidence_refs")
             available_refs = [

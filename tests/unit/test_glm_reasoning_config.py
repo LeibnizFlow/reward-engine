@@ -93,9 +93,12 @@ def test_public_profile_budgets_and_options_are_frozen_exactly(launcher):
     glm_roles = {role for role, model in profile["roles"].items() if model == "glm-5.3"}
     assert glm_roles == {"jury_member_3", "hypothesis_member_3"}
     for role, tokens in profile["role_max_tokens"].items():
-        assert tokens == (65536 if role in glm_roles else 32768)
+        assert tokens == (
+            65536 if profile["roles"][role] in {"glm-5.3", "qwen3.8-max"} else 32768
+        )
     assert profile["role_request_options_by_model"] == {
-        "glm-5.3": {"reasoning_effort": "low"}
+        "glm-5.3": {"reasoning_effort": "low"},
+        "qwen3.8-max": {"reasoning_effort": "low"},
     }
     config = launcher.prepare(raw=raw, role_thinking="disabled")
     assert (launcher.output / "model_config.json").read_bytes() == raw
@@ -162,7 +165,7 @@ def _response(
 
 
 @pytest.mark.asyncio
-async def test_actual_role_bodies_keep_glm_low_separate_from_global_disabled(
+async def test_actual_role_bodies_keep_model_overrides_separate_from_global_disabled(
     launcher, monkeypatch
 ):
     config = launcher.prepare(raw=PUBLIC_PROFILE.read_bytes(), role_thinking="disabled")
@@ -171,7 +174,7 @@ async def test_actual_role_bodies_keep_glm_low_separate_from_global_disabled(
     def reply(request):
         body = json.loads(request.content)
         calls.append(body)
-        if body["model"] == "glm-5.3":
+        if body["model"] in {"glm-5.3", "qwen3.8-max"}:
             assert body["reasoning_effort"] == "low" and body["max_tokens"] == 65536
             assert "thinking" not in body and "enable_thinking" not in body
         else:
@@ -197,7 +200,9 @@ async def test_actual_role_bodies_keep_glm_low_separate_from_global_disabled(
         assert await role({"mode": "offline-fixture"}) == {"fixture": True}
         receipt = read(next(role.output.glob("*/thinking_parameters.json")))
         assert receipt["options"] == (
-            {"reasoning_effort": "low"} if name.endswith("_3") else DISABLED
+            {"reasoning_effort": "low"}
+            if config["roles"][name] in {"glm-5.3", "qwen3.8-max"}
+            else DISABLED
         )
     assert len(calls) == 4
     profiles.verify_profile(config)

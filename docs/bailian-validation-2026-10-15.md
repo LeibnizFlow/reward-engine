@@ -34,6 +34,7 @@
 | minimal v5 / qwen3.8-max | Jury reducer 重复提交 canonical 条目及其 alias，被严格拒绝。 |
 | native WorkBuddy v1 | 第一轮 GLM Jury 席位耗尽 32,768 输出 tokens，其中 32,766 为思考 tokens，最终 JSON 截断。严格审计失败；正常中断，退出码 130，保留原始记录。 |
 | native WorkBuddy v2 | 三个 Jury 席位均完成；Reduce 两次协议修复后仍把非空 criterion_ids 与 deferred/excluded 状态组合使用，严格拒绝。完成 0 轮，退出码 1。 |
+| native WorkBuddy v3 | 三个 Jury 席位均完成；一个 gap 的任务要求依据仅引用环境观察，缺少 Task 引用。诊断未定位 expected_refs 字段，模型两次提交非法编辑路径。完成 0 轮，两项审计失败，退出码 1。 |
 
 WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求三个席位均成功。
 其审计失败原因为 `Map contains failed/inactive seats`，不是完整流程通过。
@@ -50,10 +51,16 @@ WorkBuddy v1 的核心允许按两席可用结果继续，但完整验收要求�
 它证明 GLM 新配置完成了本次真实 Jury 席位，不能证明原生三轮或全部模块已通过。
 验收继续使用原有 `experiments.pipeline_audit` 与独立 public-delivery 审计；没有放宽判定规则。
 
+`a1a7c51` 随后细化了 Jury 修复诊断：对已选 deferred/excluded 的条目，定位到
+`criterion_ids` 字段并指出协议要求的空列表，由模型明确提交编辑；不自动修复、不增加预算。
+`native_workbuddy_v3` 在该提交冻结，从新种子开始，仍在第一轮失败，见上表。
+
 ## 回归测试边界
 
 - `ff4c87b` 全量回归：3205 passed、0 skipped，9 条已有警告；测试期间源码未变化。
 - 后续示例运行参数与原生 Jury 协议选项：113 项相关测试通过。
 - GLM 请求参数与冻结模型配置：269 项相关测试通过，包括截断回复仍被拒绝。
+- `a1a7c51`：3210 项单元测试、77 项常规集成测试通过；补齐本机环境变量后，剩余 Docker/OpenCode 同会话修订集成用例单独通过，合计 3288 项，无未执行的跳过项。Docker 用例使用本地脚本 provider，并非真实 LLM。
+- Jury 诊断变更的 229 项相关测试通过；未改动验收逻辑或两次外层修复上限。
 
 上述测试包含模拟 provider 的用例，不能当作真实模型结果。真实调用结论仅来自单独保存的运行记录。
