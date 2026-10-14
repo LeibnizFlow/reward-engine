@@ -26,6 +26,7 @@
     "hypothesis_member_3": 65536
   },
   "model_aliases": {},
+  "measurement_candidate_concurrency": 1,
   "delivery_review_json_schema_models": ["qwen3.8-max"],
   "native_grader": {
     "model": "qwen3.8-max",

@@ -29,6 +29,7 @@ def role_profile_bytes(benchmark):
         profile = json.loads(raw)
         profile.pop("native_grader", None)
         profile.pop("delivery_review_json_schema_models", None)
+        profile.pop("measurement_candidate_concurrency", None)
         return json.dumps(profile).encode()
     return raw
 

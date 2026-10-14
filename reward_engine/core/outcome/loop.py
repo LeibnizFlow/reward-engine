@@ -198,6 +198,7 @@ async def run_task(
     initial_known_gaps=(),
     initial_decisions=(),
     full_audit=False,
+    measurement_candidate_concurrency=None,
     jury_reduce_max_bytes=160000,
     enabled_arms=("A", "B", "C"),
     arm_protocol=LEGACY,
@@ -247,6 +248,13 @@ async def run_task(
         )
     if type(full_audit) is not bool:
         raise ValueError("full_audit must be an explicit boolean")
+    if measurement_candidate_concurrency is not None and (
+        type(measurement_candidate_concurrency) is not int
+        or not 1 <= measurement_candidate_concurrency <= 128
+    ):
+        raise ValueError(
+            "measurement_candidate_concurrency must be an integer in 1..128"
+        )
     if type(jury_reduce_max_bytes) is not int or jury_reduce_max_bytes < 1:
         raise ValueError("jury_reduce_max_bytes must be a positive integer")
     if (
@@ -284,6 +292,11 @@ async def run_task(
             "construction_rounds": construction_rounds,
             "adversarial_review_enabled": adversarial_review_enabled,
             "continuation": continuation_policy,
+            **(
+                {"measurement_candidate_concurrency": measurement_candidate_concurrency}
+                if measurement_candidate_concurrency is not None
+                else {}
+            ),
         },
     )
     for number in range(start_round, start_round + rounds):
@@ -520,7 +533,24 @@ async def run_task(
 
         save("construction_smoke", await smoke(pack, registry))
         if full_audit:
-            seed_checks = await asyncio.gather(*(inspect(c) for c in pool))
+            if measurement_candidate_concurrency is None:
+                seed_checks = await asyncio.gather(*(inspect(c) for c in pool))
+            else:
+                slots = asyncio.Semaphore(measurement_candidate_concurrency)
+
+                async def admitted(
+                    index, candidate, slots=slots, inspect=inspect, save=save
+                ):
+                    # Admit the candidate before measure starts its one batch clock.
+                    # Queueing inside that batch still consumes the unchanged policy.
+                    async with slots:
+                        measured = await inspect(candidate)
+                        save(f"construction_candidates/{index}", measured)
+                        return measured
+
+                seed_checks = await asyncio.gather(
+                    *(admitted(i, c) for i, c in enumerate(pool, 1))
+                )
             save("construction_checks", seed_checks)
             prior_checks = [
                 check_bundle(

@@ -689,6 +689,15 @@ async def one_task(config, task_id):
             jury_reduce_max_bytes=Role.request_budget_bytes,
             continuation_policy="fixed_rounds",
             full_audit=config.get("full_audit", False),
+            **(
+                {
+                    "measurement_candidate_concurrency": config[
+                        "measurement_candidate_concurrency"
+                    ]
+                }
+                if "measurement_candidate_concurrency" in config
+                else {}
+            ),
             record=record,
             **restored,
             **selection_kwargs,

@@ -7,6 +7,8 @@ aliases replace the entire alias map (omission means exact model IDs only).
 Internal-role token budgets are 1..131072; actor budgets stay 32768.
 WorkBuddy's optional native_grader independently binds model, max_tokens and
 request_options. Absence retains the historical actor-shared native route.
+WorkBuddy's optional measurement_candidate_concurrency bounds full-audit
+candidate admission before each candidate's unchanged batch deadline starts.
 Concurrency keys are model_concurrency and per_model_concurrency, bounded by the
 existing benchmark transport ceiling. No retries, model substitutions or jury rules.
 Per-model request options are {}, the complete disabled-thinking object, or
@@ -34,6 +36,15 @@ ROLES = frozenset(
     | {f"{family}_member_{i}" for family in ("jury", "hypothesis") for i in range(1, 4)}
 )
 CONCURRENCY = frozenset({"model_concurrency", "per_model_concurrency"})
+MEASUREMENT_CONCURRENCY = "measurement_candidate_concurrency"
+
+
+def _measurement_concurrency(value):
+    if type(value) is not int or not 1 <= value <= 128:
+        raise ValueError(
+            "measurement_candidate_concurrency must be an integer in 1..128"
+        )
+    return value
 
 
 def _object(pairs):
@@ -168,6 +179,7 @@ def parse_profile(raw):
         "role_request_options_by_model",
         "native_grader",
         delivery_review_schema.CONFIG_KEY,
+        MEASUREMENT_CONCURRENCY,
     }:
         raise ValueError("Unknown model profile fields")
     for field in (
@@ -214,6 +226,8 @@ def parse_profile(raw):
         validate_native_grader(profile["native_grader"])
     if delivery_review_schema.CONFIG_KEY in profile:
         _review_schema_models(profile[delivery_review_schema.CONFIG_KEY])
+    if MEASUREMENT_CONCURRENCY in profile:
+        _measurement_concurrency(profile[MEASUREMENT_CONCURRENCY])
     return profile
 
 
@@ -225,6 +239,13 @@ def load_profile(path):
 def apply_profile(config, profile):
     """Validate against the prepared role set, then apply atomically in memory."""
     result = deepcopy(config)
+    result.pop(MEASUREMENT_CONCURRENCY, None)
+    if MEASUREMENT_CONCURRENCY in profile:
+        if result.get("validation_benchmark") != "workbuddy":
+            raise ValueError("measurement_candidate_concurrency is WorkBuddy-only")
+        result[MEASUREMENT_CONCURRENCY] = _measurement_concurrency(
+            profile[MEASUREMENT_CONCURRENCY]
+        )
     if not set(profile.get("roles", {})) <= set(result["roles"]) or not set(
         profile.get("role_max_tokens", {})
     ) <= set(result["validation_role_limits"]["role_max_tokens"]):
@@ -277,6 +298,7 @@ def apply_profile(config, profile):
         result["official_protocol"] = workbuddy_official_protocol(result)
     config.pop("native_grader", None)
     config.pop(schema_key, None)
+    config.pop(MEASUREMENT_CONCURRENCY, None)
     config.update(result)
 
 
@@ -294,6 +316,15 @@ def effective_settings(config):
                 "model_concurrency": config["model_concurrency"],
                 "per_model_concurrency": config["per_model_concurrency"],
             },
+            **(
+                {
+                    MEASUREMENT_CONCURRENCY: _measurement_concurrency(
+                        config[MEASUREMENT_CONCURRENCY]
+                    )
+                }
+                if MEASUREMENT_CONCURRENCY in config
+                else {}
+            ),
             **(
                 {
                     "native_grader": config["native_grader"],
@@ -340,6 +371,7 @@ def verify_profile(config):
             or (root / FILENAME).exists()
             or "native_grader" in config
             or delivery_review_schema.CONFIG_KEY in config
+            or MEASUREMENT_CONCURRENCY in config
         ):
             raise ValueError("Frozen model profile binding is missing")
         return

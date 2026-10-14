@@ -40,6 +40,11 @@ Jury 与 Hypothesis 的三个席位分别使用 `qwen3.8-max`、`deepseek-v4.1-f
 Reducer、Builder 等角色使用 `qwen3.8-max`。Qwen Max 和 GLM 的内部角色输出上限为 65,536 tokens，DeepSeek 内部角色为 32,768 tokens，
 全局和单模型并发上限均为 2。角色模型、参数和配置原文在调用前冻结，不会在失败后静默换模型。
 
+`measurement_candidate_concurrency: 1` 限制完整初始检查同时处理的候选数。
+一个候选进入检查后，仍使用原有 1,800 秒批次预算及检查内部的并发限制；其余候选等到获得执行位置后才开始自己的批次。
+这避免多个候选的批次同时计时、却挤在两个共享模型通道上耗尽预算。所有候选和全部检查仍会执行，结果保持候选原顺序；
+没有新增重试或重置已开始的预算。该可选配置及有效值随模型 profile 冻结，仅供 WorkBuddy 使用；省略时保留原有调度方式。
+
 GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它使用 `reasoning_effort=low`，保留思考。
 默认思考曾在真实 Jury 请求中耗尽 32,768 tokens，导致最终 JSON 截断；该失败记录不能算作完整流程通过。
 推理强度的支持范围见[官方 GLM 文档](https://help.aliyun.com/zh/model-studio/glm)。
