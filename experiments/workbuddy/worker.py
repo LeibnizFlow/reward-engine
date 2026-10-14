@@ -46,6 +46,11 @@ def trial_config(spec, config):
 
     channel = spec["candidate_id"]
     gateway = config["gateway_container"]
+    # Actor and native verifier historically share one configured route. Keep
+    # that convention while honoring the frozen provider's actual model name.
+    model = config.get("roles", {}).get("actor", "deepseek-v4-flash")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("The frozen actor model must be a nonempty name")
     limit = spec["actor_timeout_s"] + (6000 if spec.get("pack") else 300)
     return TrialConfig.model_validate(
         {
@@ -56,7 +61,7 @@ def trial_config(spec, config):
             "environment_build_timeout_multiplier": 6.0,
             "agent": {
                 "import_path": "reward_engine.adapters.workbuddy.agent:OutcomeOpenCodeAgent",
-                "model_name": "deepseek-v4-flash",
+                "model_name": model,
                 "override_timeout_sec": limit,
                 "extra_allowed_hosts": ["host.docker.internal"],
                 "kwargs": {
@@ -69,7 +74,7 @@ def trial_config(spec, config):
                     "connection": {
                         "mode": "local_proxy",
                         "proxy_url": gateway + "/" + channel,
-                        "model_route": "deepseek-v4-flash",
+                        "model_route": model,
                     },
                 },
             },
@@ -96,7 +101,7 @@ def trial_config(spec, config):
                     + channel
                     + "/v1",
                     "WORKBUDDY_VERIFIER_LLM_API_KEY": auth(config),
-                    "WORKBUDDY_VERIFIER_LLM_MODEL": "deepseek-v4-flash",
+                    "WORKBUDDY_VERIFIER_LLM_MODEL": model,
                     "WORKBUDDY_VERIFIER_LLM_MAX_OUTPUT_TOKENS": "32768",
                 },
             },

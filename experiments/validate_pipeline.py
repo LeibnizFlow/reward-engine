@@ -15,6 +15,13 @@ from pathlib import Path
 
 import uvicorn
 
+from reward_engine.adapters.model_config import (
+    apply_profile,
+    effective_settings,
+    freeze_profile,
+    load_profile,
+    verify_profile,
+)
 from reward_engine.adapters.provider_config import (
     add_provider_arguments,
     application,
@@ -28,6 +35,8 @@ REPO = Path(__file__).resolve().parents[1]
 
 def prepare(args):
     output = args.output.resolve()
+    model_profile_path = getattr(args, "model_config", None)
+    model_profile = load_profile(model_profile_path) if model_profile_path else None
     public_contract = getattr(args, "public_delivery_contract", None)
     if public_contract and args.benchmark != "workbuddy":
         raise ValueError(
@@ -84,6 +93,14 @@ def prepare(args):
             if role != "actor"
         },
     }
+    if model_profile is not None:
+        raw_profile, profile = model_profile
+        apply_profile(config, profile)
+        if args.benchmark == "workbuddy":
+            config["official_protocol"] = (
+                "pinned WorkBuddy CompositeVerifier with " + config["roles"]["actor"]
+            )
+        freeze_profile(config, model_profile_path, raw_profile)
     config["identity"] = digest({k: v for k, v in config.items() if k != "identity"})
     code = Path(config["code"])
     shutil.copy2(Path(__file__), code / "experiments/validate_pipeline.py")
@@ -91,6 +108,10 @@ def prepare(args):
     manifest["config_identity"] = config["identity"]
     manifest["actor_slots"] = 12
     manifest["grading_slots"] = 9
+    if model_profile is not None:
+        manifest["model_config"] = config["model_config"]
+        if args.benchmark == "claw_eval":
+            manifest["files"]["model_config.json"] = config["model_config"]["sha256"]
     key = "code_hashes" if args.benchmark == "workbuddy" else "files"
     relative = "experiments/validate_pipeline.py"
     manifest[key][relative if key == "code_hashes" else "code/" + relative] = file_hash(
@@ -98,6 +119,22 @@ def prepare(args):
     )
     write(output / "config.json", config)
     write(output / "manifest.json", manifest)
+    role_protocol = {
+        "bounded_stage": True,
+        "response_format": "json_object",
+        "contract_repairs_per_stage": 1,
+        "syntax_repairs_per_stage": 1,
+        "evidence_expansion_rounds": 2,
+        "stage_timeout_s": 1800,
+        "output_tokens": 65536,
+        "reducer_output_tokens": 131072,
+        "repair_scope": "Same operation and evidence; structural correction only",
+    }
+    if model_profile is not None:
+        del role_protocol["output_tokens"], role_protocol["reducer_output_tokens"]
+        role_protocol.update(effective_settings(config))
+        role_protocol["actor_output_tokens"] = 32768
+        role_protocol["native_grader_output_tokens"] = 32768
     write(
         output / "role_limits.json",
         config["validation_role_limits"],
@@ -110,17 +147,7 @@ def prepare(args):
             "native_grading": "Separate from learning inputs; all nine arm outputs",
             "historical_samples_reused": False,
             "quality_resampling": False,
-            "role_protocol": {
-                "bounded_stage": True,
-                "response_format": "json_object",
-                "contract_repairs_per_stage": 1,
-                "syntax_repairs_per_stage": 1,
-                "evidence_expansion_rounds": 2,
-                "stage_timeout_s": 1800,
-                "output_tokens": 65536,
-                "reducer_output_tokens": 131072,
-                "repair_scope": "Same operation and evidence; structural correction only",
-            },
+            "role_protocol": role_protocol,
             "optional_paths": "Require complementary tests; not implied by this run",
         },
     )
@@ -129,6 +156,7 @@ def prepare(args):
 
 async def run(config):
     root = Path(config["output"])
+    verify_profile(config)
     if (
         "validation_role_limits" in config
         and read(root / "role_limits.json") != config["validation_role_limits"]
@@ -225,6 +253,11 @@ def main():
     parser.add_argument("--benchmark", choices=("claw_eval", "workbuddy"))
     parser.add_argument("--task-id")
     parser.add_argument("--public-delivery-contract", type=Path)
+    parser.add_argument(
+        "--model-config",
+        type=Path,
+        help="Explicit model/token/concurrency JSON profile, frozen at prepare time",
+    )
     parser.add_argument("--output", type=Path, required=True)
     add_provider_arguments(parser)
     parser.add_argument("--workbuddy-root", type=Path)
@@ -236,6 +269,10 @@ def main():
         help="Explicit role-only provider request; the provider may still report reasoning tokens",
     )
     args = parser.parse_args()
+    if args.execute and args.model_config:
+        parser.error(
+            "Model configuration must be frozen during prepare, not overridden at execute"
+        )
     if args.execute and (provider_arguments_supplied(args) or args.workbuddy_root):
         parser.error("Provider and native paths are frozen at prepare time")
     if args.execute and args.public_delivery_contract:

@@ -62,6 +62,7 @@ python3 -m venv .venv
 通过 `--key-env YIBU_API_KEY` 等选项使用已有凭据变量，并显式传入相应的 `--base-url`。
 同一模型用于本示例的所有角色席位，不能据此声称已验证多模型评审效果。
 完整参数见 `.venv/bin/python -m reward_engine.examples.minimal --help`。
+百炼 Token Plan 的端点与原生多模型配置见 [百炼接入](bailian.md)。
 
 不要将填入密钥的 `.env` 提交到 Git。模型调用可能产生费用；模型名称应使用你的服务实际支持的名称。
 

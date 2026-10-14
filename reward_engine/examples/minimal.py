@@ -79,7 +79,21 @@ class Actor:
                 "role": "system",
                 "content": 'Perform the user task. Respond with a JSON envelope containing only "final_response", a string holding your actual deliverable. This envelope is transport only, not part of the deliverable. Revise that deliverable when review feedback is supplied. Do not invent tool execution.',
             },
-            {"role": "user", "content": TASK["prompt"]},
+            {
+                "role": "user",
+                "content": (
+                    "The task below specifies the deliverable text INSIDE the "
+                    "final_response string. Its output-format requirements (including "
+                    "ONLY JSON) apply to that inner deliverable, not the transport envelope.\n"
+                    "<deliverable_task>\n" + TASK["prompt"] + "\n</deliverable_task>\n"
+                    "Return exactly one transport JSON object with only the key "
+                    '"final_response". Its value must be a string containing your completed '
+                    "deliverable; escape any inner JSON quotes as required for a JSON string. "
+                    "Do not return the inner deliverable as the outer object or add Markdown.\n"
+                    "Transport shape only; replace the placeholder with your actual work:\n"
+                    '{"final_response": "<your completed deliverable text>"}'
+                ),
+            },
         ]
         self.revisions = 0
 

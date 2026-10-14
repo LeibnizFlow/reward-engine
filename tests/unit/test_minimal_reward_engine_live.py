@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from reward_engine.examples.live import Live, LiveConfig
-from reward_engine.examples.minimal import run
-from reward_engine.examples.offline import Offline
+from reward_engine.examples.minimal import Actor, Recorder, run
+from reward_engine.examples.offline import TASK, Offline
 
 
 @pytest.fixture
@@ -144,9 +144,54 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         assert "test-only-key" not in path.read_text()
 
 
+@pytest.mark.parametrize("arm", ["seed", "A", "B", "C"])
+def test_actor_http_prompt_scopes_task_inside_transport_and_preserves_reply(
+    tmp_path, arm
+):
+    delivered = '{ "total": 6 }\n'
+    calls = []
+
+    def handler(request):
+        messages = json.loads(request.content)["messages"]
+        calls.append(messages)
+        initial = messages[1]
+        assert initial["role"] == "user"
+        text = initial["content"]
+        assert "INSIDE the final_response string" in text
+        assert "ONLY JSON) apply to that inner deliverable" in text
+        assert f"<deliverable_task>\n{TASK['prompt']}\n</deliverable_task>" in text
+        after_task = text.split("</deliverable_task>", 1)[1]
+        assert "Return exactly one transport JSON object" in after_task
+        assert "escape any inner JSON quotes" in after_task
+        assert json.loads(text.splitlines()[-1]) == {
+            "final_response": "<your completed deliverable text>"
+        }
+        return httpx.Response(200, json=completion({"final_response": delivered}))
+
+    backend = Live(
+        LiveConfig("one-model", "https://mock.invalid/v1", "test-only-key"),
+        transport=httpx.MockTransport(handler),
+    )
+    record = Recorder(tmp_path / arm)
+    actor = Actor(backend, record, arm, arm)
+    result = asyncio.run(actor.start("Review guidance" if arm == "B" else ""))
+    assert len(calls) == 1
+    assert result["artifact"]["final_response"] == delivered
+    saved = json.loads((record.root / "calls/0001-actor/response.json").read_text())
+    assert saved == {"final_response": delivered}
+
+
 @pytest.mark.parametrize(
     "kind",
-    ["http", "timeout", "truncated", "two_choices", "not_json", "wrong_envelope"],
+    [
+        "http",
+        "timeout",
+        "truncated",
+        "two_choices",
+        "not_json",
+        "wrong_envelope",
+        "bare_deliverable",
+    ],
 )
 def test_live_failure_never_falls_back_or_fills_required_fields(tmp_path, kind):
     calls = []
@@ -166,6 +211,8 @@ def test_live_failure_never_falls_back_or_fills_required_fields(tmp_path, kind):
             response["choices"][0]["message"]["content"] = "not JSON"
         if kind == "wrong_envelope":
             response = completion({"text": "host must not rename this"})
+        if kind == "bare_deliverable":
+            response = completion({"total": 6})  # actual v1 shape stays invalid
         return httpx.Response(200, json=response)
 
     root = tmp_path / kind
@@ -180,9 +227,13 @@ def test_live_failure_never_falls_back_or_fills_required_fields(tmp_path, kind):
     assert not (root / "summary.json").exists()
     failure = json.loads((root / "failure.json").read_text())
     assert failure["status"] == "failed"
-    if kind != "wrong_envelope":
+    if kind not in {"wrong_envelope", "bare_deliverable"}:
         assert list((root / "calls").glob("*/failure.json"))
     else:
         assert list(
             (root / "calls").glob("*/response.json")
         )  # malformed answer retained
+        if kind == "bare_deliverable":
+            assert json.loads(
+                (root / "calls/0001-actor/response.json").read_text()
+            ) == {"total": 6}

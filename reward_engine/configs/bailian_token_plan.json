@@ -1,0 +1,36 @@
+{
+  "schema": "reward_engine.model_config.v1",
+  "roles": {
+    "jury_reducer": "qwen3.8-max",
+    "hypothesis_chooser": "qwen3.8-max",
+    "harness_designer": "qwen3.8-max",
+    "reward_calibration_judge": "qwen3.8-max",
+    "actor": "qwen3.8-flash",
+    "jury_member_1": "qwen3.8-max",
+    "jury_member_2": "deepseek-v4.1-flash",
+    "jury_member_3": "glm-5.3",
+    "hypothesis_member_1": "qwen3.8-max",
+    "hypothesis_member_2": "deepseek-v4.1-flash",
+    "hypothesis_member_3": "glm-5.3"
+  },
+  "role_max_tokens": {
+    "jury_reducer": 32768,
+    "hypothesis_chooser": 32768,
+    "harness_designer": 32768,
+    "reward_calibration_judge": 32768,
+    "jury_member_1": 32768,
+    "jury_member_2": 32768,
+    "jury_member_3": 32768,
+    "hypothesis_member_1": 32768,
+    "hypothesis_member_2": 32768,
+    "hypothesis_member_3": 32768
+  },
+  "model_aliases": {},
+  "role_request_options_by_model": {
+    "glm-5.3": {}
+  },
+  "concurrency": {
+    "model_concurrency": 2,
+    "per_model_concurrency": 2
+  }
+}

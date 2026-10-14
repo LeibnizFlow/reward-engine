@@ -34,8 +34,7 @@ class ProviderStreamError(RuntimeError):
         super().__init__("Provider returned a stream error")
 
 
-def _role_request_options(config):
-    options = config.get("role_request_options", {})
+def _validate_request_options(options):
     if not isinstance(options, dict) or (
         options
         and (
@@ -52,6 +51,19 @@ def _role_request_options(config):
     return (
         {"thinking": {"type": "disabled"}, "enable_thinking": False} if options else {}
     )
+
+
+def _role_request_options(config, model=None):
+    options = _validate_request_options(config.get("role_request_options", {}))
+    overrides = config.get("role_request_options_by_model", {})
+    if not isinstance(overrides, dict) or not set(overrides) <= set(
+        config.get("roles", {}).values()
+    ):
+        raise ValueError("role_request_options_by_model must name configured models")
+    validated = {
+        name: _validate_request_options(value) for name, value in overrides.items()
+    }
+    return validated.get(model, options)
 
 
 class Role:
@@ -81,7 +93,8 @@ class Role:
         )
 
     async def __call__(self, request):
-        options = _role_request_options(self.config)
+        model = role_model(self.config, self.role)
+        options = _role_request_options(self.config, model)
         response_format = None
         if "role_response_format" in self.config:
             if self.config["role_response_format"] != "json_object":
@@ -89,7 +102,6 @@ class Role:
                     "role_response_format must be json_object when supplied"
                 )
             response_format = {"type": "json_object"}
-        model = role_model(self.config, self.role)
         identity_inputs = {"request": request, "model": model}
         identity_inputs.update(self.protocol_settings)
         if options:
@@ -135,13 +147,16 @@ class Role:
             body["response_format"] = response_format
         if options:
             body.update(options)
+        if options or model in self.config.get("role_request_options_by_model", {}):
             write(
                 root / "thinking_parameters.json",
                 {
                     "role": self.role,
                     "model": model,
                     "options": options,
-                    "source": "config.role_request_options",
+                    "source": "config.role_request_options_by_model"
+                    if model in self.config.get("role_request_options_by_model", {})
+                    else "config.role_request_options",
                 },
             )
         limits_path = Path(self.config["output"]) / "role_limits.json"
