@@ -56,8 +56,20 @@ class Recorder:
         self.save(prefix + "/request", request)
         try:
             answer = await backend(request)
-        except Exception as error:
-            self.errors.append({"path": prefix, "error_type": type(error).__name__})
+        except (Exception, asyncio.CancelledError) as error:
+            reason = getattr(error, "safe_reason", None)
+            if reason is None:
+                if isinstance(error, asyncio.CancelledError):
+                    reason = "Call cancelled by enclosing stage/batch deadline or caller; exact origin is not determined here"
+                elif isinstance(error, TimeoutError):
+                    reason = "Call timed out; no unsafe exception details retained"
+                else:
+                    reason = (
+                        "Call failed; exception text is not marked safe for retention"
+                    )
+            self.errors.append(
+                {"path": prefix, "error_type": type(error).__name__, "reason": reason}
+            )
             self.save(prefix + "/failure", self.errors[-1])
             raise
         self.save(prefix + "/response", answer)
@@ -196,6 +208,14 @@ def verify_execution(result, recorder):
 
 async def run(output, *, backend=None):
     backend = backend or Offline()
+    config = getattr(backend, "config", None)
+    concurrency = config.role_concurrency if config else 1
+    stage_timeout = config.stage_timeout if config else 180
+    # Three panel seats may run sequentially. Do not leave the core's 240s
+    # default batch cutoff ahead of explicitly configured long role stages.
+    policy = BatchPolicy(
+        concurrency=concurrency, deadline_s=max(240, 3 * stage_timeout)
+    )
     record = Recorder(output)
     scope = {
         "mode": backend.mode,
@@ -205,6 +225,16 @@ async def run(output, *, backend=None):
         "adversarial_review_enabled": False,
         "task": TASK,
         "native_evaluation": "not_run",
+        "runtime_settings": {
+            "provider": config.public_settings() if config else None,
+            "stage_timeout_s": stage_timeout,
+            "batch_policy": {
+                "concurrency": policy.concurrency,
+                "deadline_s": policy.deadline_s,
+                "group_concurrency": policy.group_concurrency,
+                "deadline_rule": "max(240, 3 * stage_timeout_s), allowing three panel seats",
+            },
+        },
         "limits": [
             "Scripted offline roles are not LLM/native validation.",
             "Basic path demonstration, not all branches or adversarial QC.",
@@ -221,7 +251,7 @@ async def run(output, *, backend=None):
                 return await record.call(backend.role, request, role)
 
             call.bounded_stage = True
-            call.stage_timeout_s = 180
+            call.stage_timeout_s = stage_timeout
             return call
 
         registry = defaults(roles("measurement", "measurement"), tools=NoTools())
@@ -244,6 +274,7 @@ async def run(output, *, backend=None):
                     registry,
                     max_revisions=2,
                     audit_mode="full",
+                    policy=policy,
                     memory=local_memory,
                     source_prefix=f"round_{number}/actors/{arm}/checks",
                     record=lambda name, value: record.save(
@@ -296,7 +327,7 @@ async def run(output, *, backend=None):
             registry=registry,
             sample=sample,
             memory=Memory(),
-            policy=BatchPolicy(),
+            policy=policy,
             record=record.save,
         )
         verify_execution(result, record)
@@ -353,6 +384,26 @@ def main(argv=None):
     parser.add_argument("--base-url")
     parser.add_argument("--key-env", default="OPENAI_API_KEY")
     parser.add_argument(
+        "--request-timeout",
+        type=float,
+        help="Live HTTP per-operation timeout in seconds (default: 120)",
+    )
+    parser.add_argument(
+        "--stage-timeout",
+        type=float,
+        help="Live core role stage timeout in seconds, including queueing (default: 180)",
+    )
+    parser.add_argument(
+        "--role-concurrency",
+        type=int,
+        help="Shared live model HTTP concurrency, including actors (default: 1)",
+    )
+    parser.add_argument(
+        "--thinking",
+        choices=("provider_default", "disabled"),
+        help="Default: omit overrides; disabled sends thinking.type=disabled and enable_thinking=false",
+    )
+    parser.add_argument(
         "--credentials",
         type=Path,
         help="Optional dotenv file; defaults to .env if present; environment takes precedence",
@@ -363,6 +414,10 @@ def main(argv=None):
         or args.base_url
         or args.credentials
         or args.key_env != "OPENAI_API_KEY"
+        or args.request_timeout is not None
+        or args.stage_timeout is not None
+        or args.role_concurrency is not None
+        or args.thinking is not None
     ):
         parser.error("Provider options require --live; no silent offline fallback")
     try:
@@ -376,6 +431,16 @@ def main(argv=None):
                     base_url=args.base_url,
                     key_env=args.key_env,
                     credentials=args.credentials,
+                    timeout=args.request_timeout
+                    if args.request_timeout is not None
+                    else 120,
+                    stage_timeout=args.stage_timeout
+                    if args.stage_timeout is not None
+                    else 180,
+                    role_concurrency=args.role_concurrency
+                    if args.role_concurrency is not None
+                    else 1,
+                    thinking=args.thinking or "provider_default",
                 )
             )
         summary = asyncio.run(run(args.output, backend=backend))

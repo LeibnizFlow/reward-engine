@@ -53,7 +53,11 @@ GLM-5.3 在当前端点拒绝 `enable_thinking=false`，因此配置为它保留
   --model qwen3.8-flash \
   --base-url https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 \
   --key-env BAILIAN_TOKEN_PLAN_KEY --credentials .env.bailian \
+  --request-timeout 600 --stage-timeout 1800 \
+  --role-concurrency 1 --thinking disabled \
   --output runs/minimal_bailian
 ```
 
 这是真实模型调用，但不是 WorkBuddy 原生测试。它不会在 provider 或协议失败时切换成脚本结果。
+这些选项显式降低并发，并给模型更长的响应时间；实际参数记录在运行目录中。
+失败记录保留 HTTP 状态或超时类型，不保存密钥或未经筛选的错误响应。

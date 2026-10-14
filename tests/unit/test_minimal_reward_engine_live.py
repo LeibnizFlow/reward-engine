@@ -120,6 +120,11 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         payload = json.loads(request.content)
         requests.append(payload)
         assert payload["model"] == "one-model" and payload["stream"] is False
+        assert payload["thinking"] == {"type": "disabled"}
+        assert payload["enable_thinking"] is False
+        assert request.extensions["timeout"] == dict.fromkeys(
+            ("connect", "read", "write", "pool"), 600
+        )
         messages = payload["messages"]
         if messages[0]["content"].startswith("You are an internal"):
             answer = await scripted.role(json.loads(messages[-1]["content"]))
@@ -133,6 +138,10 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         LiveConfig("one-model", "https://mock.invalid/v1", "test-only-key"),
         transport=httpx.MockTransport(handler),
     )
+    backend.config.timeout = 600
+    backend.config.stage_timeout = 1800
+    backend.config.thinking = "disabled"
+    backend.config.private_future_field = "must-not-serialize-new-config-fields"
     root = tmp_path / "mock-http-only"
     summary = asyncio.run(run(root, backend=backend))
     assert summary["mode"] == "live_openai_compatible"
@@ -140,8 +149,34 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
     assert all(r["revision_count"] == 1 for r in summary["rounds"])
     assert len(requests) == summary["role_and_actor_calls"]
     assert summary["native_evaluation"] == "not_run"
+    scope = json.loads((root / "scope.json").read_text())
+    settings = scope["runtime_settings"]
+    assert settings["stage_timeout_s"] == 1800
+    assert settings["batch_policy"]["deadline_s"] == 5400
+    assert settings["batch_policy"]["concurrency"] == 1
+    provider = settings["provider"]
+    assert provider["request_timeout_s"] == 600 and provider["role_concurrency"] == 1
+    assert provider["thinking"] == "disabled" and provider["transport_retries"] == 0
+    assert set(provider) == {
+        "model",
+        "base_url",
+        "request_timeout_s",
+        "request_timeout_scope",
+        "stage_timeout_s",
+        "stage_timeout_scope",
+        "role_concurrency",
+        "concurrency_scope",
+        "thinking",
+        "thinking_options",
+        "stream",
+        "temperature",
+        "max_tokens",
+        "response_format",
+        "transport_retries",
+    }
     for path in root.rglob("*.json"):
         assert "test-only-key" not in path.read_text()
+        assert "must-not-serialize-new-config-fields" not in path.read_text()
 
 
 @pytest.mark.parametrize("arm", ["seed", "A", "B", "C"])
@@ -229,6 +264,12 @@ def test_live_failure_never_falls_back_or_fills_required_fields(tmp_path, kind):
     assert failure["status"] == "failed"
     if kind not in {"wrong_envelope", "bare_deliverable"}:
         assert list((root / "calls").glob("*/failure.json"))
+        call_failure = json.loads((root / "calls/0001-actor/failure.json").read_text())
+        assert call_failure["reason"]
+        if kind == "http":
+            assert call_failure["reason"] == "Provider HTTP 401; no offline fallback"
+        elif kind == "timeout":
+            assert call_failure["reason"] == "Provider transport failed: ReadTimeout"
     else:
         assert list(
             (root / "calls").glob("*/response.json")
@@ -237,3 +278,6 @@ def test_live_failure_never_falls_back_or_fills_required_fields(tmp_path, kind):
             assert json.loads(
                 (root / "calls/0001-actor/response.json").read_text()
             ) == {"total": 6}
+    assert all(
+        "private-provider-body" not in p.read_text() for p in root.rglob("*.json")
+    )

@@ -4,11 +4,19 @@ No tools, provider-specific prompts, field synthesis, model fallback or quality
 retries. Core controllers own their existing bounded contract-repair budgets.
 """
 
+import asyncio
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
+
+
+def _safe_error(error):
+    """Mark only locally authored diagnostics, never transport/payload text."""
+    error.safe_reason = str(error)
+    return error
 
 
 @dataclass
@@ -18,10 +26,62 @@ class LiveConfig:
     api_key: str = field(repr=False)
     timeout: float = 120
     max_tokens: int = 8192
+    stage_timeout: float = 180
+    role_concurrency: int = 1
+    thinking: str = "provider_default"
+
+    def __post_init__(self):
+        for value in (self.timeout, self.stage_timeout):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError("Request/stage timeouts must be finite and positive")
+        if type(self.role_concurrency) is not int or self.role_concurrency < 1:
+            raise ValueError("Role concurrency must be a positive integer")
+        if self.thinking not in {"provider_default", "disabled"}:
+            raise ValueError("Thinking must be provider_default or disabled")
+
+    def thinking_options(self):
+        return (
+            {"thinking": {"type": "disabled"}, "enable_thinking": False}
+            if self.thinking == "disabled"
+            else {}
+        )
+
+    def public_settings(self):
+        return {
+            "model": self.model,
+            "base_url": self.base_url,
+            "request_timeout_s": self.timeout,
+            "request_timeout_scope": "httpx per-operation timeout, after admission",
+            "stage_timeout_s": self.stage_timeout,
+            "stage_timeout_scope": "core role stage, including request queueing and existing repairs",
+            "role_concurrency": self.role_concurrency,
+            "concurrency_scope": "shared model HTTP admission, including actors",
+            "thinking": self.thinking,
+            "thinking_options": self.thinking_options(),
+            "stream": False,
+            "temperature": 0,
+            "max_tokens": self.max_tokens,
+            "response_format": {"type": "json_object"},
+            "transport_retries": 0,
+        }
 
     @classmethod
     def load(
-        cls, *, model=None, base_url=None, key_env="OPENAI_API_KEY", credentials=None
+        cls,
+        *,
+        model=None,
+        base_url=None,
+        key_env="OPENAI_API_KEY",
+        credentials=None,
+        timeout=120,
+        stage_timeout=180,
+        role_concurrency=1,
+        thinking="provider_default",
     ):
         values = {}
         path = Path(credentials) if credentials else Path(".env")
@@ -54,6 +114,10 @@ class LiveConfig:
             model or values.get("OPENAI_MODEL", ""),
             endpoint,
             values.get(key_env, ""),
+            timeout=timeout,
+            stage_timeout=stage_timeout,
+            role_concurrency=role_concurrency,
+            thinking=thinking,
         )
         if not config.model or not config.api_key:
             raise ValueError(
@@ -90,13 +154,19 @@ class Live:
         self.transport = (
             transport  # Tests use httpx.MockTransport; CLI uses actual HTTP.
         )
+        self._slots = asyncio.Semaphore(config.role_concurrency)
 
     async def complete(self, messages):
+        # One shared admission limit also covers concurrently sampled actors.
+        async with self._slots:
+            return await self._complete(messages)
+
+    async def _complete(self, messages):
         try:
             import httpx
         except ImportError as error:
-            raise RuntimeError(
-                "Live mode requires demo extras: pip install '.[demo]'"
+            raise _safe_error(
+                RuntimeError("Live mode requires demo extras: pip install '.[demo]'")
             ) from error
         body = {
             "model": self.config.model,
@@ -105,6 +175,7 @@ class Live:
             "temperature": 0,
             "max_tokens": self.config.max_tokens,
             "response_format": {"type": "json_object"},
+            **self.config.thinking_options(),
         }
         async with httpx.AsyncClient(
             transport=self.transport, timeout=self.config.timeout, trust_env=False
@@ -116,12 +187,14 @@ class Live:
                     json=body,
                 )
             except httpx.HTTPError as error:
-                raise RuntimeError(
-                    "Provider transport failed: " + type(error).__name__
+                raise _safe_error(
+                    RuntimeError("Provider transport failed: " + type(error).__name__)
                 ) from None
         if response.status_code != 200:
-            raise RuntimeError(
-                f"Provider HTTP {response.status_code}; no offline fallback"
+            raise _safe_error(
+                RuntimeError(
+                    f"Provider HTTP {response.status_code}; no offline fallback"
+                )
             )
         try:
             payload = response.json()
@@ -145,8 +218,8 @@ class Live:
                 raise ValueError("Expected a JSON object")
         except (AttributeError, KeyError, TypeError, ValueError) as error:
             # Do not echo arbitrary provider payloads or credentials in exception text.
-            raise ValueError(
-                "Invalid provider completion: " + type(error).__name__
+            raise _safe_error(
+                ValueError("Invalid provider completion: " + type(error).__name__)
             ) from None
         return answer
 
