@@ -179,6 +179,97 @@ def test_live_transport_controller_end_to_end_is_explicit_simulation(tmp_path):
         assert "must-not-serialize-new-config-fields" not in path.read_text()
 
 
+@pytest.mark.parametrize(
+    "authored",
+    [
+        {"need_evidence": ["product_1:artifact:final_response"]},
+        {
+            "response": {
+                "rubrics": [],
+                "tests": [
+                    {
+                        "test_id": "only_one",
+                        "criterion_id": "c1",
+                        "checker": "example.total",
+                    }
+                ],
+            }
+        },
+        {
+            "criteria": [
+                {
+                    "subrequirements": [{"part_id": "p0", "text": "invalid type"}],
+                    "evidence_refs": [{"ref": "task"}],
+                }
+            ]
+        },
+    ],
+)
+def test_role_http_contract_guidance_preserves_request_and_does_not_fix_reply(authored):
+    # Shapes observed in failures remain model-authored, unmodified values.
+    # This transport test does not certify them as valid core stage results.
+    request = {
+        "mode": "outcome_builder",
+        "instruction": "Compile each accepted criterion without changing its meaning.",
+        "response": {
+            "rubrics": [{"criterion_id": "id", "anchors": {}}],
+            "tests": [
+                {
+                    "test_id": "unique id",
+                    "criterion_id": "id",
+                    "checker": "key",
+                    "arguments": {},
+                }
+            ],
+        },
+        "required_criterion_ids": ["c1", "c2", "c3"],
+        "context": {
+            "available_evidence_refs": ["task"],
+            "current_product_contract": {
+                "artifact_refs": ["product_1:artifact:final_response"]
+            },
+        },
+    }
+    before = json.dumps(request, sort_keys=True)
+    sent = []
+
+    def handler(http_request):
+        body = json.loads(http_request.content)
+        sent.append(body)
+        system, user = body["messages"]
+        assert system["role"] == "system" and user["role"] == "user"
+        prompt = system["content"]
+        assert (
+            "request.response describes the output schema, not text to copy" in prompt
+        )
+        assert "specified keys at the root" in prompt
+        assert (
+            "not inside a response wrapper unless the schema explicitly requires that key"
+            in prompt
+        )
+        assert "list of strings must contain strings" in prompt
+        assert "exact supplied IDs and evidence handles" in prompt
+        assert (
+            "current_product_contract describes future runtime bindings, not evidence accessible now"
+            in prompt
+        )
+        assert "do not request them through need_evidence" in prompt
+        assert "both a rubric and a test bound to that exact criterion_id" in prompt
+        assert "separate test entries with unique test_id values" in prompt
+        assert "even when checker and arguments are shared" in prompt
+        assert "total=6" not in prompt  # no task solution injected into role guidance
+        assert json.loads(user["content"]) == request
+        return httpx.Response(200, json=completion(authored))
+
+    backend = Live(
+        LiveConfig("one-model", "https://mock.invalid/v1", "test-only-key"),
+        transport=httpx.MockTransport(handler),
+    )
+    assert asyncio.run(backend.role(request)) == authored
+    assert len(sent) == 1  # no adapter retry or synthesis to fill missing criteria
+    assert json.dumps(request, sort_keys=True) == before
+
+
 @pytest.mark.parametrize("arm", ["seed", "A", "B", "C"])
 def test_actor_http_prompt_scopes_task_inside_transport_and_preserves_reply(
     tmp_path, arm
