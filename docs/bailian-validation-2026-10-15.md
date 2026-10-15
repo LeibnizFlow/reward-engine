@@ -3,6 +3,36 @@
 本记录区分真实模型执行、离线回归测试和原生 benchmark 验证，不将连通性或原生 grader 当作 Reward Engine Jury。
 连接配置与命令见 [Bailian 接入](bailian.md)。密钥仅存放于本机被 Git 忽略的凭据文件。
 
+## 最新结果：原生 WorkBuddy 三轮执行完成
+
+`native_workbuddy_v9` 在提交 `de6187a` 上冻结，从三个新种子开始，连续完成三轮、九路原生 Actor 和九个有效原生评分。
+2026-10-15 11:39 CST 正常结束，supervisor 记录退出码 0，耗时约 4 小时 46 分钟。
+模型配置 SHA-256：`9902b54f617f5fd9cc4d0f443c6e73d820ded6cfbf45f4d660eda9eb409f93c6`。
+候选检查采用显式串行调度；每个候选原有的 1,800 秒预算、全部检查及校验规则均保留。
+
+| 轮次 | 初始候选检查 | 三路完整交付检查 | 执行错误 | 选择 |
+| --- | --- | --- | --- | --- |
+| 1 | 33 pass | 33 pass | 0 | A |
+| 2 | 77 pass、1 unknown | 39 pass | 0 | A |
+| 3 | 108 pass | 36 pass | 0 | A |
+
+合计 327 项完整测量：326 pass、1 unknown，执行错误为 0。unknown 来自第二轮第六个候选的事实检查：
+未直接读取 `experimental.py`，无法确认其中具体的 `NotImplementedError` 行为；结果原样保留，没有改判通过。
+
+原有 pipeline 审计的 59 项执行记录检查全部 pass，`full_pipeline_receipts_validated=true`；
+独立 public-delivery 审计退出 0。三轮 Jury、Builder、Hypothesis、Actor、B 评审、完整测量、排序选择及持久化检查点均有有效记录。
+Jury Memory 按轮累计 2、4、6 条；它们是 Jury gap 记录，不是实际修订前后的经验。
+
+**全部分支覆盖仍未达成。** 三次 B 评审均接受首版，每轮只有一个版本、没有同会话产物修订，B 修订 Memory 新增为 0。
+因此 pipeline 审计退出码为 **3**，`required_module_coverage_complete=false`，缺少 `same_session_changed_artifact_revision`。
+这次运行证明原生三轮可以完整执行，不能称为全部模块分支覆盖或质量提升。
+此前 v7 确实发生了一次真实修订和 Memory 写入（见下文），但该运行后来中断；不将其并入 v9 的覆盖结论。
+
+本次运行过程中没有追加源码修改或重启。冻结目录的 152 个文件哈希全部一致，pipeline 审计源码与冻结提交一致；
+保留 7,127 个 JSON 文件的 SHA-256 清单。原始运行目录为 `runs/bailian_validation_20261014/native_workbuddy_v9/`，
+同级 `native_workbuddy_v9.final_verification.json`、`.pipeline_audit.json`、`.public_audit.json` 和 `.retained_receipts_sha256.json` 保存核验结果。
+运行数据默认不进入发布仓库，凭据不进入 Git。
+
 ## 小型真实示例：三轮执行完成
 
 `minimal_live_v6` 使用源码提交 `6e2327c`、真实 `qwen3.8-max`，没有脚本回复、模型回退或传输重试。
@@ -143,7 +173,7 @@ B 的第一次真实评审为 `needs_improvement`，Actor 根据反馈在同一�
 完整初始检查先取得候选执行位置，再启动该候选原有的 1,800 秒批次；批次内部排队仍计入预算。
 所有候选、全部检查和原顺序保留，实际超时仍返回错误，不重试或重置已开始的预算。
 每个候选检查完成后立即记录结果，最终仍生成完整汇总；此记录不提供未完成轮次的恢复能力。
-省略配置时保持旧调度。新的真实三轮运行仍待验证。
+省略配置时保持旧调度。后续 v9 已完成真实三轮，结果与覆盖限制见本文开头。
 
 ## 回归测试边界
 
