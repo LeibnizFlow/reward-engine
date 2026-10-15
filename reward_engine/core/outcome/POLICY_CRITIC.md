@@ -10,7 +10,7 @@ Construct `PolicyCritic(task, pack, registry, memory=..., config=...)`, then cal
 
 Inputs include the public task, real user supplements, recent actor updates, actual tool observations, relevant permitted memory, and optional exploration intent. Hidden answers, native grader results, and internal reasoning are excluded. Arm routing may omit historical memory; see [arm protocols](ARMS.md).
 
-The Rail records actor statements as `actor_updates`, not `artifact.final_response`. Tool requests and actual results enter `source_documents` with turn IDs. Environment metadata describes the observation scope, not an invented workspace scan. An absent final answer is normal during execution; checks that need it return unknown.
+Custom adapters must record actor statements as `actor_updates`, not `artifact.final_response`. Tool requests and actual results enter `source_documents` with turn IDs. Environment metadata describes the observation scope, not an invented workspace scan. An absent final answer is normal during execution; checks that need it return unknown.
 
 The default inline window contains the latest six tool records within 16 KiB. Larger records retain previews and full evidence handles; originals remain on disk. Unresolved pack questions retain applicability, sources, and uncertainty through `question_context`; they are leads to verify, not new requirements or established defects.
 
@@ -36,10 +36,10 @@ Requests default to a 160,000-byte limit, configurable with `policy_critic.max_r
 {"policy_critic":{"enabled":true,"every_k_turns":3,"max_tests":3,"timeout_s":120,"top_k":3}}
 ```
 
-This explicitly selects frequency three. `hypothesis_feedback_v1` defaults to one and uses Critic only on D; only B receives Hypothesis. Legacy routing defaults to Critic disabled and frequency three, with explicitly enabled Critic on legacy B/D. The default role is `learning_model`, overridable with `critic_model`.
+This explicitly selects frequency three. `hypothesis_feedback_v1` defaults to one and uses Critic only on D; only B receives Hypothesis. Legacy routing defaults to Critic disabled and frequency three, with explicitly enabled Critic on legacy B/D. The model callable comes from the explicit `call` argument or `registry.review_call`; the integrating application supplies its model and credentials.
 
-Count completed root actor model turns, not tools, Critic calls, failed model calls, or duplicate callbacks. At an eligible k-th turn with tool actions, intervene after the tools complete and before the next model request. A final tool-free response does not trigger periodic review. Native delivery still reviews the actual final artifact with the same Critic and permits at most one continuation and recheck. D does not additionally run C's DeliveryReview.
+Count completed root actor model turns, not tools, Critic calls, failed model calls, or duplicate callbacks. At an eligible k-th turn with tool actions, intervene after the tools complete and before the next model request. A final tool-free response does not trigger periodic review. An integration implementing D must also review the actual final artifact with the same Critic and permit at most one continuation and recheck. D does not additionally run C's DeliveryReview.
 
-`reward_engine.adapters.jiuwen_outcome_rail.OutcomePolicyRail` injects feedback through `model_context.add_messages` as internal assistant advice, not a user message. Empty `reasoning_content` accompanies injected messages. For supported DeepSeek thinking endpoints, `claw_eval/actor_wire.py` restores missing empty fields dropped by the frozen SDK without overwriting existing reasoning. Pre-transform and final wire requests are preserved; other endpoints are unchanged.
+The current native OpenCode campaigns do not schedule these periodic callbacks. Custom adapters must count eligible turns, call the Critic with actual observations, and inject returned advice into the same actor session. Configuration alone does not install this integration. Keep internal feedback separate from public user messages and preserve receipts showing whether advice was actually injected.
 
-Claw's optional `rail_extension` supplies a per-trial authenticated callback. Provider keys stay in the controller; the container gets only a temporary trial token. Missing companion interfaces fail before paid execution. See [companion interfaces](../../adapters/claw_eval/companion/README.md).
+The core exposes terminal review and recheck methods, including `finish_runtime`, for integrations implementing D's delivery contract. Callers must enforce continuation budgets and report missing or unavailable reviews accurately.

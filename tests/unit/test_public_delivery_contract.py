@@ -494,25 +494,20 @@ def test_no_contract_collection_and_selection_unchanged(tmp_path):
     assert select_delivery({"status": "unavailable"}, {"A": "p"}, {})["arm"] == "A"
 
 
-def test_tracked_binding_matches_exact_public_instruction():
-    repo = Path(__file__).resolve().parents[2]
-    contract = json.loads(
-        (repo / "configs/public_delivery/api-usage-explain-cli-l3-001.json").read_text()
-    )
-    prompt = (
-        repo / "configs/public_delivery/api-usage-explain-cli-l3-001.instruction.json"
-    )
-    # Exact quoted source SHA is independently reviewable; the test does not need archived runs.
+def test_explicit_binding_matches_exact_public_instruction():
+    task, contract = task_and_contract()
+    # A synthetic public instruction exercises identity and exact quote binding.
+    restored = json.loads(json.dumps(contract))
     assert (
-        contract["public_prompt_sha256"]
-        == "80c117555e628bc9915f5f4b42a1c56de71d93028a6031f9a5456bd85993f6ed"
+        restored["public_prompt_sha256"]
+        == hashlib.sha256(task["prompt"].encode()).hexdigest()
     )
-    assert [q["start_line"] for q in contract["source"]["quotes"]] == [1, 21]
-    assert contract["translation"]["method"] == "explicit_executor_translation"
-    validate(
-        contract,
-        {"task_id": contract["task_id"], "prompt": json.loads(prompt.read_text())["instruction"]},
-    )
+    assert [q["start_line"] for q in restored["source"]["quotes"]] == [1, 2]
+    assert [q["text"] for q in restored["source"]["quotes"]] == task[
+        "prompt"
+    ].splitlines()
+    assert restored["translation"]["method"] == "explicit_executor_translation"
+    validate(restored, task)
 
 
 @pytest.mark.asyncio

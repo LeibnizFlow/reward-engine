@@ -40,3 +40,6 @@ node_modules/
 
 # Captured model replies belong only in the local archive.
 /tests/fixtures/
+
+# Local agent instructions are not part of the public project.
+/AGENTS.md

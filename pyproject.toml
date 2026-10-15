@@ -57,11 +57,8 @@ include = ["reward_engine*", "experiments", "experiments.claw_eval*", "experimen
 exclude = ["_local*", "experiments.archive*", "experiments.workbuddy.local*", "local*", "reports*", "archive*", "tests*"]
 
 [tool.setuptools.package-data]
-"reward_engine" = ["**/*.md", "configs/*.json", "adapters/*.mjs", "adapters/claw_eval/companion/*.patch"]
+"reward_engine" = ["**/*.md", "configs/*.json", "adapters/*.mjs"]
 "experiments" = ["**/*.md"]
-
-[tool.setuptools.data-files]
-"share/reward-engine/configs/public_delivery" = ["configs/public_delivery/*.json", "configs/public_delivery/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --basetemp=_local/tmp/pytest"

@@ -10,7 +10,7 @@ Reward Engine constructs task-grounded criteria and executable checks, freezes t
 4. A frozen RewardPack supports targeted measurement, same-conversation revisions, and candidate comparison. Native grader scores are excluded from this process.
 5. Memory preserves observed changes, methods, evidence, and limitations for later rounds.
 
-Public task changes establish a new scope. Internal Jury, Attack, or Critic messages do not create user instructions. See [multi-turn behavior](MULTITURN.md).
+Integrations using `TaskSequence` establish a new scope when public requirements change. Internal Jury, Attack, or Critic messages do not create user instructions. See [multi-turn behavior](MULTITURN.md).
 
 ## Default and optional construction
 
@@ -32,7 +32,7 @@ Delivery review distinguishes `needs_improvement`, `needs_verification`, `target
 
 Targeted review is the default, with configurable `max_tests=3`. Unselected checks remain unknown. Explicit diagnostic full audit uses `DeliveryReview(audit_mode="full")` or `run_task(full_audit=True)`. A narrow criterion pass cannot erase a valid failed local inquiry. Execution errors and insufficient evidence are not, by themselves, product defects.
 
-Selections use actual completed candidates and reject known checked regressions. A fresh task-only candidate is the fallback when strict preference is not established; this rule does not guarantee native-score improvement. Within-candidate revision selection preserves the original complete delivery when a revision is unavailable, inconclusive, or worse. Native final responses and selected deliveries have separate records.
+Selections use actual completed candidates and reject known checked regressions. A fresh task-only candidate is the fallback when strict preference is not established; this rule does not guarantee native-score improvement. Within-candidate review can retain an earlier delivery and its measurement as immutable evidence. This does not restore native workspace or service state: retention records explicitly report `native_state_restored=false`. Native grading observes the actual terminal state, and its score cannot be reassigned to retained evidence.
 
 Outer `rounds` bounds the run (one to three); it is not generally a promise to execute all rounds. Continuation requires a valid Jury request identifying an important evidence-grounded gap and a concrete next direction, plus eligible completed candidates. Native grader scores never drive continuation. The deterministic example deliberately exercises all three rounds.
 

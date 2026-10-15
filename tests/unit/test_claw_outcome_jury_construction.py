@@ -561,53 +561,14 @@ def test_pending_preserves_open_semantic_scope_without_old_explanation_replay(
         assert pending[0]["measurement_question"] == coverage[0]["current_verification"]
 
 
-def archived_map_structure(criterion):
-    # Exact malformed fields from T068 Jury seat 3's 2026-09-10 redo
-    # b7f92699480f4a928104aa3c14278f1d. Other content is a minimal valid fixture;
-    # tests do not depend on the paid experiment or accept its factual claims.
+def synthetic_map_structure(criterion):
+    # Synthetic object-valued subrequirements and invalid compound provenance.
+    # Preserve varied list sizes and all diagnostic positions without run data.
     texts = [
-        [
-            "At least three genuinely distinct defects, not three rephrasings of one.",
-            "Each defect anchored to the supplied snippet or quantization description.",
-            "Each defect given a bottom-level mechanism (math or CUDA hardware).",
-        ],
-        [
-            "int8_t accumulator named as wrong type.",
-            "Overflow bound tied to K products (e.g., max ~127*127*K).",
-            "INT32 accumulation and post-accumulation float rescale stated.",
-        ],
-        [
-            "Activation outliers / high dynamic range in LLaMA explained.",
-            "Mechanism by which one per-tensor scale is dominated by the max and collapses ordinary values.",
-            "Weight side also argued to need finer granularity than per-tensor.",
-        ],
-        [
-            "Wrong bound variable (N used for row) detected.",
-            "Indexing formulas checked against declared layouts.",
-            "Consequence (wrong/out-of-bounds output) explained.",
-        ],
-        [
-            "Concrete memory-access or execution-unit mechanism.",
-            "Tied to the supplied thread mapping / inner loop.",
-            "No generic advice such as 'add comments' or 'use a library'.",
-        ],
-        [
-            "Correct accumulator/dequantization path.",
-            "Finer-grained quantization or outlier mitigation compatible with LLaMA.",
-            "Hardware-appropriate kernel direction.",
-        ],
-        ["No generic code-quality/style advice presented as the answer."],
-        [
-            "Correct scale and clip/round formulas.",
-            "Correct dequantization given int32 accumulation.",
-            "No false claim that scale_a*scale_b is itself the core bug.",
-        ],
+        [f"Explain synthetic requirement {i + 1}.{j + 1}." for j in range(count)]
+        for i, count in enumerate([3, 3, 3, 3, 3, 3, 1, 3])
     ]
-    bases = [
-        "task formula plus domain prior",
-        "task code thread mapping",
-        "domain prior / research agenda (improvement opportunity, not a task hard requirement)",
-    ]
+    bases = ["task plus domain", "task implementation detail", "domain advice"]
     return {
         "criteria": [
             {
@@ -639,9 +600,9 @@ def archived_map_structure(criterion):
 
 
 @pytest.mark.asyncio
-async def test_archived_map_redo_reports_all_shape_errors_and_one_repair_can_pass():
+async def test_synthetic_map_reports_all_shape_errors_and_one_repair_can_pass():
     context, evidence, criterion = fixture()
-    malformed = archived_map_structure(criterion)
+    malformed = synthetic_map_structure(criterion)
     original = deepcopy(malformed)
     calls = []
 
@@ -694,14 +655,12 @@ async def test_archived_map_redo_reports_all_shape_errors_and_one_repair_can_pas
     assert jury.validate(result, evidence, context) == result
 
 
-def test_live_first_map_provenance_reports_path_actual_and_allowed_values():
+def test_compound_map_provenance_reports_path_actual_and_allowed_values():
     context, evidence, criterion = fixture()
-    reply = archived_map_structure(criterion)
+    reply = synthetic_map_structure(criterion)
     reply["criteria"] = [criterion]
-    # Original completed output 44510b6ee8db4c94b4f3feb3635eedb1.
     reply["gaps"][0]["expected_basis"] = (
-        "task (requires hardcore math) + domain; reference:task_review:source_8 derives the exact bound "
-        "16256·K < 2^31, valid for K ≤ 132,104."
+        "task + domain; reference:task_review:source_8 explains a synthetic limit"
     )
     with pytest.raises(ResponseContractError) as caught:
         jury.validate(reply, evidence, context)
@@ -743,7 +702,7 @@ def test_recovery_map_unknown_refs_and_structure_errors_are_reported_together(
         }
     )
     context["available_evidence_refs"] = list(evidence)
-    gap = archived_map_structure(criterion)["gaps"][0]
+    gap = synthetic_map_structure(criterion)["gaps"][0]
     reply = {
         "criteria": [deepcopy(criterion)],
         "gaps": [
@@ -751,8 +710,7 @@ def test_recovery_map_unknown_refs_and_structure_errors_are_reported_together(
             for i in range(5)
         ],
     }
-    # Exact unresolved handles and output positions from recovery01's only
-    # new response 62e4e0cb3574499cbb7bd2c6e8cb7ab7; no paid archive dependency.
+    # Synthetic unavailable handles resemble real skill handles but must not alias them.
     reply["gaps"][4].update(
         gap_id="g_validation_shared",
         expected_refs=["reference:task_review:s1_g2", "reference:task_review:s8_g1"],
@@ -764,7 +722,7 @@ def test_recovery_map_unknown_refs_and_structure_errors_are_reported_together(
     if mixed_structure_errors:
         reply["criteria"][0]["subrequirements"] = [{"part_id": "c0", "text": KEEP}]
         reply["criteria"][0]["evidence_refs"].append("reference:missing_criterion")
-        reply["gaps"][0]["expected_basis"] = "task formula plus domain prior"
+        reply["gaps"][0]["expected_basis"] = "task plus domain"
         reply["gaps"][1]["evidence_refs"].append("product_1:source:missing")
         reply["criteria"][0]["part_revisions"] = [
             {"evidence_refs": ["reference:missing_revision"]}

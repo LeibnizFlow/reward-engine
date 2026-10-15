@@ -8,8 +8,8 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from experiments.claw_eval.manage import read_json, write_json
 from reward_engine.adapters.claw_eval import native_grader as hook
+from reward_engine.adapters.support import read_json, write_json
 
 
 class Chunk:

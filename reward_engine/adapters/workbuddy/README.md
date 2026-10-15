@@ -1,19 +1,17 @@
 # WorkBuddy Office adapter
 
-The adapter connects WorkBuddy's native Office execution to the shared Outcome core. `OutcomeOfficeAgent` inherits native behavior; the worker hook verifies source anchors and fails explicitly if the expected upstream interface differs. It does not maintain a second reward algorithm.
+The adapter connects Harbor's WorkBuddy Office execution to the shared Outcome core. `OutcomeOpenCodeAgent` extends `OpenCodeTransport`, runs OpenCode in the native workspace, and collects delivery evidence for the core review loop. See [native execution](../../../experiments/workbuddy/README.md) for setup and configuration.
 
-## Public task steps
+## Execution and review
 
-Native `[[steps]]` preserve the workspace and actual public conversation. Only instructions already disclosed to the actor enter the task scope; future steps and private verifier data are excluded. Each step has its own review state and restorable snapshots.
+The agent starts from the supplied instruction and preserves the actual OpenCode session for internal revisions. It checks terminal session receipts and bounds execution time and output-limit continuations. When a frozen pack is supplied, `DeliveryReview` performs targeted checks and can request up to two same-session revisions. Feedback is internal advice, not a new public requirement.
 
-A new public step rebinds the existing pack as unverified reference material, clearing earlier validation support and requirement coverage. Review and version selection use the complete current task. Existing Hypothesis guidance is optional and cannot override new instructions. The adapter does not rebuild the entire Jury/Attack pipeline for every public step.
+The current adapter consumes one supplied instruction per run. It does not implement a bridge for native `[[steps]]` updates or periodic Policy Critic callbacks. The core's [task scope interface](../../core/outcome/MULTITURN.md) is available to custom integrations.
 
-## Artifact snapshots and selection
+## Artifact snapshots and grading
 
-At a delivery boundary the controller pauses native requests, checks file inventories before and after transfer, and preserves file bytes, sizes, modes, and SHA-256. Office XML inspection retains text, structure, cell addresses, formulas, and cached values. Unexecuted formulas, absent rendering, and incomplete parsing remain explicit limitations. These observations alone do not establish content or visual correctness.
+The agent archives the initial workspace and each completed delivery. Evidence collection records file hashes and extracts supported Office content while retaining the original files. Missing rendering, unexecuted formulas, and incomplete parsing remain limitations; extracted text alone does not establish visual or content correctness.
 
-Full file contents have evidence handles for subsequent reading; binary originals remain preserved. After version comparison, the adapter restores the selected snapshot's actual files and verifies their hashes before releasing the worker. With no clear improvement, or with selection or revision failure, it retains the first complete delivery. Versions may only be compared and restored within the same public requirement scope.
+Review may retain an earlier candidate and measurement as immutable evidence. It does not restore the native workspace or services: `retained_delivery.native_state_restored` remains false. The native verifier observes the actual terminal workspace, so its grade must not be reassigned to an earlier retained snapshot.
 
-Runtime Critic reads actual tool observations, not actor plans presented as completed artifacts. The native verifier runs after the actor process stops. Valid low-score stops remain low scores rather than triggering resampling.
-
-See [native execution](../../../experiments/workbuddy/README.md) and [multi-turn scopes](../../core/outcome/MULTITURN.md).
+The worker runs the native verifier after the actor trial. Native grades remain separate from reward construction and candidate selection. A valid low score is a result, not a reason to resample.

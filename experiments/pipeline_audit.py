@@ -2069,7 +2069,7 @@ def _report(root, benchmark, task_id, checks):
             else ["same_session_changed_artifact_revision"],
             "same_session_continuation_exercised_rounds": continuation_rounds,
             "changed_artifact_revision_exercised_rounds": revision_rounds,
-            "criterion_source": ".aris/traces/experiment-audit/2026-10-10_run01/003-repaired-source.response.md#addendum-003-a",
+            "criterion_source": "experiments/pipeline_audit.py::_report",
         },
         "counts": {
             "completed_rounds": passed("/completed"),

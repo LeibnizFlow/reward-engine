@@ -1,6 +1,8 @@
 # Arm protocols
 
-`arms.py` defines the shared routing used by the core loop and native entry points. Choose `arm_protocol="hypothesis_feedback_v1"` explicitly to use the following independent arms:
+`arms.py` defines routing for the core loop and custom samplers. The published Claw-Eval and WorkBuddy campaign wrappers currently use legacy A/B/C routing: A is task-only, B receives static reward guidance and delivery review, and C receives Hypothesis guidance. They do not wire periodic Policy Critic callbacks or expose the alternative protocol as a native configuration switch.
+
+A custom sampler that implements the required feedback callbacks can use `arm_protocol="hypothesis_feedback_v1"` with the following independent arms:
 
 | Arm | Initial input | Additional feedback |
 |---|---|---|
@@ -15,7 +17,7 @@ Each arm starts independently. Zero revisions in C means C retained its own firs
 
 ## Configuration
 
-Use a valid native task/model configuration with explicit protocol fields, for example:
+For a custom integration using `arms.configure` and the core loop, the protocol fields can be configured as follows. This is not a drop-in configuration for the published native campaigns:
 
 ```json
 {
