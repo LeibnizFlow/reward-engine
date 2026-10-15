@@ -216,14 +216,14 @@ def report(root, report_dir=None):
         writer.writeheader()
         writer.writerows(rows)
     lines = [
-        f"# WorkBuddy Office · Outcome（{requested} 题）",
+        f"# WorkBuddy Office · Outcome ({requested} tasks)",
         "",
-        f"最终选中作品有效评分：{len(selections)}/{requested}；逐轮 A/B/C 有效评分：{summary['valid_scores']}/{summary['expected_scores']}。",
-        "缺失评分不计为零，均分必须结合有效样本数阅读。",
+        f"Valid selected-product scores: {len(selections)}/{requested}; valid per-round A/B/C scores: {summary['valid_scores']}/{summary['expected_scores']}.",
+        "Missing scores are not zero. Interpret means alongside valid sample counts.",
         "",
-        f"含逐项评审错误的评分：{summary['scores_with_judge_errors']}；保留原始值，但不计入有效评分和均分。",
+        f"Scores with item-level judge errors: {summary['scores_with_judge_errors']}; raw values are retained but excluded from valid counts and means.",
         "",
-        f"| 组别 | 均分 | 有效题数 / {requested} |",
+        f"| Group | Mean | Valid tasks / {requested} |",
         "|---|---:|---:|",
     ]
     lines.extend(
@@ -233,21 +233,21 @@ def report(root, report_dir=None):
     if config.get("selection_policy") == POOL_SELECTION:
         lines += [
             "",
-            "全池终评与逐轮选择分开统计；获选 seed 未评分时不记零，也不自动补评分。",
+            "Final pool selection and per-round selection are reported separately. Ungraded selected seeds remain ungraded, without zero imputation or automatic grading.",
             "",
-            "| 题目 | 终评状态 | 来源 | 官方评分 |",
+            "| Task | Final selection status | Source | Native score |",
             "|---|---|---|---:|",
         ]
         for task, final in final_deliveries.items():
             label = (
                 f"{final.get('source_kind')}/{final.get('source_round')}/{final.get('source_slot')}"
                 if final.get("source")
-                else "未选择"
+                else "Not selected"
             )
             score = (
                 final["overall"]
                 if final["overall"] is not None
-                else "未评分（" + final["status"] + "）"
+                else "Not graded (" + final["status"] + ")"
             )
             lines.append(
                 f"| {task} | {final['selection_status']} | {label} | {score} |"
@@ -255,15 +255,15 @@ def report(root, report_dir=None):
     if config.get("reuse_first_round_from"):
         lines += [
             "",
-            f"复用旧种子/作品：{summary['reused_actors']}；沿用原生评分：{summary['reused_scores']}。",
-            "第一轮 A/B/C 为旧作品，由当前 Jury 重新评审；B/C 生成时使用原运行的指导。",
-            "复用评分不是新增评分调用；本轮调用量不含旧作品的历史生成成本。",
+            f"Reused seeds/products: {summary['reused_actors']}; reused native scores: {summary['reused_scores']}.",
+            "Round-one A/B/C are existing products reviewed by the current Jury; B/C were generated using guidance from the original run.",
+            "Reused scores are not new grading calls; current call counts exclude historical product generation costs.",
             "",
         ]
     lines += [
         "",
-        "逐题状态与失败见 status.json；逐轮分数及交付目录见 scores.csv；调用量见 report.json。",
-        "评分使用固定的本机 WorkBuddy 原生评分器及 Yibu DeepSeek V4 Flash；不声称复现官方榜单模型配置。",
+        "See status.json for task status and failures, scores.csv for per-round scores and delivery directories, and report.json for call counts.",
+        "Scores use the frozen local WorkBuddy native grader and configured judge; consult the run configuration for model identity. This does not establish equivalence with the official leaderboard configuration.",
     ]
     (destination / "report.md").write_text("\n".join(lines) + "\n")
     if (root / "status.json").exists():

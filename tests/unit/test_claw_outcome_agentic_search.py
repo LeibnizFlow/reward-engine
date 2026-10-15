@@ -1,4 +1,5 @@
 """Research decisions depend on gaps and observed sources, not a domain allowlist."""
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 import asyncio
 
@@ -31,15 +32,15 @@ def test_keyword_question_locates_real_passage_without_exact_sentence():
 
 
 def test_exact_and_unicode_retrieval_preserve_original_offsets():
-    text = "İ navigation " * 50 + "真实检查：数据溯源与恢复验证。" + "尾部" * 100
-    offset, exact = locate_passage(text, "数据溯源", 0, 100)
+    text = "İ navigation " * 50 + "\u771f\u5b9e\u68c0\u67e5\uff1a\u6570\u636e\u6eaf\u6e90\u4e0e\u6062\u590d\u9a8c\u8bc1\u3002" + "\u5c3e\u90e8" * 100
+    offset, exact = locate_passage(text, "\u6570\u636e\u6eaf\u6e90", 0, 100)
     assert (
-        exact["method"] == "exact_phrase" and "数据溯源" in text[offset : offset + 100]
+        exact["method"] == "exact_phrase" and "\u6570\u636e\u6eaf\u6e90" in text[offset : offset + 100]
     )
-    offset, lexical = locate_passage(text, "如何检查溯源；恢复验证？", 0, 100)
+    offset, lexical = locate_passage(text, "\u5982\u4f55\u68c0\u67e5\u6eaf\u6e90\uff1b\u6062\u590d\u9a8c\u8bc1\uff1f", 0, 100)
     assert (
         lexical["method"] == "keyword_windows"
-        and "恢复验证" in text[offset : offset + 100]
+        and "\u6062\u590d\u9a8c\u8bc1" in text[offset : offset + 100]
     )
 
 

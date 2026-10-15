@@ -1,6 +1,5 @@
-"""Replay the retained Qwen Claw R3 stream with offline HTTP, plus corrupt controls."""
+"""Synthetic duplicate-terminal streams and corrupt controls through offline HTTP."""
 
-import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -10,84 +9,16 @@ import pytest
 
 from reward_engine.adapters.workbuddy import models
 from reward_engine.adapters.workbuddy.io import read, write
-
-CAPTURE = (
-    Path(__file__).parents[1] / "fixtures/workbuddy/qwen_duplicate_usage_terminal.sse"
-)
-CAPTURE_SHA256 = "f5b7cc4ff6e31d123c829bfcc5b24a34b35650bb946dd924088612a18fb5c86c"
-# Exact response-1.sse from full_claw_20261010_v3/transport/roles/
-# dff4dfc18686414486bbad9fdec2d985; diagnostic: claw_round3_stream_diagnostic.md.
-# Provider output is evidence, not a validated Jury vote or benchmark success.
-
-
-def event(delta, finish=None):
-    return {
-        "id": "completion-1",
-        "model": "qwen3.8-max",
-        "created": 123,
-        "choices": [
-            {
-                "index": 0,
-                "delta": delta,
-                "finish_reason": finish,
-                "native_finish_reason": finish,
-            }
-        ],
-    }
-
-
-def trailer_stream():
-    terminal = event({"content": "", "role": "assistant"}, "stop")
-    terminal["usage"] = {"completion_tokens": 2, "estimated": True}
-    repeated = deepcopy(terminal)
-    repeated["usage"] = {"completion_tokens": 3, "estimated": True}
-    repeated["service_tier"] = None
-    return [
-        event({"content": '{"status":"unknown","reason":"observed"}'}),
-        terminal,
-        repeated,
-    ]
-
-
-def encode(events):
-    return (
-        "".join("data: " + json.dumps(row) + "\n\n" for row in events)
-        + "data: [DONE]\n\n"
-    )
-
-
-@pytest.fixture
-def transport(tmp_path, monkeypatch):
-    config = {
-        "output": str(tmp_path),
-        "roles": {"judge": "qwen3.8-max"},
-        "auth_file": str(tmp_path / "auth"),
-        "gateway_local": "http://offline",
-    }
-    (tmp_path / "auth").write_text("offline-only")
-    responses, calls = [], []
-
-    def upstream(request):
-        calls.append(json.loads(request.content))
-        assert responses, "Unexpected extra physical attempt"
-        return responses.pop(0)
-
-    client = httpx.AsyncClient
-    monkeypatch.setattr(
-        models.httpx,
-        "AsyncClient",
-        lambda **kw: client(transport=httpx.MockTransport(upstream), **kw),
-    )
-    return models.Role(config, "judge", tmp_path / "role"), responses, calls
+from tests.support.role_transport import encode, event, trailer_stream
+from tests.support.role_transport import transport as transport
 
 
 @pytest.mark.asyncio
-async def test_exact_saved_qwen_duplicate_terminal_keeps_raw_usage_and_no_new_vote(
+async def test_synthetic_duplicate_terminal_keeps_raw_usage_and_no_new_vote(
     transport,
 ):
     role, responses, calls = transport
-    raw = CAPTURE.read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == CAPTURE_SHA256
+    raw = encode(trailer_stream()).encode()
     events = [
         json.loads(line[5:])
         for line in raw.decode().splitlines()
@@ -108,7 +39,7 @@ async def test_exact_saved_qwen_duplicate_terminal_keeps_raw_usage_and_no_new_vo
     terminals = [e for e in events if e["choices"][0].get("finish_reason")]
     assert receipt["terminal_events"] == terminals
     assert receipt["usage"] == terminals[-1]["usage"]
-    assert [t["usage"]["total_tokens"] for t in terminals] == [47060, 63726]
+    assert [t["usage"]["completion_tokens"] for t in terminals] == [2, 3]
     assert receipt["normalizations"] == [
         {"operation": "accept_repeated_empty_usage_terminal", "terminal_events": 2}
     ]

@@ -1,0 +1,6 @@
+include AGENTS.md .env.example
+recursive-include docs *.md *.txt *.png
+recursive-include configs *.json *.md
+prune tests
+prune _local
+global-exclude __pycache__ *.py[cod]

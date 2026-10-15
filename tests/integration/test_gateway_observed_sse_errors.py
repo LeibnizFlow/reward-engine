@@ -1,10 +1,10 @@
-"""Replay the exact error data lines captured in v3; no live service access."""
+"""Synthetic service errors through the real gateway; no live service access."""
 
 import json
 
 import pytest
 
-from tests.integration.test_gateway_litellm_unavailable import (
+from tests.support.gateway_transport import (
     PARTIAL,
     SUCCESS,
     event,
@@ -12,24 +12,14 @@ from tests.integration.test_gateway_litellm_unavailable import (
     failure,
     forwarded_data,
 )
+from tests.support.provider_errors import SERVICE_ERRORS
 
-# Source frames (including param and null/code representation) are preserved in
-# .aris/traces/experiment-audit/2026-10-10_run01/005-gateway.observed-frames.json.
-OBSERVED = [
-    (
-        'data: {"error":{"message":"Service temporarily unavailable","type":"api_error","param":"","code":null}}\n',
-        "provider_api_service_unavailable",
-    ),
-    (
-        'data: {"error":{"message":"Stream error occurred","type":"upstream_error","param":"","code":"error"}}\n',
-        "provider_upstream_stream_error",
-    ),
-]
+OBSERVED = [(row["sse_line"] + "\n", row["reason"]) for row in SERVICE_ERRORS]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("frame,reason", OBSERVED)
-async def test_captured_error_retries_and_discards_all_partial_tool_output(
+async def test_synthetic_error_retries_and_discards_all_partial_tool_output(
     tmp_path, frame, reason
 ):
     response, receipt, root, requests, waits = await exercise(
@@ -63,7 +53,7 @@ async def test_captured_error_retries_and_discards_all_partial_tool_output(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("frame,reason", OBSERVED)
-async def test_captured_error_exhaustion_preserves_six_frames_without_tool_forwarding(
+async def test_synthetic_error_exhaustion_preserves_six_frames_without_tool_forwarding(
     tmp_path, frame, reason
 ):
     response, receipt, root, requests, waits = await exercise(
@@ -123,7 +113,7 @@ async def test_generic_error_code_alone_is_not_retryable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_captured_errors_share_existing_budget_with_other_transport_errors(
+async def test_synthetic_errors_share_existing_budget_with_other_transport_errors(
     tmp_path,
 ):
     frames = [

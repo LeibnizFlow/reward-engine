@@ -1,3 +1,6 @@
+# All local scratch work, generated outputs and historical materials.
+/_local/
+
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -34,3 +37,6 @@ node_modules/
 # Local reviewer transcripts may contain private experiment evidence.
 /.aris/traces/
 /.aris/meta/events.jsonl
+
+# Captured model replies belong only in the local archive.
+/tests/fixtures/

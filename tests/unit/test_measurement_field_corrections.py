@@ -1,32 +1,32 @@
 """Optional bounded field corrections use actual Role with offline HTTP only.
 
-The original captures remain in their focused regression modules. This protocol
-composes model-authored replacements; it does not certify those model judgments.
+The shared cases are synthetic. This protocol composes scripted replacements;
+it does not certify factual judgments or call a live model.
 """
 
 from copy import deepcopy
 
 import pytest
 
+from tests.support.role_transport import replay
+from tests.support.role_transport import transport as transport
 from tests.unit.test_claim_contract_repair import (
-    CLAW_CAPTURE,
+    CLAW_CASE,
     claw_evidence,
     preview_case,
-    replay,
 )
 from tests.unit.test_claim_status_diagnostics import evidence_case as wb_evidence
 from tests.unit.test_claim_summary_root_diagnostics import (
-    CAPTURES,
+    CASES,
     CLARITY,
     STRUCTURE,
-    WB_CAPTURE,
+    WB_CASE,
 )
-from tests.unit.test_workbuddy_stream_terminal_replay import transport as transport
 
 
 def case(kind):
     if kind == "root_refs":
-        first = deepcopy(CAPTURES[STRUCTURE][0])
+        first = deepcopy(CASES[STRUCTURE][0])
         values = {"evidence_refs": ["product_1:artifact:final_response"]}
         context, evidence = claw_evidence()
     else:
@@ -36,13 +36,13 @@ def case(kind):
             "gap": "",
         }
         if kind == "all_advisory":
-            first = deepcopy(CAPTURES[CLARITY][0])
+            first = deepcopy(CASES[CLARITY][0])
             context, evidence = claw_evidence()
         elif kind == "unverified":
-            first = deepcopy(WB_CAPTURE[0])
+            first = deepcopy(WB_CASE[0])
             context, evidence = wb_evidence()
         elif kind == "twelve_refs":
-            first = deepcopy(CLAW_CAPTURE)
+            first = deepcopy(CLAW_CASE)
             context, evidence = claw_evidence()
             for i, claim in enumerate(first["claims"]):
                 values[f"claims[{i}].evidence_refs"] = (
@@ -60,7 +60,7 @@ def case(kind):
     "kind", ["root_refs", "all_advisory", "unverified", "twelve_refs"]
 )
 @pytest.mark.parametrize("syntax_retry", [False, True])
-async def test_captured_failures_can_use_explicit_model_field_values_with_provenance(
+async def test_synthetic_failures_can_use_explicit_model_field_values_with_provenance(
     transport, kind, syntax_retry
 ):
     first, correction, context, evidence = case(kind)
@@ -342,35 +342,23 @@ async def test_unbounded_legacy_role_does_not_advertise_or_compose_corrections()
     assert "claims" not in correction
 
 
-# Exact raw correction from live_field_correction_probe_4d4210fc/all_advisory/probe_result.json.
-# Hybrid injected first reply + live Role repair; NOT a native pipeline result.
-HYBRID_PASS_SHA256 = "0549213dce566e714d67fe17f303d28f3d5e23e61423b1564e3c42c9c2d25256"
-HYBRID_PASS_CORRECTION = {
+# Synthetic invalid correction: advisory-only support cannot justify pass.
+ADVISORY_PASS_CORRECTION = {
     "field_corrections": {
         "status": "pass",
-        "reason": "The report is written in Chinese, uses the exact labels 匹配正常 / 金额不符 / 状态异常, and presents entries in scannable tables/bullets with the key facts (amount, invoice, status, verdict). The preserved claim assessment records all five claims as supported by the supplied artifact; the all-advisory relevance reflects that this is a soft, minor usability standard rather than a hard correctness requirement, so the supported findings are sufficient to satisfy it.",
+        "reason": "All advisory observations are supported; this synthetic reply incorrectly claims that advisory support alone establishes pass.",
         "gap": "",
     }
 }
 
 
 @pytest.mark.asyncio
-async def test_hybrid_probe_unsupported_pass_remains_rejected_without_host_correction(
+async def test_synthetic_unsupported_pass_remains_rejected_without_host_correction(
     transport,
 ):
-    import hashlib
-    import json
 
     first, _, context, evidence = case("all_advisory")
-    correction = deepcopy(HYBRID_PASS_CORRECTION)
-    assert (
-        hashlib.sha256(
-            json.dumps(
-                correction, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ).encode()
-        ).hexdigest()
-        == HYBRID_PASS_SHA256
-    )
+    correction = deepcopy(ADVISORY_PASS_CORRECTION)
     result, requests = await replay(transport, [first, correction], context, evidence)
     assert requests[1]["field_correction_reply"]["allowed_values"] == {
         "status": ["fail", "unknown"]

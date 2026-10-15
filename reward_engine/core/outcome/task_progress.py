@@ -159,7 +159,7 @@ class TaskProgress:
                 )
             self.state["items"].append(
                 {
-                    "requirement": "达成 Outcome Reward 还差什么？哪些主张值得核实？",
+                    "requirement": "What remains to achieve the target outcome, and which claims need verification?",
                     "blocking": True,
                     "status": "pass" if measurement["delivery_clear"] else "unknown",
                     "outcome_status": overview["status"],

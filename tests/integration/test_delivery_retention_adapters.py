@@ -107,7 +107,9 @@ async def test_claw_serializes_terminal_state_and_explicit_retention(
 async def test_workbuddy_serializes_terminal_state_and_explicit_retention(
     tmp_path, monkeypatch, review_enabled
 ):
-    from reward_engine.adapters.workbuddy import agent as workbuddy_agent
+    from tests.support.native_actor import native_actor_module
+
+    workbuddy_agent = native_actor_module(monkeypatch)
 
     pack = published_pack()
     agent = object.__new__(workbuddy_agent.OutcomeOpenCodeAgent)

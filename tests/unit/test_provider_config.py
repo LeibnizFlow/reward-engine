@@ -156,7 +156,7 @@ def test_real_workbuddy_prepare_environment_only(
     prepare_tree, tmp_path, monkeypatch, launcher
 ):
     repo = tmp_path / "repo"
-    upstream = repo / "local/workbuddy/runner/upstream"
+    upstream = repo / "_local/native/workbuddy/runner/upstream"
     (upstream / ".env").unlink()
     assert not (repo / ".env").exists()
     monkeypatch.setenv("REWARD_ENGINE_KEY_ENV", "CUSTOM_API_KEY")
@@ -192,7 +192,7 @@ def test_real_workbuddy_prepare_environment_only(
 
 
 def test_real_workbuddy_prepare_custom_file_without_yibu(prepare_tree, tmp_path):
-    (tmp_path / "repo/local/workbuddy/runner/upstream/.env").unlink()
+    (tmp_path / "repo/_local/native/workbuddy/runner/upstream/.env").unlink()
     credentials = tmp_path / "custom.env"
     credentials.write_text(
         "CUSTOM_API_KEY=custom-file-fixture\nCUSTOM_BASE_URL=https://custom.invalid/v2/\n"
@@ -205,7 +205,7 @@ def test_real_workbuddy_prepare_custom_file_without_yibu(prepare_tree, tmp_path)
 
 
 def test_missing_key_fails_real_prepare_before_creating_output(prepare_tree, tmp_path):
-    (tmp_path / "repo/local/workbuddy/runner/upstream/.env").unlink()
+    (tmp_path / "repo/_local/native/workbuddy/runner/upstream/.env").unlink()
     with pytest.raises(ValueError, match="Missing provider API key"):
         prepare_tree(key_env="CUSTOM_API_KEY", backend_url="https://custom.invalid/v1")
     assert not (tmp_path / "frozen").exists()

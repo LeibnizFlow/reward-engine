@@ -1,4 +1,5 @@
 """Synthetic receipt trees, never network calls or changes to real runs."""
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 import asyncio
 import hashlib
@@ -1247,11 +1248,11 @@ def test_supplement_cannot_validate_changed_source_artifact(tmp_path):
 
 
 def test_digest_covers_unicode_and_is_order_independent():
-    assert receipt_digest({"b": "证据", "a": 1}) == receipt_digest(
-        {"a": 1, "b": "证据"}
+    assert receipt_digest({"b": "\u8bc1\u636e", "a": 1}) == receipt_digest(
+        {"a": 1, "b": "\u8bc1\u636e"}
     )
-    expected = hashlib.sha256('{"a":1,"b":"证据"}'.encode()).hexdigest()
-    assert receipt_digest({"b": "证据", "a": 1}) == expected
+    expected = hashlib.sha256('{"a":1,"b":"\u8bc1\u636e"}'.encode()).hexdigest()
+    assert receipt_digest({"b": "\u8bc1\u636e", "a": 1}) == expected
 
 
 @pytest.mark.parametrize("benchmark", ["claw_eval", "workbuddy"])

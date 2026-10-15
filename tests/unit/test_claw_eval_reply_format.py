@@ -49,7 +49,7 @@ def test_declared_format_echo_preserves_complete_answer(separator):
 
     answer = {
         "status": "unknown",
-        "reason": "条件未核实，保留 {括号}",
+        "reason": "Condition unverified; retain {braces}",
         "evidence_refs": ["source_1"],
         "nested": {"type": "json_object"},
     }

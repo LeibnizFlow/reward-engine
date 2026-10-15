@@ -37,7 +37,7 @@ for row in inputs['rows']:
 
 def test_numeric_none_checks_and_text_loops_are_bounded():
     program = "text = inputs['text']\nresult = ''\nif text is not None:\n for char in text:\n  result = result + char\nelse:\n result = 'missing'"
-    assert run_numeric(program, {"text": "工程 QA"}) == "工程 QA"
+    assert run_numeric(program, {"text": "Engineering QA"}) == "Engineering QA"
     assert run_numeric(program, {"text": None}) == "missing"
     assert run_numeric("result = [None is None, None is not 1, 1 is None]") == [
         True,
@@ -87,7 +87,7 @@ def test_numeric_scalar_text_conversion_preserves_bounds_and_reports_function():
 
 
 def test_numeric_container_text_conversion_is_bounded_and_python_compatible():
-    for value in [[], {}, {"cells": [None, True, 0.25, "a'b", "周汇总"]}]:
+    for value in [[], {}, {"cells": [None, True, 0.25, "a'b", "Weekly summary"]}]:
         assert run_numeric("result = str(inputs['value'])", {"value": value}) == str(
             value
         )

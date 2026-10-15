@@ -1222,14 +1222,14 @@ def test_named_credential_missing_name_does_not_leak_other_credentials(
 def test_json_support_round_trips_unicode_and_reports_invalid_json(tmp_path):
     path = tmp_path / "receipt.json"
     payload = {
-        "title": "证据 α",
+        "title": "Evidence α",
         "reader_receipts": [{"http_status": 200}],
         "cache_hit": False,
     }
     write_json(path, payload)
     assert read_json(path) == payload
     text = path.read_text(encoding="utf-8")
-    assert "证据 α" in text and text.endswith("\n")
+    assert "Evidence α" in text and text.endswith("\n")
     path.write_text("{bad-json", encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
         read_json(path)

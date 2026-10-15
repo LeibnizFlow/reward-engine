@@ -497,12 +497,10 @@ def test_no_contract_collection_and_selection_unchanged(tmp_path):
 def test_tracked_binding_matches_exact_public_instruction():
     repo = Path(__file__).resolve().parents[2]
     contract = json.loads(
-        (
-            repo / "configs/public_delivery/api-usage-explain-cli-l3-001.v1.json"
-        ).read_text()
+        (repo / "configs/public_delivery/api-usage-explain-cli-l3-001.json").read_text()
     )
     prompt = (
-        repo / "configs/public_delivery/api-usage-explain-cli-l3-001.instruction.md"
+        repo / "configs/public_delivery/api-usage-explain-cli-l3-001.instruction.json"
     )
     # Exact quoted source SHA is independently reviewable; the test does not need archived runs.
     assert (
@@ -513,7 +511,7 @@ def test_tracked_binding_matches_exact_public_instruction():
     assert contract["translation"]["method"] == "explicit_executor_translation"
     validate(
         contract,
-        {"task_id": contract["task_id"], "prompt": prompt.read_bytes().decode()},
+        {"task_id": contract["task_id"], "prompt": json.loads(prompt.read_text())["instruction"]},
     )
 
 
@@ -965,10 +963,7 @@ async def test_full_scripted_pipeline_and_additional_auditor(
     report = audit_run(root, required_rounds=rounds)
     assert report["status"] == "pass", report
     assert report["code_binding"]["complete_file_set"] is True
-    assert (
-        "code/reward_engine/legacy/adapters/opencode_plugin.mjs"
-        in report["source_hashes"]
-    )
+    assert "code/reward_engine/adapters/opencode_plugin.mjs" in report["source_hashes"]
     assert [r["status"] for r in report["rounds"][0]["arms"]["B"]["versions"]] == [
         "fail",
         "pass",

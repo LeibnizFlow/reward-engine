@@ -9,6 +9,7 @@ description = "Minimal Criterion, Harness, Jury, and Battle-Attention research l
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+license-files = ["LICENSE", "docs/third_party/*.txt"]
 authors = [{name = "JiuwenSwarm Criterion Loop contributors"}]
 keywords = ["reward", "pairwise", "agent", "jiuwenswarm", "opencode"]
 dependencies = []
@@ -21,7 +22,6 @@ office = [
   "python-pptx>=1.0.2,<2",
   "pypdf>=6,<7",
 ]
-analysis = ["numpy>=2,<3", "scipy>=1.14,<2", "matplotlib>=3.9,<4"]
 runtime = [
   "httpx>=0.27,<1",
   "fastapi>=0.115,<1",
@@ -53,22 +53,39 @@ Repository = "https://github.com/TheLittleJimmy/reward-engine"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["reward_engine*", "experiments", "experiments.claw_eval*", "experiments.workbuddy*", "experiments.analysis*", "release*"]
-exclude = ["experiments.archive*", "experiments.workbuddy.local*", "local*", "reports*", "archive*", "tests*"]
+include = ["reward_engine*", "experiments", "experiments.claw_eval*", "experiments.workbuddy*"]
+exclude = ["_local*", "experiments.archive*", "experiments.workbuddy.local*", "local*", "reports*", "archive*", "tests*"]
 
 [tool.setuptools.package-data]
-"reward_engine" = ["**/*.md", "configs/*.json", "legacy/adapters/*.mjs", "adapters/claw_eval/companion/*.patch"]
-"experiments" = ["catalog.json", "**/*.md"]
-"release" = ["*.json", "*.md", "third_party/*.txt"]
+"reward_engine" = ["**/*.md", "configs/*.json", "adapters/*.mjs", "adapters/claw_eval/companion/*.patch"]
+"experiments" = ["**/*.md"]
+
+[tool.setuptools.data-files]
+"share/reward-engine/configs/public_delivery" = ["configs/public_delivery/*.json", "configs/public_delivery/*.md"]
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra --basetemp=_local/tmp/pytest"
+cache_dir = "_local/cache/pytest"
+norecursedirs = ["_local", ".git", ".venv"]
 testpaths = ["tests/unit"]
 
+[tool.coverage.run]
+data_file = "_local/cache/coverage/.coverage"
+
+[tool.coverage.html]
+directory = "_local/reports/coverage"
+
+[tool.coverage.xml]
+output = "_local/reports/coverage.xml"
+
+[tool.coverage.json]
+output = "_local/reports/coverage.json"
+
 [tool.ruff]
+cache-dir = "_local/cache/ruff"
 target-version = "py311"
 line-length = 88
-extend-exclude = ["archive", "data", "local", "reports", "dist", "runs", ".runtime"]
+extend-exclude = ["_local", "archive", "data", "local", "reports", "dist", "runs", ".runtime"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]

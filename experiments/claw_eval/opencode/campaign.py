@@ -36,10 +36,12 @@ from reward_engine.core.outcome.memory import Memory
 from reward_engine.core.outcome.runner import DeliveryReview
 
 REPO = Path(__file__).resolve().parents[3]
-SOURCE = Path(os.environ.get("CLAW_EVAL_ROOT", REPO / "data/claw_eval/benchmark"))
+SOURCE = Path(
+    os.environ.get("CLAW_EVAL_ROOT", REPO / "_local/data/claw_eval/benchmark")
+)
 MANIFEST = Path(
     os.environ.get(
-        "CLAW_EVAL_TASK_MANIFEST", REPO / "data/claw_eval/task_manifest.json"
+        "CLAW_EVAL_TASK_MANIFEST", REPO / "_local/data/claw_eval/task_manifest.json"
     )
 )
 
@@ -865,7 +867,7 @@ def report(config):
         writer.writeheader()
         writer.writerows(rows)
     (root / "REPORT.md").write_text(
-        f"# Claw-eval {expected_tasks} · OpenCode / OpenLux\n\nActor {actors}/{expected_actors}；有效评分 {data['valid_scores']}/{expected_scores}；完成题 {data['completed_tasks']}/{expected_tasks}。\n\n"
+        f"# Claw-Eval {expected_tasks} tasks · OpenCode\n\nActors {actors}/{expected_actors}; valid scores {data['valid_scores']}/{expected_scores}; completed tasks {data['completed_tasks']}/{expected_tasks}.\n\n"
         + "| Task | Status | A | B | C |\n|---|---|---|---|---|\n"
         + "".join(
             f"| {tid} | {v['status']} | "

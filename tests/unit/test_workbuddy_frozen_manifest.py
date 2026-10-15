@@ -20,7 +20,7 @@ FILES = {
     "reward_engine/adapters/provider_config.py": Path(
         provider_config.__file__
     ).read_bytes(),
-    "reward_engine/legacy/adapters/opencode_plugin.mjs": b"export default {};\n",
+    "reward_engine/adapters/opencode_plugin.mjs": b"export default {};\n",
     "reward_engine/configs/.runtime.json": b'{"mode":"offline"}\n',
     "reward_engine/data/resource": b"\x00\x01runtime resource\xff",
     "experiments/__init__.py": b"# temporary experiments\n",
@@ -30,7 +30,7 @@ FILES = {
     "workbuddy_swarm/v4/README.md": b"Transport fixture resources\n",
 }
 RESOURCES = [
-    "reward_engine/legacy/adapters/opencode_plugin.mjs",
+    "reward_engine/adapters/opencode_plugin.mjs",
     "workbuddy_swarm/v4/plugin.ts",
     "reward_engine/configs/.runtime.json",
     "reward_engine/data/resource",
@@ -40,7 +40,7 @@ RESOURCES = [
 @pytest.fixture
 def prepare_tree(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
-    upstream = repo / "local/workbuddy/runner/upstream"
+    upstream = repo / "_local/native/workbuddy/runner/upstream"
     for name, content in FILES.items():
         root = upstream.parent if name.startswith("workbuddy_swarm/") else repo
         path = root / name

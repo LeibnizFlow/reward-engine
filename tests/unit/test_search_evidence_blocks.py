@@ -1,4 +1,5 @@
 """No IO/model calls: structural provenance is not semantic entailment."""
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 from copy import deepcopy
 from dataclasses import asdict
@@ -143,7 +144,7 @@ def test_structures_preserve_complete_tables_conditions_lists_and_code():
         "One paragraph without a newline.",
         "| a | b |\n" * 1000,
         "| a | b |\r" * 1000,
-        "正文" * 2500 + "\nend",
+        "\u6b63\u6587" * 2500 + "\nend",
         "```text\n" + "a bounded complete line\n" * 400 + "```",
     ],
 )
@@ -157,7 +158,7 @@ def test_all_characters_survive_bounded_structural_or_long_line_splits(text):
     )
     if len(text) > 2000:
         assert any(b["continuation"] for b in blocks)
-    if "正文" in text:
+    if "\u6b63\u6587" in text:
         assert any(b["fragmented_line"] for b in blocks)
     elif len(text) > 2000:
         assert not any(b["fragmented_line"] for b in blocks)

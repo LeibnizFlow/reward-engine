@@ -1,6 +1,6 @@
 """One task, three real core rounds; scripted offline by default.
 
-Run: python -m reward_engine.examples.minimal --output runs/minimal
+Run: python -m reward_engine.examples.minimal --output _local/runs/minimal
 Live: add --live --model NAME --base-url URL --key-env NAME --credentials PATH.
 Live needs pip install '.[demo]' (the runtime extra also includes these dependencies).
 Output must be new. No Docker, archive, benchmark grader, or adversarial QC.

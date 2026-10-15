@@ -1,4 +1,4 @@
-"""Replay captured service errors through real Role/gateway/checker boundaries."""
+"""Synthetic service errors through real Role/gateway/checker boundaries."""
 
 import json
 from pathlib import Path
@@ -11,10 +11,9 @@ from reward_engine.adapters.workbuddy.gateway import application
 from reward_engine.adapters.workbuddy.io import read, write
 from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.harness import Registry, defaults
+from tests.support.provider_errors import SERVICE_ERRORS
 
-CAPTURES = read(
-    Path(__file__).parents[1] / "fixtures/workbuddy/provider_stream_errors.json"
-)["captures"]
+CAPTURES = SERVICE_ERRORS
 
 
 @pytest.fixture
@@ -78,7 +77,7 @@ def error_response(capture):
 @pytest.mark.parametrize("capture", CAPTURES, ids=lambda row: row["name"])
 @pytest.mark.parametrize("gateway", [False, True], ids=["direct", "real_gateway"])
 @pytest.mark.asyncio
-async def test_captured_service_error_is_infrastructure_unknown_and_keeps_receipts(
+async def test_synthetic_service_error_is_infrastructure_unknown_and_keeps_receipts(
     make_role, tmp_path, capture, gateway
 ):
     attempts = 6 if gateway else 1

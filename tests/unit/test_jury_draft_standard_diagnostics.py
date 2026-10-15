@@ -1,15 +1,8 @@
-"""Captured WB missing-standard failure: precise diagnostics, unchanged admission.
+"""Synthetic missing-standard diagnostics and the existing single retry."""
 
-Preserving IDs/count/content is instructed during the existing single retry, not
-an enforced cross-response lock. Scripted correction tests do not prove a model
-will comply, or that its proposed requirement is true.
-"""
-
-import hashlib
 import json
 from collections import Counter
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
@@ -18,63 +11,61 @@ from reward_engine.core.outcome.context import ResponseContractError, ask, build
 from reward_engine.core.outcome.jury_drafts import keep_draft
 from tests.unit.test_outcome_role_contract_recovery import roles as roles
 
-FIXTURE = (
-    Path(__file__).parents[1]
-    / "fixtures/outcome/workbuddy_v8_expectations_missing_standard.json"
-)
 
-
-def captured():
-    return json.loads(FIXTURE.read_text())
+def synthetic_case():
+    # Two rows expose ordering and per-field diagnostics without a historical payload.
+    rows = [
+        {
+            "id": f"requirement_{i}",
+            "kind": "important",
+            "origin": "task",
+            "evidence_refs": ["task"],
+            "why": "Explain the supplied example",
+            "measurement_question": "Is the example explained?",
+        }
+        for i in range(2)
+    ]
+    raw = json.dumps({"criteria": rows})
+    return {
+        "task": {"task_id": "synthetic-draft", "prompt": "Explain two examples"},
+        "responses": [{"raw_output": raw}, {"raw_output": raw}],
+    }
 
 
 def inputs():
-    return build_context(captured()["task"], [])
+    return build_context(synthetic_case()["task"], [])
 
 
 def model_correction():
     """Explicit offline model output: no runtime projection from other fields."""
-    value = json.loads(captured()["responses"][0]["raw_output"])
-    authored = [
-        "Deliver the requested Chinese Markdown manual in the publicly specified task-directory file.",
-        "Explain CLI entry points, commands, options and examples using supplied workspace evidence.",
-        "Explain the Python API entry points and calling patterns and compare them with CLI usage.",
-        "Cross-check documented configuration and output behavior against the supplied source and examples.",
-        "Distinguish supported behavior from experimental, obsolete or uncertain behavior.",
-        "Respect the public read-only and external-access boundaries while preparing the permitted deliverable.",
-        "Cite supplied workspace paths for substantive claims.",
-        "Organize the Chinese manual so developers can locate usage, parameters, evidence and caveats.",
-    ]
+    value = json.loads(synthetic_case()["responses"][0]["raw_output"])
+    authored = ["Explain the first example", "Explain the second example"]
     for row, text in zip(value["criteria"], authored, strict=True):
         row["standard"] = text
     return value
 
 
-@pytest.mark.parametrize("index", [0, 1], ids=["original", "actual-repeated-omission"])
-def test_both_exact_captured_responses_remain_invalid(index):
-    source = captured()["responses"][index]
-    assert (
-        hashlib.sha256(source["raw_output"].encode()).hexdigest()
-        == source["raw_output_sha256"]
-    )
+@pytest.mark.parametrize("index", [0, 1], ids=["original", "repeated-omission"])
+def test_repeated_synthetic_omissions_remain_invalid(index):
+    source = synthetic_case()["responses"][index]
     raw = json.loads(source["raw_output"])
     before = deepcopy(raw)
-    assert len(raw["criteria"]) == 8
+    assert len(raw["criteria"]) == 2
     assert all("standard" not in r and "clauses" not in r for r in raw["criteria"])
     context, evidence = inputs()
     with pytest.raises(ResponseContractError) as caught:
         keep_draft(raw, evidence, context, jury.validate)
     details = caught.value.details
-    assert details["criteria_count"] == 8
+    assert details["criteria_count"] == 2
     assert details["criterion_ids"] == [r["id"] for r in raw["criteria"]]
     assert [i["field"] for i in details["issues"]] == [
-        f"criteria[{i}].standard" for i in range(8)
+        f"criteria[{i}].standard" for i in range(2)
     ]
     assert [i["path"] for i in details["issues"]] == [
-        ["criteria", i, "standard"] for i in range(8)
+        ["criteria", i, "standard"] for i in range(2)
     ]
     assert [i["clause_issues"][0]["field"] for i in details["issues"]] == [
-        f"criteria[{i}].clauses" for i in range(8)
+        f"criteria[{i}].clauses" for i in range(2)
     ]
     assert (
         "same criterion count, order and existing id"
@@ -116,11 +107,11 @@ def test_admission_semantics_and_valid_content_are_unchanged():
     before = deepcopy(corrected)
     draft = keep_draft(corrected, evidence, context, jury.validate)
     assert corrected == before
-    assert len(draft["criteria"]) == 8
+    assert len(draft["criteria"]) == 2
     for row, source in zip(draft["criteria"], before["criteria"], strict=True):
         assert {k: row[k] for k in source} == source
         assert "draft_field_projections" not in row
-    # Captured kind='important' rows still fail publication validation. A new
+    # Synthetic kind='important' rows still fail publication validation. A new
     # standard makes these drafts substantive, not automatically valid standards.
     assert draft["draft_validation_issues"]
     with pytest.raises(ValueError):
@@ -151,13 +142,13 @@ def test_admission_semantics_and_valid_content_are_unchanged():
 @pytest.mark.parametrize(
     "corrected",
     [False, True],
-    ids=["captured-repeat-still-fails", "authored-standard-draft"],
+    ids=["repeat-still-fails", "authored-standard-draft"],
 )
 async def test_actual_role_uses_only_existing_single_contract_retry(
     roles, tmp_path, corrected
 ):
     make, calls = roles
-    fixture = captured()
+    fixture = synthetic_case()
     original = json.loads(fixture["responses"][0]["raw_output"])
     new_text = model_correction()
 
@@ -171,7 +162,7 @@ async def test_actual_role_uses_only_existing_single_contract_retry(
         assert recovery["details"]["criterion_ids"] == [
             r["id"] for r in original["criteria"]
         ]
-        assert len(recovery["details"]["issues"]) == 8
+        assert len(recovery["details"]["issues"]) == 2
         assert "literal standard key" in recovery["instruction"]
         assert "drop criteria, merge rows or change IDs" in recovery["instruction"]
         return new_text if corrected else fixture["responses"][1]["raw_output"]
@@ -228,7 +219,7 @@ async def test_actual_role_uses_only_existing_single_contract_retry(
 @pytest.mark.asyncio
 async def test_missing_seat_remains_missing_at_three_seat_boundary(roles):
     make, calls = roles
-    fixture = captured()
+    fixture = synthetic_case()
 
     def missing(request):
         assert request["mode"] == "outcome_expectations"

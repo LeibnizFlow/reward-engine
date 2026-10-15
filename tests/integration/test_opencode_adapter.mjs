@@ -5,7 +5,7 @@ import {
   RewardBuilderV4RuntimePolicyCritic,
   boundedActionProjection,
   boundedClarificationProjection,
-} from "../../reward_engine/legacy/adapters/opencode_plugin.mjs";
+} from "../../reward_engine/adapters/opencode_plugin.mjs";
 
 const originalFetch = globalThis.fetch;
 const originalURL = process.env.REWARD_BUILDER_V4_CRITIC_URL;
@@ -121,7 +121,7 @@ test("action projection is bounded and omits secret, header, and env fields", ()
       headers: { authorization: "Bearer HEADER_SECRET" },
       env: { ORDINARY: "also must not leave the Actor process" },
       YIBU_API_KEY: "DIRECT_SECRET",
-      unicode: "猫".repeat(10_000),
+      unicode: "\u732b".repeat(10_000),
     },
   );
   const encoded = JSON.stringify(projection);

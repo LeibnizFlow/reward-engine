@@ -1,36 +1,22 @@
-"""Offline actual-Role repair of the retained Claw v10 judgment omission.
+"""Synthetic missing-judgment repairs through the bounded Role and harness."""
 
-Captured responses are exact; source evidence in these tests is synthetic. This
-establishes contract behavior, not semantic correctness or repair of that run.
-The read-only older harness has the enum check but no field-correction protocol;
-its inspected hash and the original native receipt hashes are in the fixture.
-"""
-
-import hashlib
-import json
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
 from reward_engine.core.outcome.context import build_context
-from tests.unit.test_claim_contract_repair import replay
-from tests.unit.test_workbuddy_stream_terminal_replay import transport as transport
+from tests.support.role_transport import replay
+from tests.support.role_transport import transport as transport
+from tests.support.synthetic_measurements import judgment_replies
 
-FIXTURE = (
-    Path(__file__).parents[1] / "fixtures/outcome/claw_v10_missing_claim_judgment.json"
-)
-CAPTURE = json.loads(FIXTURE.read_text())
-FIRST, EXPANDED, HISTORICAL_REPAIR = [
-    a["response"] for a in CAPTURE["response_validation"]["attempts"]
-]
+FIRST, EXPANDED, STALE_REPAIR = judgment_replies()
 FIELD = "claims[1].judgment"
 
 
 def evidence_case(*, further_preview=False):
     return build_context(
         {
-            "task_id": "offline-claw-v10-judgment",
+            "task_id": "synthetic-judgment",
             "prompt": "Inspect the recorded methodology",
         },
         [
@@ -55,56 +41,6 @@ def evidence_case(*, further_preview=False):
 
 def patch(value="unverified"):
     return {"field_corrections": {FIELD: value}}
-
-
-def test_capture_integrity_and_exact_original_failure():
-    provenance = CAPTURE["provenance"]
-
-    def digest(value):
-        return hashlib.sha256(
-            json.dumps(
-                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ).encode()
-        ).hexdigest()
-
-    assert [digest(r) for r in (FIRST, EXPANDED, HISTORICAL_REPAIR)] == provenance[
-        "response_sha256"
-    ]
-    assert [len(r["claims"]) for r in (FIRST, EXPANDED, HISTORICAL_REPAIR)] == [5, 2, 5]
-    assert "judgment" not in EXPANDED["claims"][1]
-    assert EXPANDED["claims"][1]["observation"].endswith("that invoi")
-    attempts = CAPTURE["response_validation"]["attempts"]
-    assert attempts[0]["errors"] == {}
-    assert set(attempts[0]["pending_evidence"]["global"]) == {
-        "product_1:source:2",
-        "product_1:source:3",
-    }
-    assert attempts[1]["issues"] == [
-        {
-            "scope": "global",
-            "field": FIELD,
-            "reason": "Invalid claim judgment",
-            "claim_index": 1,
-            "claim_field": "judgment",
-            "actual": None,
-            "missing": True,
-        }
-    ]
-    assert attempts[2]["errors"] == {
-        "global": "Structure repair must preserve claim count and order"
-    }
-    expanded, repair = provenance["provider_receipts"][1:]
-    assert expanded["finish_reason"] == "stop" and expanded["completion_tokens"] == 571
-    assert len(repair["request_diagnostics"]["provisional_check"]["claims"]) == 5
-    assert (
-        len(
-            repair["request_diagnostics"]["response_recovery"]["rejected_response"][
-                "claims"
-            ]
-        )
-        == 2
-    )
-    assert "reassess" in repair["request_diagnostics"]["evidence_followup"]
 
 
 @pytest.mark.asyncio
@@ -201,7 +137,7 @@ async def test_invalid_existing_judgment_can_be_corrected_but_not_other_fields(
         "full_valid_judgment",
         "full_citation",
         "full_order",
-        "historical_full_reply",
+        "stale_full_reply",
     ],
 )
 async def test_correction_cannot_edit_valid_fields_or_restore_older_claims(
@@ -212,7 +148,7 @@ async def test_correction_cannot_edit_valid_fields_or_restore_older_claims(
     if bad == "valid_judgment":
         values["claims[0].judgment"] = "unverified"
     elif bad == "claim_count":
-        values["claims"] = deepcopy(HISTORICAL_REPAIR["claims"])
+        values["claims"] = deepcopy(STALE_REPAIR["claims"])
     elif bad == "citation":
         values["claims[1].evidence_refs"] = ["product_1:source:2"]
     elif bad == "sibling":
@@ -223,8 +159,8 @@ async def test_correction_cannot_edit_valid_fields_or_restore_older_claims(
         values.clear()
     elif bad in ("null", "enum"):
         values[FIELD] = None if bad == "null" else "uncertain"
-    elif bad == "historical_full_reply":
-        correction = HISTORICAL_REPAIR
+    elif bad == "stale_full_reply":
+        correction = STALE_REPAIR
     else:
         correction = deepcopy(EXPANDED)
         correction["claims"][1]["judgment"] = "unverified"
@@ -242,7 +178,7 @@ async def test_correction_cannot_edit_valid_fields_or_restore_older_claims(
     assert result["response_validation"]["selected_attempts"] == {}
     assert result["response_validation"]["attempts"][-1]["response"] == correction
     assert result["response_validation"]["attempts"][-1]["errors"]
-    if bad == "historical_full_reply":
+    if bad == "stale_full_reply":
         assert "preserve claim count" in result["diagnostic"]
 
 
@@ -324,7 +260,7 @@ async def test_further_genuine_preview_expansion_resets_repair_after_field_corre
     expanded = deepcopy(EXPANDED)
     expanded["claims"][1]["evidence_refs"].append("product_1:source:8")
     expanded["evidence_refs"].append("product_1:source:8")
-    fresh = deepcopy(HISTORICAL_REPAIR)
+    fresh = deepcopy(STALE_REPAIR)
     fresh["claims"] = [deepcopy(FIRST["claims"][0])]
     fresh.update(
         status="pass",

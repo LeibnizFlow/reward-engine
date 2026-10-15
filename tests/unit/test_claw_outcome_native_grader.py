@@ -139,7 +139,7 @@ def test_remote_grader_interpreter_is_explicit_not_mac_default(tmp_path, monkeyp
         return {"status": "graded"}
 
     monkeypatch.setattr(hook, "run_private", capture)
-    remote = "/home/fenglitong/venvs/claw-eval-opencode-20260905/bin/python"
+    remote = "/opt/native-grader/bin/python"
     evaluate = hook.evaluator(
         {
             "native_grader": {
@@ -165,7 +165,9 @@ def native_case(tmp_path, monkeypatch):
     root = Path(
         os.environ.get(
             "CLAW_EVAL_ROOT",
-            str(Path(__file__).resolve().parents[2] / "data/claw_eval/benchmark"),
+            str(
+                Path(__file__).resolve().parents[2] / "_local/data/claw_eval/benchmark"
+            ),
         )
     )
     if not (root / "src/claw_eval").is_dir():

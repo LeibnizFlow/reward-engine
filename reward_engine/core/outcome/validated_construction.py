@@ -897,9 +897,9 @@ async def project_method(method, context, evidence, definition, call, *, finding
                 "product_1",
                 "product_2",
                 "product_3",
-                "初稿曾",
-                "上一轮",
-                "此前的作品",
+                "\u521d\u7a3f\u66fe",
+                "\u4e0a\u4e00\u8f6e",
+                "\u6b64\u524d\u7684\u4f5c\u54c1",
             )
         ):
             raise ValueError(

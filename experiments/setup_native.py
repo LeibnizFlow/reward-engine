@@ -16,15 +16,15 @@ def setup(root: Path, credentials: Path):
             "Activate a virtual environment before installing native paths"
         )
     root = root.resolve()
-    environment = root / "data/workbuddy_office/environment"
-    local = root / "local/workbuddy/runner"
+    environment = root / "_local/data/workbuddy_office/environment"
+    local = root / "_local/native/workbuddy/runner"
     upstream = local / "upstream"
     sources = [
         (environment / "workbuddy_swarm", local / "workbuddy_swarm"),
         (environment / "benchmark_source", upstream / "src"),
         (environment / "configs", upstream / "configs"),
         (
-            root / "data/workbuddy_office/benchmark/tasks",
+            root / "_local/data/workbuddy_office/benchmark/tasks",
             upstream / "datasets/wb-bench-office-v1.0",
         ),
     ]
@@ -43,7 +43,12 @@ def setup(root: Path, credentials: Path):
         target.touch(mode=0o600)
         shutil.copyfile(credentials, target)
     target.chmod(0o600)
-    paths = [root, local, upstream / "src", root / "data/claw_eval/benchmark/src"]
+    paths = [
+        root,
+        local,
+        upstream / "src",
+        root / "_local/data/claw_eval/benchmark/src",
+    ]
     config = Path(sysconfig.get_paths()["purelib"]) / "reward_engine_native.pth"
     config.write_text("\n".join(map(str, paths)) + "\n")
     return {

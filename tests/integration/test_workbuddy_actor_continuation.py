@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reward_engine.adapters.workbuddy.agent import OutcomeOpenCodeAgent
+from tests.support.native_actor import native_actor_module
 
 
-def actor(tmp_path, reasons, *, sessions=None, exhaust=False):
-    agent = object.__new__(OutcomeOpenCodeAgent)
+def make_actor(actor_class, tmp_path, reasons, *, sessions=None, exhaust=False):
+    agent = object.__new__(actor_class)
     agent.turn, agent.session, agent.actor_remaining = 0, None, 60
     agent.result_root = tmp_path
     agent.logs_dir = tmp_path / "logs"
@@ -51,9 +51,17 @@ def actor(tmp_path, reasons, *, sessions=None, exhaust=False):
     return agent, calls
 
 
+@pytest.fixture
+def actor(tmp_path, monkeypatch):
+    actor_class = native_actor_module(monkeypatch).OutcomeOpenCodeAgent
+    return lambda reasons, **kwargs: make_actor(
+        actor_class, tmp_path, reasons, **kwargs
+    )
+
+
 @pytest.mark.asyncio
-async def test_length_continues_same_session_with_shared_budget(tmp_path):
-    agent, calls = actor(tmp_path, ["length", "stop"])
+async def test_length_continues_same_session_with_shared_budget(tmp_path, actor):
+    agent, calls = actor(["length", "stop"])
     assert await agent._turn("original task") == {"candidate_id": "retained"}
     assert [c["session"] for c in calls] == [None, "same-session"]
     assert 0 < calls[1]["timeout"] < calls[0]["timeout"]
@@ -65,8 +73,8 @@ async def test_length_continues_same_session_with_shared_budget(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_repeated_length_stops_after_two_continuations(tmp_path):
-    agent, calls = actor(tmp_path, ["length"] * 3)
+async def test_repeated_length_stops_after_two_continuations(tmp_path, actor):
+    agent, calls = actor(["length"] * 3)
     with pytest.raises(RuntimeError, match="after two same-session continuations"):
         await agent._turn("original task")
     assert len(calls) == 3
@@ -80,8 +88,8 @@ async def test_repeated_length_stops_after_two_continuations(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_length_does_not_reset_execution_budget(tmp_path):
-    agent, calls = actor(tmp_path, ["length"], exhaust=True)
+async def test_length_does_not_reset_execution_budget(tmp_path, actor):
+    agent, calls = actor(["length"], exhaust=True)
     with pytest.raises(TimeoutError, match="budget exhausted"):
         await agent._turn("original task")
     assert len(calls) == 1
@@ -90,8 +98,8 @@ async def test_length_does_not_reset_execution_budget(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reason", [None, "tool-calls"])
-async def test_missing_terminal_is_not_silently_retried(tmp_path, reason):
-    agent, calls = actor(tmp_path, [reason])
+async def test_missing_terminal_is_not_silently_retried(tmp_path, actor, reason):
+    agent, calls = actor([reason])
     with pytest.raises(ValueError, match="terminal session receipt"):
         await agent._turn("original task")
     assert len(calls) == 1
@@ -99,8 +107,8 @@ async def test_missing_terminal_is_not_silently_retried(tmp_path, reason):
 
 
 @pytest.mark.asyncio
-async def test_continuation_rejects_changed_session(tmp_path):
-    agent, _ = actor(tmp_path, ["length", "stop"], sessions=["original", "different"])
+async def test_continuation_rejects_changed_session(tmp_path, actor):
+    agent, _ = actor(["length", "stop"], sessions=["original", "different"])
     with pytest.raises(ValueError, match="changed session"):
         await agent._turn("original task")
     agent.snapshot.assert_not_awaited()

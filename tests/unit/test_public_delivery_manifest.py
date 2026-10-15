@@ -15,7 +15,7 @@ from reward_engine.adapters.workbuddy import public_delivery_audit as auditor
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
 SCOPE = "all-regular-files-except-__pycache__-v1"
-PLUGIN = "reward_engine/legacy/adapters/opencode_plugin.mjs"
+PLUGIN = "reward_engine/adapters/opencode_plugin.mjs"
 RESOURCES = [
     PLUGIN,
     "workbuddy_swarm/transport.ts",
@@ -27,7 +27,7 @@ RESOURCES = [
 
 def prepare_public_run(tmp_path, monkeypatch, task, contract):
     """Use the real producer and package; replace only external provisioning."""
-    upstream = tmp_path / "local/workbuddy/runner/upstream"
+    upstream = tmp_path / "_local/native/workbuddy/runner/upstream"
     tasks = upstream / "datasets/wb-bench-office-v1.0/tasks"
     for tid in [task["task_id"], *[f"unused-{i}" for i in range(49)]]:
         path = tasks / tid

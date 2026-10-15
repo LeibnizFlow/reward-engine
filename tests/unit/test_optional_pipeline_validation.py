@@ -5,11 +5,11 @@ contracts, JSON checker, publication and selection execute normally, without any
 provider, native runtime or paid call. Critic scenarios restore/adapt the archived
 test_outcome_policy_critic and test_claw_outcome_feedback_arms behaviors.
 """
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 import asyncio
 import json
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
@@ -56,6 +56,7 @@ from tests.support.claw_outcome_feedback_arms import (
 )
 from tests.support.outcome_clauses_and_disputes import issue
 from tests.support.outcome_policy_critic import answer
+from tests.support.synthetic_measurements import scalar_inquiries
 
 
 def structured_pack():
@@ -927,7 +928,7 @@ async def test_bounded_knowledge_navigation_can_read_back_exact_canonical_materi
         "authority": "optional",
         "conditions_unstated": True,
         "mechanisms": [
-            {"id": "parse", "source_id": "manual", "source_statement": "原文" * 300}
+            {"id": "parse", "source_id": "manual", "source_statement": "\u539f\u6587" * 300}
         ],
         "details": "Full derivation and exceptions " * 100,
     }
@@ -944,7 +945,7 @@ async def test_bounded_knowledge_navigation_can_read_back_exact_canonical_materi
         assert skill["preview_only"]
         assert skill["content"]["details_ref"] == ref
         assert skill["content"]["conditions_unstated"] is True
-        assert skill["content"]["passage_previews"][0]["preview"] == "原文" * 150
+        assert skill["content"]["passage_previews"][0]["preview"] == "\u539f\u6587" * 150
         if len(requests) == 1:
             return {"need_evidence": [ref]}
         assert request["requested_evidence"][ref] == content
@@ -982,7 +983,7 @@ def test_navigation_leaves_unbound_or_non_review_skill_content_unchanged():
 
 @pytest.mark.asyncio
 async def test_navigation_compression_preserves_protected_fields_and_input():
-    canonical = "原始条件及例外" * 100
+    canonical = "\u539f\u59cb\u6761\u4ef6\u53ca\u4f8b\u5916" * 100
     protected = {
         key: {"summary": canonical}
         for key in (
@@ -1049,7 +1050,7 @@ async def test_compression_failure_is_explicit_and_does_not_truncate_input(
         "mode": "offline",
         "context": {
             "task": TASK,
-            "sources": [{"preview": "条件" * 1000, "preview_only": True}],
+            "sources": [{"preview": "\u6761\u4ef6" * 1000, "preview_only": True}],
         },
     }
     if failure == "immutable":
@@ -1487,7 +1488,7 @@ async def test_bounded_request_compresses_knowledge_index_and_reads_exact_source
         "conditions_unstated": True,
         "applicability": {"summary": "These are exact applicability limits " * 20},
         "mechanisms": [
-            {"id": "syntax", "source_id": "manual", "source_statement": "原文" * 2000}
+            {"id": "syntax", "source_id": "manual", "source_statement": "\u539f\u6587" * 2000}
         ],
     }
     context, evidence = build_context(TASK)
@@ -1756,21 +1757,17 @@ async def test_measurement_binding_retains_selection_and_reuse_semantics():
     assert "measurement_input_schema" not in historic_summary
 
 
-INQUIRY_CAPTURES = json.loads(
-    (
-        Path(__file__).parents[1] / "fixtures/outcome/unsolicited_inquiry_v3.json"
-    ).read_text()
-)["captures"]
+INQUIRY_CASES = scalar_inquiries()
 
 
-@pytest.mark.parametrize("capture", INQUIRY_CAPTURES, ids=lambda row: row["name"])
+@pytest.mark.parametrize("capture", INQUIRY_CASES, ids=lambda row: row["name"])
 @pytest.mark.parametrize("bounded", [False, True])
 @pytest.mark.parametrize("requested", [False, True])
 @pytest.mark.asyncio
-async def test_captured_scalar_inquiry_is_diagnosed_unless_requested(
+async def test_synthetic_scalar_inquiry_is_diagnosed_unless_requested(
     capture, bounded, requested
 ):
-    """Replay exact captured answers with synthetic handles; no frozen regrading."""
+    """Authored scalar metadata with synthetic evidence handles."""
     context, evidence = build_context(
         TASK,
         [
@@ -1891,7 +1888,7 @@ async def test_unsolicited_inquiry_metadata_cannot_hide_real_failed_check(unsoli
     assert check_summaries(measured)[0]["status"] == "fail"
 
 
-@pytest.mark.parametrize("capture", INQUIRY_CAPTURES, ids=lambda row: row["name"])
+@pytest.mark.parametrize("capture", INQUIRY_CASES, ids=lambda row: row["name"])
 @pytest.mark.asyncio
 async def test_captured_unsolicited_inquiry_finishes_real_delivery_review(capture):
     """Real review bookkeeping, captured reply, synthetic evidence; no live grade."""

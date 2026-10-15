@@ -1,4 +1,5 @@
 """Bounded syntax/context units preserve source bytes, not semantic completeness."""
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 from copy import deepcopy
 
@@ -153,7 +154,7 @@ def test_large_structure_units_are_capped_contiguous_and_explicitly_continued(en
 
 
 def test_unclosed_quoted_fence_and_long_line_keep_incompleteness_metadata():
-    text = "The routine is:\n\n> ```c\n> " + "数据" * 4100
+    text = "The routine is:\n\n> ```c\n> " + "\u6570\u636e" * 4100
     units = reading_units(text)
     assert all(u["incomplete_excerpt"] for u in units)
     assert all(len(unit_text(text, u)) <= 6000 for u in units)

@@ -1,7 +1,6 @@
-"""Replay native reads into the real bounded measurement protocol, never live HTTP."""
+"""Synthetic native reads through the real bounded measurement protocol."""
 
 import json
-from pathlib import Path
 
 import httpx
 import pytest
@@ -14,7 +13,13 @@ from reward_engine.adapters.workbuddy.reply import decode_native_tool_reply
 from reward_engine.core.outcome.context import build_context
 from reward_engine.core.outcome.harness import defaults
 
-FIXTURE = Path(__file__).parents[1] / "fixtures/workbuddy/native_workspace_read.json"
+
+def string_path_events():
+    events = native_events(
+        [call(arguments='{"paths":"output.md"}')], content="Read output"
+    )
+    events[-1]["usage"] = {"total_tokens": 12}
+    return events
 
 
 def protocol():
@@ -96,12 +101,11 @@ def transport(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_actual_sanitized_stream_becomes_only_need_tools_with_lossless_provenance(
+async def test_synthetic_stream_becomes_only_need_tools_with_lossless_provenance(
     transport,
 ):
     role, requests, responses = transport
-    fixture = read(FIXTURE)
-    events = fixture["events"]
+    events = string_path_events()
     responses.append(events)
     raw_chunks = [
         choice["delta"]["tool_calls"]
@@ -133,18 +137,18 @@ async def test_actual_sanitized_stream_becomes_only_need_tools_with_lossless_pro
     assert saved["native_tool_call_chunks"] == raw_chunks
     assert saved["finish_reason"] == "tool_calls"
     assert saved["actual_models"] == ["deepseek-flash"]
-    assert saved["usage"]["total_tokens"] == 15433
+    assert saved["usage"]["total_tokens"] == 12
     note = saved["normalizations"][0]
     assert note["commentary"] == raw_content
-    assert note["call_ids"] == ["call_sanitized_read"]
+    assert note["call_ids"] == ["call-0"]
     assert note["executed_by_adapter"] is False
     assert not list(role.output.glob("**/measurement_tool_*.json"))
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("actual_stream", [False, True])
-async def test_actual_string_paths_are_rejected_by_core_then_corrected_within_budget(
-    transport, tmp_path, actual_stream
+@pytest.mark.parametrize("string_paths", [False, True])
+async def test_synthetic_string_paths_are_rejected_by_core_then_corrected_within_budget(
+    transport, tmp_path, string_paths
 ):
     role, requests, responses = transport
     workspace = tmp_path / "workspace"
@@ -159,10 +163,10 @@ async def test_actual_string_paths_are_rejected_by_core_then_corrected_within_bu
     context, evidence = build_context(
         {"task_id": "t", "prompt": "Write value 7 to output.md"}, [product]
     )
-    tool_ref = "tool:check:1" if actual_stream else "tool:check:0"
+    tool_ref = "tool:check:1" if string_paths else "tool:check:0"
     responses.extend(
         [
-            read(FIXTURE)["events"],
+            string_path_events(),
             text_events(
                 {
                     "need_tools": [
@@ -191,19 +195,19 @@ async def test_actual_string_paths_are_rejected_by_core_then_corrected_within_bu
             ),
         ]
     )
-    if not actual_stream:
+    if not string_paths:
         responses[:2] = [native_events(content="Reading the delivered file.")]
     result = await defaults(role, tools=WorkBuddyTools()).run(
         {"test_id": "check", "criterion_id": "value", "checker": "evidence.review"},
         context,
         evidence,
     )
-    assert len(requests) == (3 if actual_stream else 2)
+    assert len(requests) == (3 if string_paths else 2)
     assert result["tool_observations"][tool_ref]["status"] == "observed"
     assert (
         "Delivered value 7" in result["tool_observations"][tool_ref]["result"]["text"]
     )
-    if actual_stream:
+    if string_paths:
         first = result["tool_observations"]["tool:check:0"]
         assert first["status"] == "unknown"
         assert first["reason"] == "Supply one to 32 path patterns"

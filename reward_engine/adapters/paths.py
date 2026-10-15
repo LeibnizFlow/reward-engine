@@ -8,10 +8,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 PYTHON = os.environ.get("REWARD_ENGINE_PYTHON", sys.executable)
 LOCAL = (
-    Path(os.environ.get("REWARD_ENGINE_LOCAL", REPO / "local")).expanduser().resolve()
+    Path(os.environ.get("REWARD_ENGINE_LOCAL", REPO / "_local/native"))
+    .expanduser()
+    .resolve()
 )
 REPORTS = (
-    Path(os.environ.get("REWARD_ENGINE_REPORTS", REPO / "reports"))
+    Path(os.environ.get("REWARD_ENGINE_REPORTS", REPO / "_local/reports"))
     .expanduser()
     .resolve()
 )

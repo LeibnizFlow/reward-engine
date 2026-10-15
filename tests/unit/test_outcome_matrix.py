@@ -50,7 +50,7 @@ def reply(request, label="tie", *, missing=False):
     def cells():
         return {
             slot: {
-                "fact": "未见可核实的材料。"
+                "fact": "No verifiable material was observed."
                 if missing
                 else "Observed product content.",
                 "evidence_refs": []
@@ -322,7 +322,7 @@ def measurements_body(values, *, calibration=True):
 
 def test_repeated_large_measurements_expand_losslessly_with_each_receipt_intact():
     value = {
-        "report": "完整观察\n" * 400,
+        "report": "Complete observation\n" * 400,
         "typed": [None, False, 0, {"literal": "No summary"}],
     }
     other = {"different": "Not duplicated"}

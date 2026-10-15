@@ -33,7 +33,8 @@ def prepare(args):
         from experiments.claw_eval.opencode.campaign import prepare as prepare_claw
 
         os.environ.setdefault(
-            "OPENCODE_BINARY", str(REPO / "data/claw_eval/environment/bin/opencode")
+            "OPENCODE_BINARY",
+            str(REPO / "_local/data/claw_eval/environment/bin/opencode"),
         )
         config = prepare_claw(output, task_ids=[args.task_id], **provider)
         if args.task_id not in config["task_ids"]:
@@ -47,7 +48,9 @@ def prepare(args):
             output,
             upstream=Path(
                 getattr(args, "workbuddy_root", None)
-                or os.environ.get("WORKBUDDY_ROOT", REPO / "local/workbuddy/runner")
+                or os.environ.get(
+                    "WORKBUDDY_ROOT", REPO / "_local/native/workbuddy/runner"
+                )
             )
             .expanduser()
             .resolve()

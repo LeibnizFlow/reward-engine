@@ -1,28 +1,15 @@
-"""Exact WB v8 misplaced envelope, replayed offline through actual bounded Role.
+"""Synthetic misplaced envelopes preserve assessments and bounded repair rules."""
 
-This optional protocol relocates a model-selected existing object, never chooses
-its verdict. Invalid nested assessments and ambiguous root siblings deliberately
-have no relocation offer and fail closed for the same-evidence repair. Supporting
-nested field correction is outside this bounded change. Synthetic preview data
-exercises transport/validation, not benchmark truth or repair of the frozen run.
-"""
-
-import hashlib
-import json
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
 from reward_engine.core.outcome.context import build_context
-from tests.unit.test_claim_contract_repair import replay
-from tests.unit.test_workbuddy_stream_terminal_replay import transport as transport
+from tests.support.role_transport import replay
+from tests.support.role_transport import transport as transport
+from tests.support.synthetic_measurements import wrapped_reply
 
-FIXTURE = (
-    Path(__file__).parents[1] / "fixtures/outcome/workbuddy_v8_wrapped_measurement.json"
-)
-CAPTURE = json.loads(FIXTURE.read_text())
-WRAPPED = CAPTURE["response_validation"]["attempts"][0]["response"]
+WRAPPED = wrapped_reply()
 UNWRAP = {"response_unwrap": "response"}
 
 
@@ -36,7 +23,7 @@ def relocated():
 def evidence_case(*, requested=False):
     context, evidence = build_context(
         {
-            "task_id": "offline-wb-v8-wrapper",
+            "task_id": "synthetic-wrapper",
             "prompt": "Audit examples and output coverage",
         },
         [
@@ -69,19 +56,6 @@ def fresh_assessment():
         gap="",
     )
     return fresh
-
-
-def test_fixture_retains_identical_failed_envelopes_and_source_hashes():
-    a, b = CAPTURE["response_validation"]["attempts"]
-    assert a["response"] == b["response"] and len(WRAPPED["response"]["claims"]) == 5
-    assert "status" not in WRAPPED and WRAPPED["response"]["status"] == "unknown"
-    digest = hashlib.sha256(
-        json.dumps(
-            WRAPPED, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
-    assert CAPTURE["provenance"]["response_sha256"] == [digest, digest]
-    assert all("typed status" in attempt["errors"]["global"] for attempt in (a, b))
 
 
 @pytest.mark.asyncio

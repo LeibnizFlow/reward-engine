@@ -1,4 +1,5 @@
 """Extractive fidelity is testable; source truth/relevance is not code-verified."""
+# Unicode escapes preserve CJK coverage and original UTF-8/character boundaries.
 
 from copy import deepcopy
 from dataclasses import asdict
@@ -249,7 +250,7 @@ def test_continuation_and_fragmentation_are_preserved_not_rewritten_as_complete(
         b["continuation"] for b in offered
     ]
     assert "".join(c["quote"] for c in card["citations"]) == card["source_statement"]
-    long_line = base("正文" * 1500, contract="extractive-cards-v1")
+    long_line = base("\u6b63\u6587" * 1500, contract="extractive-cards-v1")
     result = admit(long_line, draft(long_line))
     card = result["directions"][0]["mechanisms"][0]
     assert card["blocks"][0]["fragmented_line"]

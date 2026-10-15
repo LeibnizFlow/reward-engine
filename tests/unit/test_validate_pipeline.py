@@ -33,7 +33,7 @@ def frozen(request, tmp_path, monkeypatch):
         if benchmark == "workbuddy":
             assert (
                 kwargs["upstream"]
-                == validation.REPO / "local/workbuddy/runner/upstream"
+                == validation.REPO / "_local/native/workbuddy/runner/upstream"
             )
         (code / "experiments").mkdir(parents=True)
         binary.parent.mkdir(parents=True)

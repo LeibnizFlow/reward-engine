@@ -76,7 +76,7 @@ def test_derivation_or_design_does_not_force_tools(assessment):
 def test_translation_is_not_an_infra_error():
     row = response("The owner accepted")
     row["claim_checks"][0].update(assessment="supported", reason="Receipt is present")
-    route_claim_checks(row, {REF: "负责人已接手"}, set())
+    route_claim_checks(row, {REF: "The owner has taken responsibility"}, set())
     assert row["status"] == "target_satisfied"
     # This tests source plumbing only, not whether the semantic judgment is true.
 

@@ -59,7 +59,7 @@ def make_docx(path):
     paragraph = doc.add_paragraph()
     paragraph.add_run("Authored ").bold = True
     paragraph.add_run("delivery evidence")
-    doc.add_paragraph("Unicode evidence: 证据 α\nSecond authored line")
+    doc.add_paragraph("Unicode evidence: Evidence α\nSecond authored line")
     table = doc.add_table(rows=3, cols=2)
     for cells, values in zip(
         table.rows,
@@ -82,7 +82,7 @@ def make_pptx(path):
     title.text = AUTHORED
     body = first.shapes.add_textbox(Inches(1), Inches(2), Inches(7), Inches(2))
     body.name = "Authored body"
-    body.text = "Revenue: 1500\nEvidence: 证据 α"
+    body.text = "Revenue: 1500\nEvidence: Evidence α"
     first.notes_slide.notes_text_frame.text = "Speaker note: check the source table"
     second = deck.slides.add_slide(deck.slide_layouts[6])
     conclusion = second.shapes.add_textbox(Inches(1), Inches(1), Inches(7), Inches(1))
@@ -219,7 +219,7 @@ def test_docx_extracts_authored_paragraphs_and_table_cells(tmp_path):
         "paragraphs": [
             "Delivery report",
             AUTHORED,
-            "Unicode evidence: 证据 α\nSecond authored line",
+            "Unicode evidence: Evidence α\nSecond authored line",
         ],
         "tables": [
             [["Metric", "Value"], ["Revenue", "1500"], ["Status", "Reviewed\nAccepted"]]
@@ -245,7 +245,7 @@ def test_pptx_extracts_slide_order_text_geometry_and_speaker_notes(tmp_path):
         },
         {
             "name": "Authored body",
-            "text": "Revenue: 1500\nEvidence: 证据 α",
+            "text": "Revenue: 1500\nEvidence: Evidence α",
             "left": 914400,
             "top": 1828800,
             "width": 6400800,
@@ -606,7 +606,7 @@ def test_pptx_recursively_reads_nested_groups_and_tables_without_flattening(tmp_
     inner.name = "Inner group"
     note = inner.shapes.add_textbox(Inches(1), Inches(4), Inches(5), Inches(1))
     note.name = "Nested note"
-    note.text = "Authored nested conclusion: 证据"
+    note.text = "Authored nested conclusion: evidence α"
     empty = outer.shapes.add_group_shape()
     empty.name = "Empty group"
     rectangle = outer.shapes.add_shape(
@@ -635,7 +635,7 @@ def test_pptx_recursively_reads_nested_groups_and_tables_without_flattening(tmp_
     children = descendants[0]["shapes"]
     assert [shape["name"] for shape in children] == ["Nested table", "Nested note"]
     assert children[0]["text"] == "" and children[0]["table"] == rows
-    assert children[1]["text"] == "Authored nested conclusion: 证据"
+    assert children[1]["text"] == "Authored nested conclusion: evidence α"
     assert {key: children[1][key] for key in ("left", "top", "width", "height")} == {
         "left": 914400,
         "top": 3657600,

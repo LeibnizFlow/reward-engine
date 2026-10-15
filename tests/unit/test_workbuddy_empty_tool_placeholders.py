@@ -1,9 +1,7 @@
-"""Replay Claw v7's GLM failure offline; placeholders never erase real calls."""
+"""Synthetic empty tool placeholders never erase real calls."""
 
-import hashlib
 import json
 from copy import deepcopy
-from pathlib import Path
 
 import httpx
 import pytest
@@ -12,9 +10,6 @@ from reward_engine.adapters.workbuddy import models
 from reward_engine.adapters.workbuddy.io import read, write
 from reward_engine.adapters.workbuddy.measurement import WorkBuddyTools
 
-CAPTURE = (
-    Path(__file__).parents[1] / "fixtures/workbuddy/glm_empty_tool_placeholders.json"
-)
 EMPTY_FUNCTION = {"name": "", "arguments": ""}
 
 
@@ -91,39 +86,29 @@ def transport(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_captured_glm_empty_batches_decode_original_json_and_preserve_receipts(
+async def test_synthetic_empty_batches_decode_json_and_preserve_receipts(
     transport,
 ):
     role, responses, calls = transport
-    assert hashlib.sha256(CAPTURE.read_bytes()).hexdigest() == (
-        "fe443e7de12ef459279e20b7ccaec915dbd341356a958ed98bd7c29a435ef0fe"
-    )
-    capture = read(CAPTURE)
-    assert capture["source_sha256"]["stream_lines.json"] == (
-        "c901ed3176074e4564855ae43499ca69a8c3ced5d8ae588d7d43e32e2a7ce046"
-    )
-    lines = capture["stream_lines"]
-    events = [
-        json.loads(s[5:])
-        for s in lines
-        if s.startswith("data:") and s[5:].strip() != "[DONE]"
-    ]
+    events = text_events()
+    lines = encode(events).splitlines()
+    request = {"mode": "test"}
     deltas = [c["delta"] for e in events for c in e["choices"]]
     batches = [d["tool_calls"] for d in deltas if d.get("tool_calls") is not None]
-    assert batches == [[]] * 633
+    assert batches == [[], []]
     assert [
         d["function_call"] for d in deltas if d.get("function_call") is not None
     ] == [EMPTY_FUNCTION]
     content = "".join(d.get("content") or "" for d in deltas)
     expected = json.loads(content)
-    assert set(expected) == {"criteria"}
+    assert expected == {"status": "unknown"}
     responses.append(httpx.Response(200, text="\n".join(lines) + "\n"))
-    assert await role(capture["request"]) == expected
-    assert await role(capture["request"]) == expected
+    assert await role(request) == expected
+    assert await role(request) == expected
     assert len(calls) == 1
     assert calls[0]["max_tokens"] == 65536
     assert calls[0]["response_format"] == {"type": "json_object"}
-    assert json.loads(calls[0]["messages"][-1]["content"]) == capture["request"]
+    assert json.loads(calls[0]["messages"][-1]["content"]) == request
     saved = read(next(role.output.glob("*/response.json")))
     assert saved["raw_output"] == content
     assert saved["native_tool_call_chunks"] == batches
