@@ -4,11 +4,8 @@ Reward Engine constructs executable task criteria, measures candidate work, and 
 
 ![Figure 1: From a self-motivated student to a self-motivated agent](docs/figures/motivation_analogy.png)
 
-*Figure 1 from the paper. Testcases and rubrics, bound to executable checks, form a frozen RewardPack. The reinforcement-learning branch is a possible extension and is not evaluated.*
 
 ![Figure 2: Reward Engine in three stages](docs/figures/reward_engine_overview.png)
-
-*Figure 2 from the paper. Build reward, execute by reward, and update reward. Benchmark scores remain reserved for evaluation.*
 
 ## Install and run offline
 
