@@ -18,6 +18,7 @@ from pathlib import Path
 
 import httpx
 
+from experiments.revision import config_path
 from reward_engine.adapters.paths import WORKBUDDY_ROOT
 from reward_engine.adapters.provider_config import (
     add_provider_arguments,
@@ -46,7 +47,6 @@ if __package__ in (None, ""):
 
 
 UPSTREAM = WORKBUDDY_ROOT / "upstream"
-PANEL = ["MiniMax-M3", "qwen3.8-max", "gemini-3.8-flash"]
 _CODE_HASH_SCOPE = "all-regular-files-except-__pycache__-v1"
 
 
@@ -73,20 +73,11 @@ def _frozen_code_hashes(code):
 
 
 def role_mapping(*, include_final=False):
-    roles = {
-        r: "deepseek-v4-flash"
-        for r in (
-            "actor",
-            "jury_reducer",
-            "hypothesis_chooser",
-            "harness_designer",
-            "reward_calibration_judge",
-        )
-    }
-    for family in ("jury", "hypothesis"):
-        roles.update({f"{family}_member_{i}": m for i, m in enumerate(PANEL, 1)})
+    """Return a template; fresh preparation requires explicit model IDs."""
+    from reward_engine.adapters.model_config import ROLES
+    roles = dict.fromkeys(ROLES, "YOUR_MODEL_ID")
     if include_final:
-        roles["final_selector"] = "deepseek-v4-flash"
+        roles["final_selector"] = "YOUR_MODEL_ID"
     return roles
 
 
@@ -115,7 +106,22 @@ def prepare(
     credentials=None,
     key_env=None,
     backend_url=None,
+    actor_backend="jiuwenswarm",
+    jiuwenswarm_mode="agent.code.normal",
+    jiuwenswarm_bundle=None,
+    generation_protocol="three_b_fixed_baselines_v1",
+    rounds=3,
+    task_images_manifest=None,
+    role_models=None, model_config=None,
 ):
+    from reward_engine.adapters.fresh_config import fresh_roles, freeze_settings
+    from reward_engine.adapters.jiuwenswarm.config import options
+    configured_roles = fresh_roles(model_config, role_models, generation_protocol, include_final=selection_policy == POOL_SELECTION)
+    runtime_options = options(actor_backend=actor_backend, jiuwenswarm_mode=jiuwenswarm_mode,
+        jiuwenswarm_bundle=jiuwenswarm_bundle, generation_protocol=generation_protocol,
+        rounds=rounds, task_images_manifest=task_images_manifest, selection_policy=selection_policy,
+        public_delivery_contract=public_delivery_contract, recover_from=recover_from,
+        reuse_first_round_from=reuse_first_round_from, canary_from=canary_from)
     if selection_policy not in {"legacy", POOL_SELECTION}:
         raise ValueError("Unknown selection policy")
     from workbuddy_bench.runner.prepare_tasks import (
@@ -127,10 +133,11 @@ def prepare(
 
     if recover_from and reuse_first_round_from:
         raise ValueError("Choose seed recovery or explicit first-round replay")
+    three_b = generation_protocol == "three_b_fixed_baselines_v1"
     for value, maximum in (
-        (task_concurrency, 3),
-        (model_concurrency, 8),
-        (per_model_concurrency, 8),
+        (task_concurrency, 128 if three_b else 3),
+        (model_concurrency, 128 if three_b else 8),
+        (per_model_concurrency, 128 if three_b else 8),
     ):
         if type(value) is not int or not 1 <= value <= maximum:
             raise ValueError(f"Concurrency must be an integer from 1 to {maximum}")
@@ -164,19 +171,18 @@ def prepare(
         shutil.copytree(
             REPO / name, code / name, ignore=shutil.ignore_patterns("__pycache__")
         )
-    (code / "experiments").mkdir()
-    shutil.copy2(REPO / "experiments/__init__.py", code / "experiments/__init__.py")
     shutil.copytree(
-        REPO / "experiments/workbuddy",
-        code / "experiments/workbuddy",
+        REPO / "experiments",
+        code / "experiments",
         ignore=shutil.ignore_patterns("__pycache__", "local"),
     )
-    # Pin reused OpenCode transport too; concurrent work in the sibling checkout cannot change it.
-    shutil.copytree(
-        upstream.parent / "workbuddy_swarm",
-        code / "workbuddy_swarm",
-        ignore=shutil.ignore_patterns("__pycache__"),
-    )
+    if actor_backend == "opencode":
+        # Pin reused OpenCode transport too; concurrent work in the sibling checkout cannot change it.
+        shutil.copytree(
+            upstream.parent / "workbuddy_swarm",
+            code / "workbuddy_swarm",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
     dataset = output / "dataset/wb-bench-office-v1.0"
     shutil.copytree(
         tasks_root.parent, dataset, ignore=shutil.ignore_patterns("__pycache__")
@@ -225,13 +231,12 @@ def prepare(
         "seeds": 3,
         "max_revisions": 2,
         "max_tests": 3,
-        "roles": role_mapping(include_final=selection_policy == POOL_SELECTION),
+        "roles": configured_roles,
         "model_concurrency": model_concurrency,
         "task_concurrency": task_concurrency,
         "per_model_concurrency": per_model_concurrency,
-        "model_aliases": {
-            "deepseek-v4-flash": ["deepseek-v4-flash-0731", "deepseek-flash"]
-        },
+        **({"max_model_concurrency": 128} if three_b else {}),
+        "model_aliases": {},
         "batch": {"concurrency": 3, "group_concurrency": 2, "deadline_s": 1800},
         **provider,
         "auth_file": str(token),
@@ -244,8 +249,17 @@ def prepare(
         "minimum_free_bytes": 5 * 1024**3,
         "quality_resampling": False,
         "package_mirrors": mirrors,
-        "official_protocol": "pinned WorkBuddy CompositeVerifier with deepseek-v4-flash",
+        "official_protocol": f"pinned WorkBuddy CompositeVerifier with {configured_roles['actor']}",
     }
+    config.update(runtime_options)
+    config["validation_benchmark"] = "workbuddy"
+    freeze_settings(config, model_config, role_models, generation_protocol)
+    if actor_backend == "jiuwenswarm" and not task_images_manifest:
+        from reward_engine.adapters.jiuwenswarm.office import freeze_images
+        freeze_images(config, dataset / "tasks", output)
+    if config.get("task_images_manifest"):
+        from reward_engine.adapters.jiuwenswarm.office import configure_images
+        configure_images(config, dataset / "tasks")
     if selection_policy != "legacy":
         config.update(selection_policy=selection_policy)
     if canary_from:
@@ -368,8 +382,8 @@ def prepare(
         output / "manifest.json",
         {
             "task_ids": tasks,
-            "actor_slots": len(slots(tasks)),
-            "grading_slots": len(tasks) * 9,
+            "actor_slots": len(tasks) * (3 + 3 * rounds) if generation_protocol == "three_b_fixed_baselines_v1" else len(slots(tasks)),
+            "grading_slots": len(tasks) * (3 + 3 * rounds) if generation_protocol == "three_b_fixed_baselines_v1" else len(tasks) * 9,
             "branch": subprocess.check_output(
                 ["git", "branch", "--show-current"], cwd=REPO, text=True
             ).strip(),
@@ -384,11 +398,13 @@ def prepare(
                 for p in dataset.rglob("*")
                 if p.is_file()
             },
-            "opencode_sha256": file_hash(
-                Path(config["harness_mount"]) / "bin/opencode"
-            ),
+            **({"opencode_sha256": file_hash(Path(config["harness_mount"]) / "bin/opencode")}
+               if actor_backend == "opencode" else {"runtime_identity": config["runtime_identity"]}),
+            "generation_protocol": config.get("generation_protocol"),
+            "task_images_sha256": config.get("task_images_sha256"),
             "versions": versions,
             "config_identity": config["identity"],
+            **({"model_config": config["model_config"]} if "model_config" in config else {}),
             **(
                 {"public_delivery_contract": config["public_delivery_contract"]}
                 if config.get("public_delivery_contract")
@@ -404,14 +420,19 @@ def prepare(
 
 
 def check_space(config):
-    for directory in (config["output"], "/var/lib/docker"):
-        if shutil.disk_usage(directory).free < config["minimum_free_bytes"]:
-            raise OSError(
-                f"Insufficient free space to dispatch another trial: {directory}"
-            )
+    from reward_engine.adapters.task_admission import check_space as check
+
+    check(config)
 
 
 def verify(config):
+    from reward_engine.adapters.model_config import verify_profile
+    verify_profile(config)
+    if config.get("implementation_revision"):
+        from experiments.revision import verify_revision
+        return verify_revision(config, verify)
+    from reward_engine.adapters.jiuwenswarm.config import verify as verify_runtime
+    verify_runtime(config)
     manifest = read(Path(config["output"]) / "manifest.json")
     if (
         digest({k: v for k, v in config.items() if k != "identity"})
@@ -465,7 +486,7 @@ def verify(config):
     for name, expected in manifest["prepared_dataset_hashes"].items():
         if file_hash(dataset / name) != expected:
             raise ValueError(f"Frozen dataset changed: {name}")
-    if (
+    if config.get("actor_backend", "opencode") == "opencode" and (
         file_hash(Path(config["harness_mount"]) / "bin/opencode")
         != manifest["opencode_sha256"]
     ):
@@ -504,7 +525,7 @@ async def launch(config, task, output, *, prompt="", pack=None, grade=True):
     check_space(config)
     output.mkdir(parents=True)
     spec = {
-        "campaign_config": str(Path(config["output"]) / "config.json"),
+        "campaign_config": str(config_path(config)),
         "output": str(output),
         "candidate_id": "wb-" + identity[:20],
         "task": task,
@@ -584,7 +605,62 @@ async def launch(config, task, output, *, prompt="", pack=None, grade=True):
     return read(output / "RESULT.json")
 
 
+async def three_b_task(config, task_id):
+    from reward_engine.adapters.jiuwenswarm.checkpoints import verify_actor
+    from reward_engine.core.outcome import three_b
+    root = Path(config["output"]) / "tasks" / task_id
+    root.mkdir(parents=True, exist_ok=True)
+    task = {"task_id": task_id, "prompt": (Path(config["tasks_root"]) / task_id / "instruction.md").read_text()}
+    def record(name, value):
+        write(root / (name + ".json"), value)
+    def restore(name):
+        path = root / (name + ".json")
+        return read(path) if path.exists() else None
+    async def baseline(index):
+        return await launch(config, task, root / "seeds" / str(index + 1), grade=False)
+    async def sample(arm, number, prompt, pack):
+        return await launch(config, task, root / f"round_{number}" / "actors" / arm, prompt=prompt, pack=pack, grade=False)
+    async def evaluate(task, row):
+        slot = Path(row["runtime_directory"])
+        binding = digest({"spec": read(slot / "spec.json")["spec_identity"], "candidate": row["candidate"],
+                          "artifacts": row["artifact_bindings"], "config": config.get("checkpoint_config_identity", config["identity"])})
+        official = read(slot / "OFFICIAL.private.json")
+        if official["status"] == "scored":
+            if official.get("binding") != binding:
+                raise ValueError("Native grade delivery binding changed")
+            return official
+        with (slot / (str(time.time_ns()) + ".grading.log")).open("w") as log:
+            process = await asyncio.create_subprocess_exec(sys.executable, "-m", "experiments.workbuddy.worker",
+                "--spec", str(slot / "spec.json"), "--grade-only",
+                *(["--campaign-config", str(config_path(config))] if config.get("implementation_revision") else []), cwd=config["code"],
+                env={**os.environ, "PYTHONPATH": config["code"]}, stdout=log, stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True)
+            try:
+                await process.wait()
+            except BaseException:
+                os.killpg(process.pid, signal.SIGTERM)
+                await process.wait()
+                raise
+        official = read(slot / "OFFICIAL.private.json")
+        if official.get("binding") != binding:
+            raise ValueError("Native grading did not produce a bound receipt")
+        return official
+    result = await three_b.run_task(task, rounds=config["rounds"],
+        runtime={"config_identity": config.get("checkpoint_config_identity", config["identity"]), "runtime_identity": config.get("runtime_identity"),
+                 "task_images_sha256": config.get("task_images_sha256")},
+        implementation=config["identity"],
+        baseline=baseline, sample=sample, evaluate=evaluate,
+        roles=lambda role, prefix: Role(config, role, root / prefix / "models" / role),
+        registry=registry(config, root / "measurement"), policy=BatchPolicy(**config["batch"]),
+        jury_reduce_max_bytes=Role.request_budget_bytes, record=record, restore=restore, verify_actor=verify_actor)
+    return {"status": result["status"], "completed_rounds": result["completed_rounds"],
+            "scored": sum(s.get("status") == "scored" for r in result["rounds"] for s in r["official"].values())}
+
+
 async def one_task(config, task_id):
+    from reward_engine.core.outcome.three_b import PROTOCOL
+    if config.get("generation_protocol") == PROTOCOL:
+        return await three_b_task(config, task_id)
     root = Path(config["output"]) / "tasks" / task_id
     root.mkdir(parents=True, exist_ok=True)
     task = {
@@ -744,7 +820,7 @@ async def campaign(config, *, canary_only=False):
                 "-m",
                 "reward_engine.adapters.provider_config",
                 "--config",
-                str(root / "config.json"),
+                str(config_path(config)),
                 cwd=config["code"],
                 env={**os.environ, "PYTHONPATH": config["code"]},
                 stdout=log,
@@ -780,7 +856,8 @@ async def campaign(config, *, canary_only=False):
                     status="completed"
                     if len(state["tasks"]) == len(config["task_ids"])
                     and all(
-                        r.get("status") == "completed" and r.get("scored") == 9
+                        r.get("status") == "completed" and r.get("scored") == (
+                            config["rounds"] * 6 if config.get("generation_protocol") == "three_b_fixed_baselines_v1" else 9)
                         for r in state["tasks"].values()
                     )
                     else "partial",
@@ -807,6 +884,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("prepare", "run", "report"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--revision", type=Path)
     native_paths = parser.add_mutually_exclusive_group()
     native_paths.add_argument("--upstream", type=Path)
     native_paths.add_argument("--workbuddy-root", type=Path)
@@ -835,9 +913,18 @@ def main():
     )
     parser.add_argument("--selection-policy", choices=("legacy", POOL_SELECTION))
     parser.add_argument("--public-delivery-contract", type=Path)
+    parser.add_argument("--model-config", type=Path)
+    parser.add_argument("--role-model", action="append", default=[])
+    from reward_engine.adapters.jiuwenswarm.config import add_arguments, arguments
+    add_arguments(parser)
     args = parser.parse_args()
+    if args.revision and args.action == "prepare":
+        parser.error("Use experiments.revision to prepare an explicit code revision")
+    if arguments(args) and args.action != "prepare":
+        parser.error("Runtime settings are frozen during preparation")
     if (
         args.task_id
+        or args.model_config or args.role_model
         or args.reuse_first_round_from
         or args.canary_from
         or args.task_concurrency
@@ -880,10 +967,13 @@ def main():
             credentials=args.credentials,
             key_env=args.key_env,
             backend_url=args.backend_url,
+            role_models=args.role_model, model_config=args.model_config,
+            **arguments(args),
         )
         print(output / "config.json")
     elif args.action == "run":
-        config = read(output / "config.json")
+        from experiments.revision import load
+        config = load(output, args.revision)
         if REPO != Path(config["code"]):
             os.chdir(config["code"])
             os.execve(
@@ -897,6 +987,14 @@ def main():
                 {**os.environ, "PYTHONPATH": config["code"]},
             )
         asyncio.run(campaign(config, canary_only=args.canary_only))
+        state = read(output / "status.json")
+        success = state.get("status") == "completed"
+        if args.canary_only:
+            row = state.get("tasks", {}).get(config["task_ids"][0], {})
+            expected = config["rounds"] * 6 if config.get("generation_protocol") == "three_b_fixed_baselines_v1" else 9
+            success = row.get("status") == "completed" and row.get("scored") == expected
+        if not success:
+            raise SystemExit(1)
     else:
         from experiments.workbuddy.report import report
 

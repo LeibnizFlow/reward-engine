@@ -1,5 +1,7 @@
 """Final round-3 selection wiring, historical score binding and three-round recovery."""
 
+from tests.support.model_roles import role_mapping as fixture_roles
+
 from copy import deepcopy
 
 import pytest
@@ -226,10 +228,10 @@ def test_new_preparations_default_to_legacy_and_pool_roles_stay_optional():
         == "legacy"
     )
     assert (
-        experiment.role_mapping(include_final=True)["final_selector"]
-        == "deepseek-v4-flash"
+        fixture_roles(include_final=True)["final_selector"]
+        == "test-reasoner"
     )
-    assert "final_selector" not in experiment.role_mapping()
+    assert "final_selector" not in fixture_roles()
 
 
 @pytest.mark.asyncio
@@ -247,7 +249,7 @@ async def test_real_adapter_freezes_model_and_restores_completed_terminal_decisi
         def __init__(self, config, role, output):
             assert (
                 role == "final_selector"
-                and config["roles"][role] == "deepseek-v4-flash"
+                and config["roles"][role] == "test-reasoner"
             )
 
         async def __call__(self, request):
@@ -270,7 +272,7 @@ async def test_real_adapter_freezes_model_and_restores_completed_terminal_decisi
     monkeypatch.setattr(pool_selector, "Role", Role)
     config = {
         "output": str(tmp_path),
-        "roles": {"final_selector": "deepseek-v4-flash"},
+        "roles": {"final_selector": "test-reasoner"},
         "gateway_local": "unused-offline",
     }
     task = {"task_id": "t", "prompt": "Task"}

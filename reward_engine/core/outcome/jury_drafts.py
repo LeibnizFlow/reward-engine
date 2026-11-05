@@ -29,6 +29,14 @@ def compact_selection_inputs(inputs):
     matter. All original part IDs remain addressable in the expansion ledger.
     """
     view = selection_inputs(inputs)
+    inheritance = {
+        row["expectation_id"]: [
+            {"selection_id": part["selection_id"],
+             "clause_index": int(part["part_id"].rsplit("/", 1)[1])}
+            for part in row.get("subrequirements", [])
+        ]
+        for row in view["independent_expectations"] + view["proposal_expectations"]
+    }
     view.pop(
         "_retired_clauses", None
     )  # Historical text is an admission ledger, not a live proposal.
@@ -72,7 +80,37 @@ def compact_selection_inputs(inputs):
             if key not in nested
         }
         view["selection_aliases"] = aliases
+        canonical = {alias: key for key, values in aliases.items() for alias in values}
+        # A whole inherited requirement still consumes its source clauses even
+        # when compaction moved their visible handles to an identical proposal.
+        view["inheritance_bindings"] = {
+            ref: [{**part, "selection_id": canonical.get(part["selection_id"], part["selection_id"])}
+                  for part in parts]
+            for ref, parts in inheritance.items()
+        }
     return view
+
+
+def selector_conflicts(decisions, catalog, aliases=None):
+    """Describe every selector occurrence, even in an otherwise invalid row."""
+    occurrences, malformed = {}, []
+    aliases = aliases or {}
+    for i, decision in enumerate(decisions):
+        if not isinstance(decision, dict) or not isinstance(decision.get("parts"), list):
+            continue
+        for j, selector in enumerate(decision["parts"]):
+            location = {"path": ["part_decisions", i, "parts", j], "via": deepcopy(selector)}
+            if not isinstance(selector, str):
+                malformed.append({"selection_id": deepcopy(selector), "reason": "unknown",
+                                  "occurrences": [location]})
+                continue
+            for key in [selector, *aliases.get(selector, [])]:
+                occurrences.setdefault(key, []).append(deepcopy(location))
+    return malformed + [
+        {"selection_id": key, "reason": "unknown" if key not in catalog else "duplicate",
+         "occurrences": rows}
+        for key, rows in occurrences.items() if key not in catalog or len(rows) > 1
+    ]
 
 
 def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
@@ -104,8 +142,15 @@ def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
     decisions = result.pop("part_decisions")
     if not isinstance(decisions, list):
         raise ValueError("Part decisions must be a list")
-    chosen, binding_errors = {}, []
-    for decision in decisions:
+    chosen, binding_errors, decision_errors = {}, [], []
+    for decision_index, decision in enumerate(decisions):
+        def invalid(reason, *, index=decision_index, value=decision, **details):
+            decision_errors.append({"decision_index": index, "reason": reason,
+                                    "actual": deepcopy(value), **details})
+
+        if not isinstance(decision, dict):
+            invalid("Part decisions must be objects")
+            continue
         parts, action = decision.get("parts"), decision.get("action")
         if isinstance(parts, list) and all(isinstance(p, str) for p in parts):
             parts = [expanded for p in parts for expanded in [p, *aliases.get(p, [])]]
@@ -115,24 +160,39 @@ def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
             or any(not isinstance(p, str) or p not in catalog for p in parts)
             or len(set(parts)) != len(parts)
             or set(parts) & chosen.keys()
+            or not isinstance(action, str)
             or action not in {"retain", "rewrite", "defer", "exclude"}
         ):
-            raise ValueError("Unknown, duplicate or invalid part decision")
+            shape = {"allowed_actions": ["retain", "rewrite", "defer", "exclude"]}
+            if not isinstance(action, str) or action not in shape["allowed_actions"]:
+                shape["invalid_action"] = deepcopy(action)
+            if not isinstance(parts, list) or not parts:
+                shape["parts_error"] = "Provide a nonempty list of supplied selection IDs"
+            invalid("Unknown, duplicate or invalid part decision",
+                    expanded_parts=deepcopy(parts), already_used_parts=list(chosen), **shape)
+            continue
         target = decision.get("criterion_id")
         reason = decision.get("reason") or (
             "Original proposed clause retained unchanged" if action == "retain" else ""
         )
         if not isinstance(reason, str) or not reason.strip():
-            raise ValueError("Rewriting or withholding a clause needs a reason")
-        if action in {"retain", "rewrite"} and target not in criteria:
-            raise ValueError("Retained clause needs a real criterion")
+            invalid("Rewriting or withholding a clause needs a reason")
+            continue
+        if action in {"retain", "rewrite"} and (not isinstance(target, str) or target not in criteria):
+            invalid("Retained clause needs a real criterion")
+            continue
         if action == "rewrite":
             if (
                 not isinstance(decision.get("text"), str)
                 or not decision["text"].strip()
             ):
-                raise ValueError("Rewrite needs replacement text")
-            require_refs(decision.get("evidence_refs"), evidence)
+                invalid("Rewrite needs replacement text")
+                continue
+            try:
+                require_refs(decision.get("evidence_refs"), evidence)
+            except ValueError as failure:
+                invalid(str(failure))
+                continue
             criteria[target].setdefault("part_revisions", []).append(deepcopy(decision))
         for selector in parts:
             _, part = catalog[selector]
@@ -154,6 +214,7 @@ def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
                     ]
                     if len(matches) != 1 or matches[0].get("text") != text:
                         detail = {
+                            "decision_index": decision_index,
                             "selection_id": selector,
                             "criterion_id": target,
                             "clause_id": decision.get("clause_id"),
@@ -162,6 +223,13 @@ def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
                             "actual_text": str(matches[0].get("text", ""))[:1000]
                             if len(matches) == 1
                             else None,
+                            "exact_matching_clauses": [
+                                {"criterion_id": candidate["id"], "clause_id": clause.get("id"),
+                                 "path": ["criteria", i, "clauses", j]}
+                                for i, candidate in enumerate(result["criteria"])
+                                for j, clause in enumerate(candidate.get("clauses", []))
+                                if isinstance(clause, dict) and clause.get("text") == text
+                            ],
                         }
                         binding_errors.append(detail)
                         chosen[selector] = (
@@ -177,21 +245,44 @@ def apply_part_decisions(raw, inputs, evidence, *, mark_omissions=False):
                     clauses.append(text)
                 row["retained_text"] = text
             chosen[selector] = row
-    if binding_errors:
+    if binding_errors or decision_errors:
         diagnostics = {
             "count": len(binding_errors),
             "selection_ids": [e["selection_id"] for e in binding_errors],
             "examples": binding_errors[:8],
             "examples_limit": 8,
         }
-        raise ValueError(
-            "Clause decision must bind the exact final clause ID and text: "
-            + json.dumps(diagnostics, ensure_ascii=False)
+        reason = ("Clause decision must bind the exact final clause ID and text: "
+                  + json.dumps(diagnostics, ensure_ascii=False)) if binding_errors else decision_errors[0]["reason"]
+        failure = ResponseContractError(
+            "part_decisions", reason
             + ". Fix all listed bindings together. retain preserves each original part verbatim; "
             "differently worded parts cannot share one retained clause. Use separate exact clauses, "
             "or an explicit rewrite with matching final text, reason and evidence. "
             "Do not weaken the Task requirement."
         )
+        failure.details.update(
+            decision_errors=decision_errors, binding_errors=binding_errors,
+            selector_conflicts=selector_conflicts(decisions, catalog, aliases),
+            allowed_selection_ids=list(catalog), selection_aliases=aliases,
+            allowed_criterion_ids=list(criteria),
+            instruction="Correct every listed decision_errors and binding_errors entry together. "
+            "Use exact supplied selection IDs; compact aliases expand automatically, so do not "
+            "repeat an alias alongside its canonical selection ID. Retain requires the exact "
+            "original part text and final clause binding. exact_matching_clauses lists all current "
+            "draft clauses with byte-for-byte matching full text, before diagnostic truncation. "
+            "These are locations, not an automatic choice or proof of scope compatibility; explicitly "
+            "choose the correct criterion_id and clause_id together after checking the criterion. "
+            "An empty list means there is no exact match in this draft. Part decisions map existing "
+            "supplied selections; add is not an action and an empty parts list maps nothing. "
+            "New clause content belongs in criteria, not in synthetic empty-part ledger entries; "
+            "preserve the coverage of all actual supplied parts. selector_conflicts includes all occurrences "
+            "across valid and invalid rows; its paths address the original draft and via identifies "
+            "the supplied selector before alias expansion. Resolve these collisions together. "
+            "Any rewrite requires model-authored "
+            "text, a reason and evidence. These diagnostics do not choose or apply corrections.",
+        )
+        raise failure
     for criterion in criteria.values():
         if "clauses" in criterion:
             criterion["subrequirements"] = [c["text"] for c in criterion["clauses"]]
@@ -409,13 +500,14 @@ def reduction_inputs(proposals):
                 "initial_draft",
                 "independent_expectations",
                 "proposal_expectations",
+                "authored_json",
             }
         }
         member["criterion_refs"] = [r["expectation_id"] for r in after]
         member["initial_draft"] = {
             k: deepcopy(v)
             for k, v in proposal["initial_draft"].items()
-            if k != "criteria"
+            if k not in {"criteria", "authored_json"}
         }
         member["initial_draft"]["criterion_refs"] = [
             r["expectation_id"] for r in before

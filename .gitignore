@@ -43,3 +43,8 @@ node_modules/
 
 # Local agent instructions are not part of the public project.
 /AGENTS.md
+
+# Private local model profiles and campaign credentials.
+/model_config.json
+/model_config.*.json
+/*.auth

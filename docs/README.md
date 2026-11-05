@@ -1,8 +1,7 @@
 # Documentation
 
-- [Quick start and model API usage](quickstart.md)
+- [Quick start](quickstart.md)
+- [Configuration](configuration.md)
 - [Architecture](architecture.md)
-- [Native benchmark setup](../experiments/README.md)
-- [Outcome core and interfaces](../reward_engine/core/outcome/README.md)
-- [Licenses and third-party materials](LICENSES.md)
-- [Manuscript figures](figures/README.md)
+- [Model-authored JSON](model-authored-json.md)
+- [Licensing](LICENSES.md)

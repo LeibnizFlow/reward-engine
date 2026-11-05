@@ -11,7 +11,7 @@ import httpx
 import pytest
 from jsonschema import Draft202012Validator
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.workbuddy import experiment
 from reward_engine.adapters import delivery_review_schema as schema
 from reward_engine.adapters import model_config as profiles
@@ -30,8 +30,8 @@ offline = profile_tests.offline
 launcher = profile_tests.launcher
 prepare_tree = profile_tests.prepare_tree
 REPO = Path(__file__).resolve().parents[2]
-PUBLIC_PROFILE = REPO / "reward_engine/configs/bailian_token_plan.json"
-MODEL = "qwen3.8-max"
+PUBLIC_PROFILE = REPO / "tests/support/model_profile.json"
+MODEL = "test-model-a"
 SHAPE = {field: "existing core field description" for field in schema.FIELDS}
 
 
@@ -359,7 +359,7 @@ async def test_other_modes_and_unlisted_models_keep_same_wire_and_cache(runtime)
 
 
 @pytest.mark.parametrize(
-    "value", [None, {}, "qwen3.8-max", [True], [""], ["model name"], [MODEL, MODEL]]
+    "value", [None, {}, "test-model-a", [True], [""], ["model name"], [MODEL, MODEL]]
 )
 def test_profile_rejects_malformed_model_allowlist(value):
     with pytest.raises(ValueError):

@@ -1,7 +1,10 @@
 """Freeze real temporary trees; no providers, containers or network provisioning."""
 
+from tests.support.model_roles import role_mapping as fixture_roles
+
 import hashlib
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -9,7 +12,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.workbuddy import experiment
 from reward_engine.adapters import provider_config
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
@@ -24,6 +27,7 @@ FILES = {
     "reward_engine/configs/.runtime.json": b'{"mode":"offline"}\n',
     "reward_engine/data/resource": b"\x00\x01runtime resource\xff",
     "experiments/__init__.py": b"# temporary experiments\n",
+    "experiments/revision.py": b"def config_path(config): return config['output']\n",
     "experiments/workbuddy/worker.py": b"# temporary worker\n",
     "workbuddy_swarm/__init__.py": b"# temporary external transport\n",
     "workbuddy_swarm/v4/plugin.ts": b"export const enabled: boolean = true;\n",
@@ -34,6 +38,7 @@ RESOURCES = [
     "workbuddy_swarm/v4/plugin.ts",
     "reward_engine/configs/.runtime.json",
     "reward_engine/data/resource",
+    "experiments/revision.py",
 ]
 
 
@@ -54,7 +59,7 @@ def prepare_tree(tmp_path, monkeypatch):
         task.mkdir(parents=True)
         (task / "task.toml").write_text("[agent]\ntimeout_sec = 10\n")
     (upstream / ".env").write_text(
-        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=http://offline.invalid/v1\n"
+        "OPENAI_API_KEY=offline-fixture\nOPENAI_BASE_URL=http://offline.invalid/v1\n"
     )
     binary = upstream / "configs/harnesses/opencode-swarm/docker/rootfs/bin/opencode"
     binary.parent.mkdir(parents=True)
@@ -89,6 +94,10 @@ def prepare_tree(tmp_path, monkeypatch):
 
     def prepare(*, with_launcher=False, **provider_options):
         output = tmp_path / "frozen"
+        if not provider_options.get("model_config"):
+            overrides = provider_options.pop("role_models", [])
+            supplied = {entry.split("=", 1)[0] for entry in overrides}
+            provider_options["role_models"] = [f"{k}={v}" for k, v in fixture_roles().items() if k not in supplied and (provider_options.get("generation_protocol") != "three_b_fixed_baselines_v1" or not k.startswith("hypothesis"))] + overrides
         if with_launcher:
             config = validation.prepare(
                 SimpleNamespace(
@@ -100,7 +109,7 @@ def prepare_tree(tmp_path, monkeypatch):
             )
         else:
             config = experiment.prepare(
-                output, upstream=upstream, task_ids=["task_00"], **provider_options
+                output, upstream=upstream, task_ids=["task_00"], actor_backend="opencode", generation_protocol=provider_options.pop("generation_protocol", "legacy_abcd"), **provider_options
             )
         return SimpleNamespace(
             config=config,
@@ -122,6 +131,19 @@ def test_real_prepare_binds_every_copied_resource(prepare_tree):
     assert not (frozen.code / "reward_engine/__pycache__").exists()
     assert frozen.manifest["config_identity"] == frozen.config["identity"]
     experiment.verify(frozen.config)
+
+
+def test_frozen_process_can_import_shared_revision_module(prepare_tree):
+    frozen = prepare_tree()
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from experiments.revision import config_path; "
+         "assert config_path({'output': 'frozen'}) == 'frozen'"],
+        cwd=frozen.code,
+        env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("relative", RESOURCES)
@@ -251,10 +273,10 @@ def test_non_regular_frozen_entries_are_rejected(prepare_tree, tmp_path, kind):
 
 def test_real_validation_launcher_extension_preserves_complete_manifest(prepare_tree):
     frozen = prepare_tree(with_launcher=True)
-    relative = "experiments/validate_pipeline.py"
+    relative = "tests/validation/validate_pipeline.py"
     assert frozen.manifest["code_hash_scope"] == SCOPE
     assert frozen.config["code_hash_scope"] == SCOPE
-    assert set(frozen.manifest["code_hashes"]) == set(FILES) | {relative}
+    assert set(frozen.manifest["code_hashes"]) == set(FILES) | {relative, "tests/__init__.py", "tests/validation/__init__.py"}
     assert frozen.manifest["code_hashes"][relative] == file_hash(
         Path(validation.__file__)
     )
@@ -277,3 +299,58 @@ def test_existing_non_code_checks_remain_enforced(prepare_tree, target):
     path.write_bytes(b"changed fixture")
     with pytest.raises(ValueError, match=error):
         experiment.verify(frozen.config)
+
+
+@pytest.mark.parametrize("entries", [["unknown=x"], ["actor=x", "actor=y"],
+    ["attack_reducer=x"], ["attack_member_1=x"], ["actor="], ["actor"], ["hypothesis_chooser=x"]])
+def test_prepare_rejects_invalid_role_overrides(prepare_tree, entries):
+    with pytest.raises(ValueError, match="role override|exact model ID"):
+        prepare_tree(role_models=entries, generation_protocol="three_b_fixed_baselines_v1")
+
+
+def test_prepare_freezes_role_overrides_and_native_protocol(prepare_tree):
+    from experiments.workbuddy.worker import trial_config
+    frozen = prepare_tree(role_models=["actor=test-model-b", "jury_reducer=test-model-b"],
+                          generation_protocol="three_b_fixed_baselines_v1", rounds=1)
+    config = frozen.config
+    assert config["roles"]["attack_reducer"] == "test-model-b"
+    for i in range(1, 4):
+        assert config["roles"][f"attack_member_{i}"] == config["roles"][f"jury_member_{i}"]
+    spec = dict(candidate_id="synthetic", task_path=str(frozen.output), output=str(frozen.output),
+                actor_timeout_s=60, spec_path=str(frozen.output / "spec.json"), grade=True)
+    trial = trial_config(spec, config).model_dump(mode="json")
+    grader = trial["verifier"]["env"]
+    assert grader["WORKBUDDY_VERIFIER_LLM_MODEL"] == "test-model-b"
+    assert config["official_protocol"].endswith(grader["WORKBUDDY_VERIFIER_LLM_MODEL"])
+    experiment.verify(config)
+    config["roles"]["actor"] = "changed"
+    with pytest.raises(ValueError):
+        experiment.verify(config)
+
+
+@pytest.mark.parametrize("action", ["run", "report"])
+def test_cli_rejects_role_overrides_after_prepare(monkeypatch, tmp_path, action):
+    monkeypatch.setattr(sys, "argv", ["experiment", action, "--output", str(tmp_path), "--role-model", "actor=new"])
+    with pytest.raises(SystemExit) as error:
+        experiment.main()
+    assert error.value.code == 2
+
+
+def test_frozen_office_entry_supports_model_override_without_checkout(tmp_path):
+    import shutil
+    code = tmp_path / "standalone"
+    repo = Path(experiment.__file__).resolve().parents[2]
+    for name in ("experiments", "reward_engine"):
+        shutil.copytree(repo / name, code / name, ignore=shutil.ignore_patterns("__pycache__"))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run([sys.executable, "-m", "experiments.workbuddy.experiment", "--help"],
+                            cwd=code, env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert "--role-model" in result.stdout
+    result = subprocess.run([sys.executable, "-c",
+        "from experiments.claw_eval.opencode.model_settings import configure_roles; "
+        "from experiments.workbuddy.experiment import role_mapping; "
+        "roles=configure_roles(role_mapping(), 'three_b_fixed_baselines_v1', ['jury_reducer=new']); "
+        "assert roles['attack_reducer']=='new'"],
+        cwd=code, env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr

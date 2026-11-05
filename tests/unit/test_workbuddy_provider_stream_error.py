@@ -24,7 +24,7 @@ def make_role(tmp_path, monkeypatch):
         calls, waits = [], []
         config = {
             "output": str(tmp_path),
-            "roles": {"reward_calibration_judge": "deepseek-v4-flash"},
+            "roles": {"reward_calibration_judge": "test-reasoner"},
             "auth_file": str(tmp_path / "auth"),
             "gateway_local": "http://offline",
             "backend_url": "http://provider.invalid/v1",
@@ -153,7 +153,7 @@ async def test_typed_error_preserves_one_opt_in_recovery_and_original_receipt(
 ):
     capture = CAPTURES[0]
     recovered = {
-        "model": "deepseek-v4-flash",
+        "model": "test-reasoner",
         "choices": [
             {
                 "finish_reason": "stop",
@@ -166,7 +166,7 @@ async def test_typed_error_preserves_one_opt_in_recovery_and_original_receipt(
         httpx.Response(200, json=recovered if recovers else capture["event"]),
     ]
     role, calls, _ = make_role(responses)
-    role.nonstream_recovery_models = {"deepseek-v4-flash"}
+    role.nonstream_recovery_models = {"test-reasoner"}
     if recovers:
         assert await role({"mode": "test"}) == {"status": "unknown"}
         assert await role({"mode": "test"}) == {"status": "unknown"}

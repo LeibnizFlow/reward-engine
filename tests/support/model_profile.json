@@ -1,17 +1,17 @@
 {
   "schema": "reward_engine.model_config.v1",
   "roles": {
-    "jury_reducer": "qwen3.8-max",
-    "hypothesis_chooser": "qwen3.8-max",
-    "harness_designer": "qwen3.8-max",
-    "reward_calibration_judge": "qwen3.8-max",
-    "actor": "qwen3.8-flash",
-    "jury_member_1": "qwen3.8-max",
-    "jury_member_2": "deepseek-v4.1-flash",
-    "jury_member_3": "glm-5.3",
-    "hypothesis_member_1": "qwen3.8-max",
-    "hypothesis_member_2": "deepseek-v4.1-flash",
-    "hypothesis_member_3": "glm-5.3"
+    "jury_reducer": "test-model-a",
+    "hypothesis_chooser": "test-model-a",
+    "harness_designer": "test-model-a",
+    "reward_calibration_judge": "test-model-a",
+    "actor": "test-actor",
+    "jury_member_1": "test-model-a",
+    "jury_member_2": "test-model-b",
+    "jury_member_3": "test-model-c",
+    "hypothesis_member_1": "test-model-a",
+    "hypothesis_member_2": "test-model-b",
+    "hypothesis_member_3": "test-model-c"
   },
   "role_max_tokens": {
     "jury_reducer": 65536,
@@ -27,15 +27,15 @@
   },
   "model_aliases": {},
   "measurement_candidate_concurrency": 1,
-  "delivery_review_json_schema_models": ["qwen3.8-max"],
+  "delivery_review_json_schema_models": ["test-model-a"],
   "native_grader": {
-    "model": "qwen3.8-max",
+    "model": "test-model-a",
     "max_tokens": 32768,
     "request_options": {"reasoning_effort": "low"}
   },
   "role_request_options_by_model": {
-    "glm-5.3": {"reasoning_effort": "low"},
-    "qwen3.8-max": {"reasoning_effort": "low"}
+    "test-model-c": {"reasoning_effort": "low"},
+    "test-model-a": {"reasoning_effort": "low"}
   },
   "concurrency": {
     "model_concurrency": 2,

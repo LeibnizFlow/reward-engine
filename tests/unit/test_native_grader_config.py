@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.workbuddy import experiment, worker
 from reward_engine.adapters import model_config as profiles
 from reward_engine.adapters.workbuddy.gateway import application
@@ -20,9 +20,9 @@ offline = profile_tests.offline
 launcher = profile_tests.launcher
 prepare_tree = profile_tests.prepare_tree
 REPO = Path(__file__).resolve().parents[2]
-PUBLIC_PROFILE = REPO / "reward_engine/configs/bailian_token_plan.json"
+PUBLIC_PROFILE = REPO / "tests/support/model_profile.json"
 GRADER = {
-    "model": "qwen3.8-max",
+    "model": "test-model-a",
     "max_tokens": 32768,
     "request_options": {"reasoning_effort": "low"},
 }
@@ -31,7 +31,6 @@ SOURCES = (
     "reward_engine/adapters/model_config.py",
     "reward_engine/adapters/workbuddy/gateway.py",
     "experiments/workbuddy/worker.py",
-    "reward_engine/configs/bailian_token_plan.json",
 )
 
 
@@ -51,7 +50,7 @@ def frozen(prepare_tree, tmp_path):
 def test_real_prepare_freezes_grader_bytes_effective_identity_and_protocol(frozen):
     config = frozen.config
     assert config["native_grader"] == GRADER
-    assert config["roles"]["actor"] == "qwen3.8-flash"
+    assert config["roles"]["actor"] == "test-actor"
     assert "native_grader" not in config["roles"]
     assert (
         frozen.output / "model_config.json"
@@ -63,7 +62,7 @@ def test_real_prepare_freezes_grader_bytes_effective_identity_and_protocol(froze
     )
     assert frozen.manifest["config_identity"] == config["identity"]
     assert config["official_protocol"] == (
-        "pinned WorkBuddy CompositeVerifier with qwen3.8-max; max_tokens=32768; "
+        "pinned WorkBuddy CompositeVerifier with test-model-a; max_tokens=32768; "
         'request_options={"reasoning_effort":"low"}'
     )
     effective = config["model_config"]["effective"]
@@ -77,7 +76,7 @@ def test_real_prepare_freezes_grader_bytes_effective_identity_and_protocol(froze
         == "frozen gateway request max_tokens"
     )
     assert protocol["actor_output_tokens"] == 32768
-    for relative in (*SOURCES, "experiments/validate_pipeline.py"):
+    for relative in (*SOURCES, "tests/validation/validate_pipeline.py"):
         assert frozen.manifest["code_hashes"][relative] == file_hash(REPO / relative)
         assert (frozen.code / relative).read_bytes() == (REPO / relative).read_bytes()
     profiles.verify_profile(config)
@@ -228,7 +227,7 @@ def test_applying_profile_without_grader_cannot_leave_an_inherited_route(frozen)
     assert "native_grader" not in config
     assert (
         config["official_protocol"]
-        == "pinned WorkBuddy CompositeVerifier with qwen3.8-flash"
+        == "pinned WorkBuddy CompositeVerifier with test-actor"
     )
     # Applying a different profile in memory does not authorize changing a frozen run.
     with pytest.raises(ValueError):
@@ -257,9 +256,9 @@ def gateway_config(tmp_path, grader=GRADER):
         "harness_mount": str(tmp_path / "harness"),
         "model_concurrency": 2,
         "per_model_concurrency": 1,
-        "roles": {"actor": "qwen3.8-flash", "jury_reducer": "qwen3.8-max"},
+        "roles": {"actor": "test-actor", "jury_reducer": "test-model-a"},
         "role_request_options": DISABLED,
-        "role_request_options_by_model": {"qwen3.8-max": {"reasoning_effort": "high"}},
+        "role_request_options_by_model": {"test-model-a": {"reasoning_effort": "high"}},
         **({"native_grader": deepcopy(grader)} if grader is not None else {}),
     }
 
@@ -271,15 +270,15 @@ def test_actual_worker_keeps_actor_and_routes_only_verifier(tmp_path, grader):
     trial_config = worker.trial_config(trial_spec(tmp_path), config)
     trial = trial_config.model_dump(mode="json")
     assert config == before
-    assert trial["agent"]["model_name"] == "qwen3.8-flash"
-    assert trial["agent"]["kwargs"]["connection"]["model_route"] == "qwen3.8-flash"
+    assert trial["agent"]["model_name"] == "test-actor"
+    assert trial["agent"]["kwargs"]["connection"]["model_route"] == "test-actor"
     assert trial["agent"]["kwargs"]["model_params"] == {
         "max_output_tokens": 32768,
         "temperature": 0.95,
     }
     env = trial["verifier"]["env"]
     assert env["WORKBUDDY_VERIFIER_LLM_MODEL"] == (
-        "qwen3.8-max" if grader else "qwen3.8-flash"
+        "test-model-a" if grader else "test-actor"
     )
     # Harbor redacts any TOKEN-named env field in serialized reports.
     assert (
@@ -340,9 +339,9 @@ async def test_worker_to_gateway_wire_and_receipts_are_exact_and_isolated(
         "model": env["WORKBUDDY_VERIFIER_LLM_MODEL"],
         "messages": [{"role": "user", "content": "private offline fixture"}],
     }
-    actor = {"model": "qwen3.8-flash", "messages": [], "max_tokens": 123}
+    actor = {"model": "test-actor", "messages": [], "max_tokens": 123}
     internal = {
-        "model": "qwen3.8-max",
+        "model": "test-model-a",
         "messages": [],
         "reasoning_effort": "high",
         "max_tokens": 456,
@@ -373,7 +372,7 @@ async def test_worker_to_gateway_wire_and_receipts_are_exact_and_isolated(
 @pytest.mark.asyncio
 async def test_legacy_grade_wire_remains_unchanged(tmp_path):
     config = gateway_config(tmp_path, None)
-    body = {"model": "qwen3.8-flash", "messages": [], "stream": False}
+    body = {"model": "test-actor", "messages": [], "stream": False}
     calls, replies, raw, _ = await send_requests(config, [("grade-wb-fixture", body)])
     assert calls == [body] and replies[0].content == raw[0]
     path = next(tmp_path.glob("official.private/grade-wb-fixture/*"))
@@ -385,7 +384,7 @@ async def test_legacy_grade_wire_remains_unchanged(tmp_path):
 @pytest.mark.parametrize(
     "channel,extra",
     [
-        ("grade-wb-fixture", {"model": "qwen3.8-flash"}),
+        ("grade-wb-fixture", {"model": "test-actor"}),
         ("grade-wb-fixture", {"max_tokens": 65536}),
         ("grade-wb-fixture", {"max_tokens": True}),
         ("grade-wb-fixture", {"reasoning_effort": "high"}),

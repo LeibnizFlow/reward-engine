@@ -14,7 +14,7 @@ from reward_engine.examples.offline import TASK, Offline
 @pytest.fixture
 def clean_config_environment(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    for name in ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL", "YIBU_API_KEY"):
+    for name in ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -37,17 +37,17 @@ def test_credentials_literal_interpolation_environment_precedence_and_redaction(
     patch = clean_config_environment
     file = tmp_path / "credentials.env"
     file.write_text(
-        'YIBU_API_KEY="literal-${DO_NOT_EXPAND}"\nOPENAI_MODEL=file-model\nOPENAI_BASE_URL=https://example.invalid/v1\n'
+        'OPENAI_API_KEY="literal-${DO_NOT_EXPAND}"\nOPENAI_MODEL=file-model\nOPENAI_BASE_URL=https://example.invalid/v1\n'
     )
     patch.setenv("DO_NOT_EXPAND", "would-corrupt-key")
-    config = LiveConfig.load(key_env="YIBU_API_KEY", credentials=file)
+    config = LiveConfig.load(key_env="OPENAI_API_KEY", credentials=file)
     assert config.api_key == "literal-${DO_NOT_EXPAND}"
     assert config.model == "file-model"
     assert config.api_key not in repr(config)
-    patch.setenv("YIBU_API_KEY", "environment-value")
+    patch.setenv("OPENAI_API_KEY", "environment-value")
     patch.setenv("OPENAI_MODEL", "environment-model")
     config = LiveConfig.load(
-        key_env="YIBU_API_KEY",
+        key_env="OPENAI_API_KEY",
         credentials=file,
         model="explicit",
         base_url="https://other.invalid/api",
@@ -58,18 +58,18 @@ def test_credentials_literal_interpolation_environment_precedence_and_redaction(
 
 def test_custom_key_requires_explicit_endpoint(clean_config_environment):
     patch = clean_config_environment
-    patch.setenv("YIBU_API_KEY", "third-party-secret")
+    patch.setenv("CUSTOM_API_KEY", "third-party-secret")
     with pytest.raises(ValueError, match="Custom --key-env requires"):
-        LiveConfig.load(model="single-model", key_env="YIBU_API_KEY")
+        LiveConfig.load(model="single-model", key_env="CUSTOM_API_KEY")
     config = LiveConfig.load(
         model="single-model",
-        key_env="YIBU_API_KEY",
+        key_env="CUSTOM_API_KEY",
         base_url="https://provider.invalid/v1",
     )
     assert config.base_url == "https://provider.invalid/v1"
     patch.setenv("OPENAI_BASE_URL", "https://environment.invalid/v1")
     assert (
-        LiveConfig.load(model="single-model", key_env="YIBU_API_KEY").base_url
+        LiveConfig.load(model="single-model", key_env="CUSTOM_API_KEY").base_url
         == "https://environment.invalid/v1"
     )
 

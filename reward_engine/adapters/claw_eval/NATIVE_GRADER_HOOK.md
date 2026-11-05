@@ -22,10 +22,10 @@ Grading runs in a separate process. Results are private evaluation outputs and d
   "trace": "/absolute/path/to/native-trial/trace.jsonl",
   "environment_snapshot": "/absolute/path/to/native-trial/environment-snapshot.json",
   "judge": {
-    "base_url": "https://yibuapi.com/v1",
-    "model": "qwen3.8-max",
-    "allowed_models": ["qwen3.8-max"],
-    "api_key_env": "YIBU_API_KEY",
+    "base_url": "https://api.example.com/v1",
+    "model": "YOUR_MODEL_ID",
+    "allowed_models": ["YOUR_MODEL_ID"],
+    "api_key_env": "OPENAI_API_KEY",
     "temperature": 0.6,
     "max_tokens": 32768,
     "read_timeout_s": 120

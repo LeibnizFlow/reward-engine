@@ -16,7 +16,7 @@ EMPTY_FUNCTION = {"name": "", "arguments": ""}
 def event(delta, finish=None):
     return {
         "id": "offline-glm",
-        "model": "glm-5.3-flash",
+        "model": "test-model-c-flash",
         "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
     }
 
@@ -55,7 +55,7 @@ def protocol():
 def transport(tmp_path, monkeypatch):
     config = {
         "output": str(tmp_path),
-        "roles": {"jury_member_3": "glm-5.3-flash"},
+        "roles": {"jury_member_3": "test-model-c-flash"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://offline",
         "role_response_format": "json_object",
@@ -287,7 +287,7 @@ async def test_nonstream_recovery_never_hides_legacy_function_attempt(
     transport, fragment
 ):
     role, responses, calls = transport
-    role.nonstream_recovery_models = {"glm-5.3-flash"}
+    role.nonstream_recovery_models = {"test-model-c-flash"}
     responses.extend(
         [
             httpx.Response(
@@ -296,7 +296,7 @@ async def test_nonstream_recovery_never_hides_legacy_function_attempt(
             httpx.Response(
                 200,
                 json={
-                    "model": "glm-5.3-flash",
+                    "model": "test-model-c-flash",
                     "choices": [
                         {
                             "index": 0,

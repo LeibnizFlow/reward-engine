@@ -1,6 +1,6 @@
 # Arm protocols
 
-`arms.py` defines routing for the core loop and custom samplers. The published Claw-Eval and WorkBuddy campaign wrappers currently use legacy A/B/C routing: A is task-only, B receives static reward guidance and delivery review, and C receives Hypothesis guidance. They do not wire periodic Policy Critic callbacks or expose the alternative protocol as a native configuration switch.
+`arms.py` defines routing for the core loop and custom samplers. New Claw-Eval and Office campaigns default to `three_b_fixed_baselines_v1`: three task-only baselines are frozen once, and each round creates B1/B2/B3 with reward guidance, delivery review and bounded same-session revision. Hypothesis is disabled. Both OpenCode and JiuwenSwarm support this protocol. Explicit `legacy_abcd` campaigns retain A/B/C routing; periodic Policy Critic callbacks remain a custom integration feature.
 
 A custom sampler that implements the required feedback callbacks can use `arm_protocol="hypothesis_feedback_v1"` with the following independent arms:
 

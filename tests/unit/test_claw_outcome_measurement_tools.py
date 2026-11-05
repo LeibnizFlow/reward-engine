@@ -1143,11 +1143,11 @@ async def test_closed_final_pass_citing_unread_preview_retains_receipts_as_unkno
 
     model.bounded_stage = True
     result = await defaults(model).run(test, ctx, ev)
-    assert len(calls) == 3 and calls[-1]["evidence_access_closed"]
+    assert len(calls) == 4 and calls[-1]["evidence_access_closed"]
     assert result["status"] == "unknown" and result["error"]
     assert result["unresolved_evidence_refs"] == ["product_1:source:6"]
     assert result["tool_observations"]["tool:check:0"]["result"] == 5
-    assert result["execution_usage"] == {"model_requests": 3, "tool_calls": 1}
+    assert result["execution_usage"] == {"model_requests": 4, "tool_calls": 1}
 
 
 @pytest.mark.asyncio

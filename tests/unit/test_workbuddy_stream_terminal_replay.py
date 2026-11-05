@@ -162,7 +162,7 @@ async def test_completed_opening_fence_uses_existing_lossless_decoder_at_role_bo
 @pytest.mark.asyncio
 async def test_parse_failure_does_not_trigger_opt_in_transport_retry(transport, raw):
     role, responses, calls = transport
-    role.nonstream_recovery_models = {"qwen3.8-max"}
+    role.nonstream_recovery_models = {"test-model-a"}
     responses.append(
         httpx.Response(200, text=encode([event({"content": raw}, "stop")]))
     )
@@ -179,7 +179,7 @@ async def test_nonstream_retry_retains_failed_attempts_and_identical_model_param
     transport, fault
 ):
     role, responses, calls = transport
-    role.nonstream_recovery_models = {"qwen3.8-max"}
+    role.nonstream_recovery_models = {"test-model-a"}
     role.config["role_request_options"] = {
         "thinking": {"type": "disabled"},
         "enable_thinking": False,
@@ -189,7 +189,7 @@ async def test_nonstream_retry_retains_failed_attempts_and_identical_model_param
         {"role_max_tokens": {"judge": 32768}},
     )
     recovered = {
-        "model": "qwen3.8-max",
+        "model": "test-model-a",
         "choices": [
             {
                 "index": 0,
@@ -237,7 +237,7 @@ async def test_json_mode_is_explicit_recorded_and_separate_from_default_cache(
     old_cache = (
         role.output
         / "completed"
-        / (digest({"request": request, "model": "qwen3.8-max"}) + ".json")
+        / (digest({"request": request, "model": "test-model-a"}) + ".json")
     )
     old_bytes = old_cache.read_bytes()
     assert "response_format" not in calls[0]
@@ -252,7 +252,7 @@ async def test_json_mode_is_explicit_recorded_and_separate_from_default_cache(
     assert len(calls) == 2
     assert calls[1]["response_format"] == {"type": "json_object"}
     for body in calls:
-        assert body["model"] == "qwen3.8-max"
+        assert body["model"] == "test-model-a"
         assert body["temperature"] == 0
         assert (
             "INTERNAL protocol role identified by mode"
@@ -267,7 +267,7 @@ async def test_json_mode_is_explicit_recorded_and_separate_from_default_cache(
             digest(
                 {
                     "request": request,
-                    "model": "qwen3.8-max",
+                    "model": "test-model-a",
                     "role_response_format": "json_object",
                 }
             )
@@ -300,7 +300,7 @@ async def test_invalid_json_mode_rejected_before_cached_answer_or_network(
     cache = (
         role.output
         / "completed"
-        / (digest({"request": request, "model": "qwen3.8-max"}) + ".json")
+        / (digest({"request": request, "model": "test-model-a"}) + ".json")
     )
     write(cache, {"answer": {"status": "unknown"}})
     role.config["role_response_format"] = option
@@ -433,7 +433,7 @@ async def test_real_role_activates_existing_bounded_ask_repairs_only_when_opted_
     for body in calls:
         assert body["response_format"] == {"type": "json_object"}
         assert body["temperature"] == 0
-        assert body["model"] == "qwen3.8-max"
+        assert body["model"] == "test-model-a"
     assert role.bounded_stage is bounded
     assert role.stage_timeout_s == 30
 
@@ -509,7 +509,7 @@ async def test_stage_protocol_settings_prevent_old_cache_reuse(transport):
     old = (
         original.output
         / "completed"
-        / (digest({"request": request, "model": "qwen3.8-max"}) + ".json")
+        / (digest({"request": request, "model": "test-model-a"}) + ".json")
     )
     saved = old.read_bytes()
     for timeout in [600, 1200]:
@@ -531,7 +531,7 @@ async def test_stage_protocol_settings_prevent_old_cache_reuse(transport):
                 digest(
                     {
                         "request": request,
-                        "model": "qwen3.8-max",
+                        "model": "test-model-a",
                         "role_bounded_stage": True,
                         "role_stage_timeout_s": timeout,
                     }
@@ -559,7 +559,7 @@ async def test_role_requests_use_shared_stage_budget_including_transport_recover
     from reward_engine.core.outcome.call_budget import ACTIVE
 
     role, responses, calls = transport
-    role.nonstream_recovery_models = {"qwen3.8-max"}
+    role.nonstream_recovery_models = {"test-model-a"}
     responses.append(
         httpx.Response(200, text='data: {"error":{"message":"failed"}}\n\n')
     )

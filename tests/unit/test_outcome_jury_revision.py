@@ -66,6 +66,173 @@ def test_inheritance_is_complete_and_never_mutates_original():
     assert result["revision_protocol"] == VERSION
 
 
+@pytest.mark.parametrize("row", [{"id": "json", "inherit_from": "seat:0"}, {"inherit_from": "json"}])
+def test_inheritance_repair_diagnostic_distinguishes_ids_without_editing(row):
+    before = initial()
+    raw = {"criteria": [deepcopy(row)]}
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, before, {"task": "Task"})
+    detail = caught.value.details
+    assert detail["criterion_index"] == 0
+    assert detail["actual"] == row
+    assert detail["allowed_inheritance"] == [{"inherit_from": "seat:0"}]
+    assert "criterion id" in detail["instruction"]
+    assert raw == {"criteria": [row]}
+
+
+def test_inheritance_diagnostic_lists_all_invalid_references_and_overrides():
+    before = initial()
+    raw = {"criteria": [{"id": "override", "inherit_from": "seat:0"},
+                        {"inherit_from": "seat:0"}, {"inherit_from": "missing"},
+                        {"inherit_from": ["seat:0"]}]}
+    saved = deepcopy(raw)
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, before, {"task": "Task"})
+    assert caught.value.details["invalid_inheritance"] == [
+        {"criterion_index": i, "actual": raw["criteria"][i]} for i in (0, 2, 3)
+    ]
+    assert raw == saved
+
+
+def test_invalid_revision_target_reports_actual_and_allowed_targets():
+    raw = {"criteria": [criterion()], "revision_decisions": [
+        {"source_parts": [initial()[0]["subrequirements"][0]["part_id"]],
+         "action": "retain", "targets": [{"criterion_id": "json", "part_index": 99}]}]}
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, initial(), {"task": "Task"})
+    assert caught.value.details["actual"] == {"criterion_id": "json", "part_index": 99}
+    assert caught.value.details["allowed_targets"] == [target(0), target(1)]
+
+
+def test_invalid_inheritance_does_not_hide_independent_target_errors():
+    raw = {"criteria": [{"inherit_from": "json"},
+                        {**criterion(), "id": "extra"}],
+           "revision_decisions": [
+               {"source_parts": ["seat:0/0"], "action": "retain", "targets": [target(0)]},
+               {"source_parts": ["seat:0/1"], "action": "rewrite",
+                "targets": [{"criterion_id": "extra_typo", "part_index": 1}],
+                "reason": "Clarify", "evidence_refs": ["task"]}]}
+    saved = deepcopy(raw)
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, initial(), {"task": "Task"})
+    details = caught.value.details
+    assert details["invalid_inheritance"]
+    references = details["reference_preflight"]
+    assert references["invalid_targets"] == [
+        {"decision_index": 1, "target_index": 0,
+         "path": ["revision_decisions", 1, "targets", 0],
+         "actual": {"criterion_id": "extra_typo", "part_index": 1}}]
+    assert target(0) in references["possible_targets"]
+    assert {"criterion_id": "extra", "part_index": 1} in references["possible_targets"]
+    assert raw == saved
+
+
+def test_inheritance_preflight_includes_independent_retain_meaning_errors():
+    before = initial()
+    raw = {"criteria": [{"inherit_from": "missing"},
+                        {**criterion(), "id": "changed", "priority_reason": "A changed scope"}],
+           "revision_decisions": [{"source_parts": ["seat:0/0"], "action": "retain",
+               "targets": [{"criterion_id": "changed", "part_index": 0}]}]}
+    saved = deepcopy(raw)
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, before, {"task": "Task"})
+    errors = caught.value.details["reference_preflight"]["retain_errors"]
+    assert errors[0]["path"] == ["revision_decisions", 0]
+    assert errors[0]["retain_mismatches"][0]["field_differences"][0]["field"] == "priority_reason"
+    assert raw == saved
+
+
+def test_inheritance_preflight_does_not_guess_unresolved_target_part_counts():
+    raw = {"criteria": [{"inherit_from": "json", "clauses": [
+        {"text": "Valid JSON"}, {"text": "Keep every exception"}, {"text": "A proposed addition"}]}],
+        "revision_decisions": [{"source_parts": [], "action": "add",
+            "targets": [{"criterion_id": "json", "part_index": 2}],
+            "reason": "A new proposal", "evidence_refs": ["task"]}]}
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, initial(), {"task": "Task"})
+    # Whether the author converts the override into a complete revised criterion
+    # is unresolved. Its part count cannot yet be diagnosed as an invalid target.
+    assert caught.value.details["reference_preflight"]["invalid_targets"] == []
+
+
+def test_revision_diagnostics_cover_multiple_decisions_and_targets():
+    before = initial()
+    raw = {"criteria": [{**criterion(), "priority_reason": "New explanation"}],
+           "revision_decisions": [
+               {"source_parts": [before[0]["subrequirements"][0]["part_id"]], "action": "retain",
+                "targets": [{"criterion_id": "wrong", "part_index": 0},
+                            {"criterion_id": "wrong", "part_index": 1}]},
+               {"source_parts": [before[0]["subrequirements"][1]["part_id"]], "action": "retain",
+                "targets": [target(1)]},
+           ]}
+    saved = deepcopy(raw)
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, before, {"task": "Task"})
+    errors = caught.value.details["decision_errors"]
+    assert [e["decision_index"] for e in errors] == [0, 1]
+    assert [e["target_index"] for e in errors[0]["invalid_targets"]] == [0, 1]
+    assert errors[1]["retain_mismatches"]
+    assert raw == saved
+
+
+def test_retain_diagnostics_locate_nested_literal_quote_difference():
+    base = criterion()
+    base["clauses"] = [{"id": str(i), "text": text,
+                        "source_quotes": [{"ref": "task", "quote": "Use A"}]}
+                       for i, text in enumerate(base["subrequirements"])]
+    before = expectations([base], "seat", "before_products")
+    changed = deepcopy(base)
+    changed["clauses"][0]["source_quotes"][0]["quote"] = "Use B"
+    raw = {"criteria": [changed], "revision_decisions": [
+        {"source_parts": ["seat:0/0"], "action": "retain", "targets": [target(0)]}]}
+    with pytest.raises(ResponseContractError) as caught:
+        materialize(raw, before, {"task": "Use A"})
+    field = caught.value.details["retain_mismatches"][0]["field_differences"][0]
+    assert field["field"] == "clause"
+    assert field["nested_differences"] == [{
+        "path": ["source_quotes", 0, "quote"], "source_present": True, "target_present": True,
+        "source_value": "Use A", "target_value": "Use B"}]
+    assert raw["criteria"][0]["clauses"][0]["source_quotes"][0]["quote"] == "Use B"
+
+
+@pytest.mark.asyncio
+async def test_field_repair_preserves_inherited_criteria():
+    before = initial()
+    reference = {"inherit_from": before[0]["expectation_id"]}
+    added = {**criterion(), "id": "style", "kind": "critical", "origin": "domain"}
+    original = {"criteria": [reference, added]}
+    saved = deepcopy(original)
+    request = {
+        "mode": "outcome_jury_map",
+        "response_recovery": {
+            "details": {"criterion_field_repairs": [{"id": "style"}]},
+            "rejected_response": original,
+        },
+    }
+
+    async def repair(request):
+        assert request["mode"] == "outcome_jury_map_field_repair"
+        return {"updates": [{"id": "style", "kind": "soft", "origin": "domain"}]}
+
+    result = await jury.field_repair_call(repair)(request)
+    assert original == saved
+    assert result["criteria"] == [reference, {**added, "kind": "soft"}]
+    expanded = materialize(result, before, {"task": "Task"})
+    assert expanded["criteria"][0] == criterion()
+    assert expanded["criteria"][1]["kind"] == "soft"
+
+
+def test_field_repair_keeps_provider_request_and_evidence_limits():
+    async def call(request):
+        return request
+
+    call.request_budget_bytes = 250000
+    call.evidence_expansion_limit = 12
+    wrapped = jury.field_repair_call(call)
+    assert wrapped.request_budget_bytes == 250000
+    assert wrapped.evidence_expansion_limit == 12
+
+
 @pytest.mark.parametrize(
     "change",
     [

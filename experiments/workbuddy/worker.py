@@ -2,7 +2,9 @@
 
 import argparse
 import asyncio
+import signal
 from pathlib import Path
+from uuid import uuid4
 
 from experiments.workbuddy.scoring import native_contract, scoring_errors
 from reward_engine.adapters.model_config import validate_native_grader
@@ -48,6 +50,8 @@ def trial_config(spec, config):
     channel = spec["candidate_id"]
     gateway = config["gateway_container"]
     # Absence of the opt-in native route retains the historical actor-shared route.
+    # Compatibility for old frozen configurations without role fields.
+    # Fresh prepare always requires and freezes an explicit actor model.
     model = config.get("roles", {}).get("actor", "deepseek-v4-flash")
     if not isinstance(model, str) or not model.strip():
         raise ValueError("The frozen actor model must be a nonempty name")
@@ -57,8 +61,7 @@ def trial_config(spec, config):
         else {"model": model, "max_tokens": 32768}
     )
     limit = spec["actor_timeout_s"] + (6000 if spec.get("pack") else 300)
-    return TrialConfig.model_validate(
-        {
+    value = {
             "task": {"path": spec["task_path"]},
             "trial_name": channel,
             "trials_dir": str(Path(spec["output"]) / "harbor"),
@@ -91,7 +94,7 @@ def trial_config(spec, config):
                 "mounts": [
                     {
                         "type": "bind",
-                        "source": config["harness_mount"],
+                        "source": config.get("harness_mount", config.get("jiuwenswarm_bundle")),
                         "target": "/opt/opencode-baseline",
                         "read_only": True,
                     }
@@ -113,16 +116,56 @@ def trial_config(spec, config):
                 },
             },
         }
-    )
+    if config.get("actor_backend", "opencode") == "jiuwenswarm":
+        value["agent"]["import_path"] = "reward_engine.adapters.jiuwenswarm.agent:OutcomeJiuwenSwarmAgent"
+        value["agent"]["kwargs"] = {"OUTCOME_SPEC": spec["spec_path"],
+                                    "connection": {"proxy_url": gateway, "model_route": model}}
+        value["environment"]["mounts"] = [{"type": "bind", "source": config["jiuwenswarm_bundle"],
+            "target": "/opt/jiuwenswarm", "read_only": True}]
+    return TrialConfig.model_validate(value)
 
 
-async def run(spec_path):
+async def run(spec_path, *, grade_only=False, campaign_config=None):
     from harbor.trial.trial import Trial
 
     spec = read(spec_path)
     spec["spec_path"] = str(spec_path.resolve())
     config = read(spec["campaign_config"])
+    if campaign_config is not None:
+        from experiments.revision import checkpoint_identity, verifier
+        updated = read(campaign_config)
+        if not grade_only or checkpoint_identity(updated) != checkpoint_identity(config):
+            raise ValueError("Grading revision belongs to another experiment")
+        verifier(updated)(updated)
+        config = updated
     root = Path(spec["output"])
+    if grade_only:
+        from reward_engine.adapters.jiuwenswarm.checkpoints import verify_actor
+        from reward_engine.adapters.workbuddy.io import digest
+
+        actor = read(root / "RESULT.json")
+        verify_actor(actor)
+        binding = digest({"spec": spec["spec_identity"], "candidate": actor["candidate"],
+                          "artifacts": actor["artifact_bindings"], "config": config.get("checkpoint_config_identity", config["identity"])})
+        destination = root / "grading.private" / uuid4().hex
+        destination.mkdir(parents=True)
+        grading_spec = {**spec, "output": str(destination), "grade": True}
+        # Harbor's serialized config redacts verifier credentials. Keep the
+        # validated object in memory; serialization is an audit view, not a
+        # lossless configuration round trip.
+        value = trial_config(grading_spec, config)
+        value.agent.import_path = "reward_engine.adapters.workbuddy.frozen_delivery:FrozenDeliveryAgent"
+        value.agent.kwargs = {"actor_result": str(root / "RESULT.json")}
+        value.environment.mounts = []
+        trial = await Trial.create(value)
+        result = await trial.run()
+        serialized = result.model_dump(mode="json")
+        write(destination / "TRIAL_RESULT.private.json", serialized)
+        official = {**official_result(grading_spec, serialized, destination), "binding": binding,
+                    "record_directory": str(destination)}
+        write(destination / "OFFICIAL.private.json", official)
+        write(root / "OFFICIAL.private.json", official)
+        return 0 if official["status"] == "scored" else 2
     trial = await Trial.create(trial_config(spec, config))
     result = await trial.run()
     serialized = result.model_dump(mode="json")
@@ -133,6 +176,10 @@ async def run(spec_path):
     else:
         row = {"status": "failed", "error": serialized.get("exception_info")}
     row["spec_identity"] = spec["spec_identity"]
+    row["runtime_directory"] = str(root)
+    if config.get("generation_protocol") == "three_b_fixed_baselines_v1":
+        from reward_engine.adapters.jiuwenswarm.checkpoints import artifact_bindings
+        row["artifact_bindings"] = artifact_bindings(root)
     write(root / "RESULT.json", row)
     write(root / "OFFICIAL.private.json", official_result(spec, serialized, root))
     return 0 if row["status"] == "completed" else 2
@@ -141,8 +188,14 @@ async def run(spec_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=Path, required=True)
+    parser.add_argument("--grade-only", action="store_true")
+    parser.add_argument("--campaign-config", type=Path)
     args = parser.parse_args()
-    return asyncio.run(run(args.spec))
+    async def entry():
+        task = asyncio.current_task()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+        return await run(args.spec, grade_only=args.grade_only, campaign_config=args.campaign_config)
+    return asyncio.run(entry())
 
 
 if __name__ == "__main__":

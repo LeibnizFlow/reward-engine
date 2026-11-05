@@ -45,9 +45,14 @@ async def test_claw_serializes_terminal_state_and_explicit_retention(
         def __init__(self, runtime, task_id, output):
             super().__init__()
             self.session, self.execution_s = "synthetic-session", 0
+            self.events = []
             self.finalized = None
             self.closed = False
             actors.append(self)
+
+        @property
+        def turn(self):
+            return len(self.calls)
 
         async def setup(self):
             pass
@@ -107,6 +112,7 @@ async def test_claw_serializes_terminal_state_and_explicit_retention(
 async def test_workbuddy_serializes_terminal_state_and_explicit_retention(
     tmp_path, monkeypatch, review_enabled
 ):
+    from reward_engine.adapters.workbuddy import delivery
     from tests.support.native_actor import native_actor_module
 
     workbuddy_agent = native_actor_module(monkeypatch)
@@ -124,7 +130,7 @@ async def test_workbuddy_serializes_terminal_state_and_explicit_retention(
     actor = ScriptedActor()
     agent.start, agent.resume = actor.start, actor.resume
     monkeypatch.setattr(
-        workbuddy_agent, "registry", lambda *args: defaults(scripted_review)
+        delivery, "registry", lambda *args: defaults(scripted_review)
     )
     await agent.run("instruction", object(), None)
     row = read(tmp_path / "ACTOR_RESULT.json")

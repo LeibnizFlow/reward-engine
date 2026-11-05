@@ -393,7 +393,11 @@ def verify_profile(config):
     if effective_settings(config) != binding["effective"]:
         raise ValueError("Frozen model profile effective settings changed")
     checked = deepcopy(config)
-    apply_profile(checked, profile)
+    if config.get("model_config_precedence") == "file_cli_derived_v1":
+        from reward_engine.adapters.fresh_config import apply_settings
+        apply_settings(checked, profile, config.get("model_config_role_overrides"), config["generation_protocol"])
+    else:
+        apply_profile(checked, profile)
     if effective_settings(checked) != effective_settings(config):
         raise ValueError("Frozen model profile does not match effective settings")
     if any(

@@ -29,8 +29,11 @@ class StreamingClient:
 
     def create(self, **request):
         self.calls += 1
+        # Native prompts already require score/reasoning JSON. Advertise that
+        # same wire contract so providers do not choose prose formatting.
+        request.setdefault("response_format", {"type": "json_object"})
         request.update(
-            model=self.settings.get("model", "qwen3.8-max"),
+            model=self.settings["model"],
             temperature=self.settings.get("temperature", 0.6),
             max_tokens=self.settings.get("max_tokens", 32768),
             stream=True,
@@ -40,11 +43,22 @@ class StreamingClient:
         directory.mkdir()
         write_json(directory / "request.json", request)
         # Two transport/format attempts, never retry because a score is low.
+        format_retry = False
         for attempt in range(2):
             text, finish, models, usage = "", None, set(), None
+            current = request
+            if format_retry:
+                current = {**request, "messages": [*request.get("messages", []), {
+                    "role": "user",
+                    "content": 'Return exactly one JSON object with these exact keys: '
+                    '{"score": <number in [0,1]>, "reasoning": "<brief explanation>"}. '
+                    "No Markdown, headings, tables or other text. Apply the original rubric to the original "
+                    "evidence without changing any scoring rule.",
+                }]}
+            write_json(directory / f"request_{attempt}.json", current)
             try:
                 with (directory / f"stream_{attempt}.jsonl").open("w") as ledger:
-                    with self.client.chat.completions.create(**request) as stream:
+                    with self.client.chat.completions.create(**current) as stream:
                         for chunk in stream:
                             ledger.write(chunk.model_dump_json() + "\n")
                             ledger.flush()
@@ -94,6 +108,11 @@ class StreamingClient:
                     choices=[SimpleNamespace(message=SimpleNamespace(content=clean))]
                 )
             except Exception as error:
+                format_retry = (
+                    isinstance(error, (json.JSONDecodeError, ValueError, AttributeError))
+                    and finish == "stop" and bool(models)
+                    and models.issubset(set(self.settings.get("allowed_models", [request["model"]])))
+                )
                 write_json(
                     directory / f"failure_{attempt}.json",
                     {
@@ -144,13 +163,13 @@ def grade(request, output):
     if any(key not in snapshot for key in required):
         raise ValueError("Required native terminal snapshot entries are missing")
     settings = request.get("judge", {})
-    base_url = settings.get("base_url", "https://yibuapi.com/v1")
-    model = settings.get("model", "qwen3.8-max")
+    base_url = settings["base_url"]
+    model = settings["model"]
     # Native grader imports remain private; native request formatting is unchanged.
     judge = LLMJudge(model_id=model, base_url=base_url, api_key="unused")
     judge.client.close()
     client = OpenAI(
-        api_key=os.environ[settings.get("api_key_env", "YIBU_API_KEY")],
+        api_key=os.environ[settings.get("api_key_env", "OPENAI_API_KEY")],
         base_url=base_url,
         timeout=settings.get("read_timeout_s", 120),
         max_retries=0,
@@ -228,7 +247,7 @@ def grade_artifact(request, output):
     judge = LLMJudge(model_id=model, base_url=base_url, api_key="unused")
     judge.client.close()
     client = OpenAI(
-        api_key=os.environ[settings.get("api_key_env", "YIBU_API_KEY")],
+        api_key=os.environ[settings.get("api_key_env", "OPENAI_API_KEY")],
         base_url=base_url,
         timeout=settings.get("read_timeout_s", 120),
         max_retries=0,

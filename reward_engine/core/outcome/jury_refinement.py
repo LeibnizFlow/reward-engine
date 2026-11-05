@@ -7,10 +7,11 @@ clauses enter the next selection pool; coverage follows explicit rewrite edges.
 from copy import deepcopy
 
 from reward_engine.core.batch import BatchPolicy, collect_batch
-from reward_engine.core.outcome.context import ask, require_refs
+from reward_engine.core.outcome.context import ResponseContractError, ask, require_refs
 from reward_engine.core.outcome.jury_drafts import (
     expectations,
     selection_inputs,
+    selector_conflicts,
 )
 from reward_engine.core.outcome.jury_prompts import (
     CONSTRUCTION_PROMPT_VERSION,
@@ -48,6 +49,13 @@ def check_retired_clauses(raw, inputs):
         raise ValueError(
             "Return a part_decisions list; omitted selectors remain deferred"
         )
+    conflicts = selector_conflicts(decisions, parts)
+    if conflicts:
+        failure = ResponseContractError("part_decisions", "Unknown or duplicate active clause selector")
+        failure.details.update(selector_conflicts=conflicts, allowed_selection_ids=list(parts),
+                               instruction="Resolve every listed selector collision or unknown reference "
+                               "at its original draft path. Do not invent IDs or silently drop requirements.")
+        raise failure
     seen, retained, withdrawn, reconsidered = set(), set(), set(), set()
     for decision in decisions:
         if not isinstance(decision, dict) or not isinstance(
@@ -86,8 +94,52 @@ def check_retired_clauses(raw, inputs):
         ]
         if isinstance(text, str)
     }
-    if final & (withdrawn - retained):
-        raise ValueError("A withdrawn clause remains in the published criteria")
+    conflicts = final & (withdrawn - retained)
+    if conflicts:
+        failure = ResponseContractError("part_decisions", "A withdrawn clause remains in the published criteria")
+        rows = []
+        for text in sorted(conflicts):
+            paths = []
+            for i, criterion in enumerate(raw.get("criteria", [])):
+                if not isinstance(criterion, dict):
+                    continue
+                if criterion.get("standard") == text:
+                    paths.append(["criteria", i, "standard"])
+                paths.extend(["criteria", i, "subrequirements", j]
+                             for j, value in enumerate(criterion.get("subrequirements", [])) if value == text)
+                paths.extend(["criteria", i, "clauses", j, "text"]
+                             for j, value in enumerate(criterion.get("clauses", []))
+                             if isinstance(value, dict) and value.get("text") == text)
+            rows.append({"text": text, "criterion_paths": paths,
+                         "decision_indices": [i for i, d in enumerate(decisions)
+                                              if d.get("action") != "retain" and any(parts[p] == text for p in d["parts"])]})
+        indices = sorted({i for row in rows for i in row["decision_indices"]})
+        locations = []
+        for row in rows:
+            for path in row["criterion_paths"]:
+                criterion = raw["criteria"][path[1]]
+                location = {"path": path, "criterion_id": criterion.get("id"), "text": row["text"]}
+                if path[2] == "clauses":
+                    location["clause_id"] = criterion["clauses"][path[3]].get("id")
+                locations.append(location)
+        failure.details.update(
+            conflicts=rows,
+            criterion_locations=locations,
+            conflicting_decisions=[{
+                "decision_index": i, "decision": deepcopy(decisions[i]),
+                "source_texts": {p: parts[p] for p in decisions[i]["parts"]},
+            } for i in indices],
+            instruction="Resolve the contradiction between these published clause locations and "
+            "their decisions. Indices are zero-based. Match both the path and stable criterion/clause "
+            "IDs in the repair base before editing. conflicting_decisions shows the validated "
+            "normalization: binding_resolution records any supplied retain that explicitly merged "
+            "different texts into one named clause. That merge withdraws other original texts; "
+            "the unnormalized repair base still has the supplied action. If distinct clauses are "
+            "intended to remain, author separate consistent bindings; otherwise author consistent "
+            "criteria and decisions against the Task. These diagnostics do not choose which "
+            "requirements to retain or remove.",
+        )
+        raise failure
     if (final | retained) & (set(inputs.get("_retired_clauses", [])) - reconsidered):
         raise ValueError(
             "A superseded historical clause cannot return without an explicit evidenced rewrite"

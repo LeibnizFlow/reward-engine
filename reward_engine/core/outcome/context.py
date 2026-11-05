@@ -5,6 +5,11 @@ import json
 import re
 from copy import deepcopy
 
+from reward_engine.core.outcome.response_receipts import (
+    ACTIVE_RESPONSE,
+    ResponseReceipt,
+)
+
 
 class ResponseContractError(ValueError):
     """Completed output violated its declared contract; one bounded redo is allowed."""
@@ -533,7 +538,14 @@ def measurement_prior_view(context, evidence, test):
 
 async def ask(call, mode, context, evidence, instruction, response, **kwargs):
     """Opt-in stage boundary; old archived request contracts remain unchanged."""
-    if not getattr(call, "bounded_stage", False):
+    from reward_engine.core.outcome.authored_json import LIMITS, enabled
+
+    v2 = enabled(call)
+    if getattr(call, "protocol_edits", False) and not v2:
+        from reward_engine.core.outcome.protocol_repair import ProtocolRepairCall
+
+        call = ProtocolRepairCall(call, max_bytes=kwargs.get("max_bytes"))
+    if not getattr(call, "bounded_stage", False) and not v2:
         return await _ask(
             call, mode, context, evidence, instruction, response, **kwargs
         )
@@ -541,17 +553,63 @@ async def ask(call, mode, context, evidence, instruction, response, **kwargs):
 
     from reward_engine.core.outcome.call_budget import ACTIVE
 
-    marker = ACTIVE.set({"requests": 0, "contract_repairs": 0, "syntax_repairs": 0})
+    completed = getattr(call, "completed_operations", None) if v2 and mode != "outcome_measure" else None
+    binding = {"context": context, "evidence": evidence, "instruction": instruction,
+               "response": response, "options": {k: v for k, v in kwargs.items() if not callable(v)}}
+    if completed is not None:
+        def revalidate(saved):
+            from reward_engine.core.outcome.authored_json import expand
+
+            if kwargs.get("validate") is None:
+                raise ValueError("Historical operation lacks a full current validator")
+            if mode in {"outcome_expectations", "outcome_jury_map", "outcome_jury_reduce"}:
+                raw = saved.get("authored_json", {}).get("draft")
+                if raw is None:
+                    raise ValueError("Historical operation lacks a revalidatable authored draft")
+                from reward_engine.core.outcome.source_projection import (
+                    enabled as canonical_enabled,
+                )
+
+                saved = expand(raw, mode, kwargs.get("extra") or {}, evidence,
+                               canonical=canonical_enabled(call), context=context)
+            return kwargs["validate"](saved)
+
+        cached = completed.load(mode, binding, validate=revalidate)
+        if cached is not None:
+            return cached
+    import time
+    from uuid import uuid4
+
+    from reward_engine.core.outcome.source_projection import (
+        enabled as canonical_enabled,
+    )
+
+    budget = {"requests": 0, "contract_repairs": 0, "syntax_repairs": 0,
+              **({"max_requests": LIMITS["requests"]} if v2 else {})}
+    if canonical_enabled(call):
+        started_at = time.time()
+        budget.update(transport_recoveries=0, logical_operation_id=uuid4().hex,
+                      receipts=[], mode=mode, started_at=started_at, deadline=started_at + LIMITS["timeout_s"])
+    marker = ACTIVE.set(budget)
+    # All retries and evidence follow-ups share this operation and wall clock.
     try:
-        kwargs["max_contract_retries"] = 1
+        kwargs["max_contract_retries"] = 3 if v2 else getattr(call, "contract_retries", 1)
         kwargs["max_syntax_retries"] = 1
         kwargs["max_evidence_rounds"] = 2
         kwargs["close_evidence"] = True
-        async with asyncio.timeout(getattr(call, "stage_timeout_s", 480)):
-            return await _ask(
+        async with asyncio.timeout(LIMITS["timeout_s"] if v2 else getattr(call, "stage_timeout_s", 480)):
+            result = await _ask(
                 call, mode, context, evidence, instruction, response, **kwargs
             )
+            if completed is not None:
+                completed.save(mode, binding, result)
+            return result
+    except BaseException as error:
+        error.operation_budget = deepcopy(budget)
+        raise
     finally:
+        if hasattr(call, "record_operation"):
+            call.record_operation(deepcopy(budget))
         ACTIVE.reset(marker)
 
 
@@ -603,22 +661,50 @@ async def _ask(
     independent of provider SDKs; a stage's explicit max_bytes takes precedence.
     The same bound also covers evidence expansion, without truncating any input.
     """
+    from reward_engine.core.outcome import authored_json
+    from reward_engine.core.outcome.source_projection import (
+        enabled as canonical_enabled,
+    )
+
+    v2 = authored_json.enabled(call)
+    canonical = canonical_enabled(call)
+    if v2:
+        response = authored_json.contract(mode, response, canonical=canonical)
+        instruction = authored_json.instruction(mode, instruction)
+        if canonical:
+            instruction += " " + authored_json.JSON_SYNTAX_INSTRUCTION
+        if canonical and mode in {"outcome_expectations", "outcome_jury_map", "outcome_jury_reduce"}:
+            instruction += " Return 1–20 criteria. response.criteria describes the allowed item forms; the actual criteria field is a JSON array."
+            if mode == "outcome_expectations":
+                instruction += " Independent expectations allow only full requirements; inherit_from is forbidden."
+        if "response" not in response:
+            instruction += (
+                " The request's response field is a SCHEMA, not an output envelope. "
+                "Place its fields directly at the root of your JSON object: "
+                + ", ".join(response)
+                + ". Do not put the answer inside a response object."
+            )
+    last_failure = None
     if max_bytes is None:
         max_bytes = getattr(
             call, "max_request_bytes", getattr(call, "request_budget_bytes", 160000)
         )
     if type(max_bytes) is not int or max_bytes < 1:
         raise ValueError("max_request_bytes must be a positive integer")
+    contract_limit = 3 if v2 else 1
+    configured_contract_limit = getattr(call, "contract_retries", 1)
+    if not v2 and getattr(call, "bounded_stage", False) and configured_contract_limit in (2, 3):
+        contract_limit = configured_contract_limit
     if (
         type(max_contract_retries) is not int
-        or max_contract_retries not in (0, 1)
+        or not 0 <= max_contract_retries <= contract_limit
         or type(max_syntax_retries) is not int
         or max_syntax_retries not in (0, 1)
         or type(max_evidence_rounds) is not int
         or not 0 <= max_evidence_rounds <= 2
     ):
         raise ValueError(
-            "Use at most one contract redo, one syntax redo and two evidence expansions"
+            "Use the configured contract redo limit, at most one syntax redo and two evidence expansions"
         )
     expansion_limit = getattr(call, "evidence_expansion_limit", 6)
     if type(expansion_limit) is not int or expansion_limit < 1:
@@ -679,22 +765,46 @@ async def _ask(
         "mode": mode,
     }
     request.update(deepcopy(extra or {}))
+    if v2:
+        catalog = authored_json.source_catalog(mode, extra or {})
+        if catalog:
+            request["source_catalog"] = catalog
+        request["role_output_protocol"] = authored_json.VERSION
+        request["role_recovery_policy"] = authored_json.RECOVERY
     if reducer_projection:
         request["reducer_projection"] = VERSION
         request["evidence_access"] += " " + NAVIGATION_INSTRUCTION
+    if canonical:
+        from reward_engine.core.outcome.source_projection import project
+
+        request, source_audit = project(request, policy=getattr(call, "role_contract_policy", None))
+        if hasattr(call, "record_projection"):
+            call.record_projection(source_audit)
     reads, closing = 0, False
     for _ in range(max_evidence_rounds + 1 + int(close_evidence)):
         recovery = None
+        closed_assessment = None
         syntax_repairs, contract_repairs = 0, 0
         for retry in range(max_contract_retries + max_syntax_retries + 1):
+            if v2 and close_evidence and (reads >= max_evidence_rounds or len(request.get("requested_evidence", {})) >= expansion_limit):
+                closing = True
+                request.update(evidence_access_closed=True,
+                               evidence_followup="Evidence expansion is closed. Return the complete final answer from full context and already supplied records. Do not cite unread previews as support; leave unsupported judgments unknown. Return no need_evidence.")
             current = deepcopy(request)
+            if v2:
+                current["evidence_budget"] = {
+                    "used_rounds": reads,
+                    "remaining_rounds": 0 if closing else max(0, max_evidence_rounds - reads),
+                    "remaining_new_refs": 0 if closing else max(0, expansion_limit - len(request.get("requested_evidence", {}))),
+                    "final_answer_required": closing,
+                }
             if retry:
                 current["response_recovery"] = recovery
             if hasattr(call, "prepare_request"):
                 current = call.prepare_request(current)
             if reducer_projection:
                 before_sharing = current
-                current = share_texts(current)
+                current = current if v2 else share_texts(current)
                 record_projection(
                     {
                         "version": VERSION,
@@ -724,6 +834,8 @@ async def _ask(
             # A transport failure can occur before assigning result. Never echo the
             # previous evidence stage's successful reply as this attempt's failure.
             rejected_response = None
+            receipt = ResponseReceipt()
+            receipt_token = ACTIVE_RESPONSE.set(receipt)
             try:
                 result = await call(current)
                 if not isinstance(result, dict):
@@ -731,14 +843,57 @@ async def _ask(
                 rejected_response = deepcopy(
                     result
                 )  # Preserve the wire value even if validation mutates it.
-                if result.get("need_evidence") == [] and len(result) > 1:
+                if not v2 and result.get("need_evidence") == [] and len(result) > 1:
                     # An empty optional read list is a final-answer envelope,
                     # not an invalid source citation. The actual answer still
                     # passes the operation's full validator below.
                     result = deepcopy(result)
                     result.pop("need_evidence")
-                result = response_payload(result, response)
+                result = result if v2 else response_payload(result, response)
+                if closed_assessment is not None and not v2:
+                    from reward_engine.core.outcome.evidence_repair import (
+                        preserve_supported_claims,
+                    )
+
+                    preserve_supported_claims(closed_assessment, result, view)
+                if (
+                    closing
+                    and (v2 or mode == "outcome_measure")
+                    and verify_used_previews
+                    and getattr(call, "bounded_stage", False)
+                    and "need_evidence" not in result
+                ):
+                    unread = [r for r in used_previews(result, view)
+                              if r not in request.get("requested_evidence", {})]
+                    if unread:
+                        if not v2:
+                            closed_assessment = (deepcopy(result), unread)
+                        failure = ResponseContractError(
+                            "evidence_refs", "Final assessment cites unread evidence after access closed"
+                        )
+                        failure.details.update(
+                            unread_evidence_refs=unread,
+                            evidence_access_closed=True,
+                            supplied_evidence_refs=list(request.get("requested_evidence", {})),
+                        )
+                        failure.recovery_instruction = (
+                            "Correct the unsupported citations and claims in this rejected final assessment. "
+                            "Evidence access remains closed; no new reads or tools are permitted. "
+                            "Do not merely delete citations while retaining unsupported conclusions, or "
+                            "substitute unrelated handles. Use existing supplied observations to support "
+                            "each claim; leave unverified material facts unknown and make the overall "
+                            "status/reason/gap consistent. Preserve unaffected supported findings. "
+                            "Preserve structured claim count/order, claim text and verdict relevance; "
+                            "only claims citing the listed unread sources may change their assessment. "
+                            "The provisional assessment is not an accepted verdict. Return the full contract."
+                        )
+                        raise failure
                 if "need_evidence" in result:
+                    if v2 and closing:
+                        failure = ResponseContractError("need_evidence", "Evidence expansion is closed; submit a complete final answer using supplied records, with unsupported judgments unknown")
+                        failure.details.update(evidence_access_closed=True, remaining_rounds=0,
+                                               requested_refs=deepcopy(result["need_evidence"]))
+                        raise failure
                     try:
                         require_refs(result["need_evidence"], evidence)
                     except (ValueError, TypeError, KeyError) as error:
@@ -775,6 +930,9 @@ async def _ask(
                         raise failure from error
                 elif validate:
                     try:
+                        if v2:
+                            result = authored_json.expand(result, mode, extra or {}, evidence,
+                                                          canonical=canonical, context=context)
                         result = validate(result)
                     except ResponseContractError:
                         raise
@@ -789,15 +947,29 @@ async def _ask(
                     # A draft consumer may retain this rejected object with its
                     # errors. It is never the previous evidence stage's reply.
                     error.rejected_response = deepcopy(rejected_response)
+                if v2:
+                    if getattr(error, "details", {}).get("recovery_terminal") is True:
+                        receipt.reject(error)
+                        raise
+                    failed_identity = json.dumps([rejected_response if rejected_response is not None else getattr(error, "doc", None),
+                                                  getattr(error, "details", str(error))], sort_keys=True, ensure_ascii=False)
+                    if last_failure == failed_identity:
+                        receipt.reject(error)
+                        raise
+                    last_failure = failed_identity
                 syntax = (
                     isinstance(error, json.JSONDecodeError) and max_syntax_retries > 0
                 )
                 if syntax:
                     if syntax_repairs >= max_syntax_retries:
+                        receipt.reject(error)
                         raise
                     syntax_repairs += 1
                 else:
                     if contract_repairs >= max_contract_retries:
+                        receipt.reject(error)
+                        if isinstance(error, ResponseContractError) and error.details.get("unread_evidence_refs"):
+                            raise EvidenceReadLimit(error.details["unread_evidence_refs"]) from error
                         raise
                     contract_repairs += 1
                 from reward_engine.core.outcome.call_budget import ACTIVE
@@ -805,7 +977,10 @@ async def _ask(
                 budget = ACTIVE.get()
                 if budget is not None:
                     budget_key = "syntax_repairs" if syntax else "contract_repairs"
-                    if budget.get(budget_key, 0):
+                    if budget.get(budget_key, 0) >= (max_contract_retries if not syntax else 1):
+                        receipt.reject(error)
+                        if isinstance(error, ResponseContractError) and error.details.get("unread_evidence_refs"):
+                            raise EvidenceReadLimit(error.details["unread_evidence_refs"]) from error
                         raise
                     budget[budget_key] = budget.get(budget_key, 0) + 1
                 recovery = {
@@ -818,10 +993,55 @@ async def _ask(
                         error, "recovery_instruction", CONTRACT_REPAIR_INSTRUCTION
                     ),
                 }
+                if v2:
+                    from reward_engine.core.outcome.construction import fingerprint
+
+                    recovery["details"] = authored_json.diagnostics(recovery["details"])
+                    recovery["instruction"] = (
+                        "Return a COMPLETE revised JSON object in the supplied compact schema. "
+                        "Reconsider and correct the content against the original Task, public evidence and all diagnostics. "
+                        "Do not return patches, paths, hashes, restoration IDs or field corrections. "
+                        "Do not invent evidence, weaken obligations to pass validation, or waive failed tools. "
+                        "Diagnostic paths identify errors only. The draft identity binds this attempt; do not copy it."
+                    )
+                    recovery["draft_identity"] = fingerprint(rejected_response if rejected_response is not None else getattr(error, "doc", None))
+                    if canonical:
+                        from reward_engine.core.outcome.draft_recovery import (
+                            INSTRUCTION as draft_repair_instruction,
+                        )
+                        from reward_engine.core.outcome.draft_recovery import (
+                            worklist,
+                        )
+
+                        repair_work = worklist(rejected_response, mode, extra or {}, recovery["details"])
+                        if repair_work is not None:
+                            recovery["repair_worklist"] = repair_work
+                            recovery["instruction"] += " " + draft_repair_instruction
+                            # A failed quotation needs its cited text before the
+                            # next correction, not only after a valid draft. Use
+                            # the same bounded read transition as need_evidence.
+                            quoted_refs = [row["quoted_ref"] for row in repair_work["citation_checks"]
+                                           if row["code"] == "QUOTE_EXACT" and row.get("quoted_ref") in evidence]
+                            unread = [ref for ref in used_previews({"evidence_refs": quoted_refs}, view)
+                                      if ref not in request.get("requested_evidence", {})]
+                            if (unread and not closing and reads < max_evidence_rounds
+                                    and len(request.get("requested_evidence", {})) < expansion_limit):
+                                request, reads, closing = expand_evidence_request(
+                                    request, evidence, unread, reads,
+                                    max_evidence_rounds=max_evidence_rounds,
+                                    close_evidence=close_evidence, closing=closing,
+                                    expansion_limit=expansion_limit,
+                                    max_attached_bytes=attachment_cap, full_record_refs=full_record_refs,
+                                )
                 if isinstance(error, json.JSONDecodeError):
                     recovery["rejected_raw_response"] = error.doc
+                    if canonical:
+                        recovery["details"] = authored_json.syntax_diagnostics(error)
+                        recovery["instruction"] += " " + authored_json.JSON_SYNTAX_INSTRUCTION
                 elif rejected_response is not None:
                     recovery["rejected_response"] = rejected_response
+            finally:
+                ACTIVE_RESPONSE.reset(receipt_token)
         refs = result.get("need_evidence")
         if refs is None:
             refs = (
@@ -843,18 +1063,25 @@ async def _ask(
                 "passage is not necessarily the whole document. A title/link or research summary alone "
                 "does not establish what the source says. Distinguish missing observation from an actual product defect."
             )
-        request, reads, closing = expand_evidence_request(
-            request,
-            evidence,
-            refs,
-            reads,
-            max_evidence_rounds=max_evidence_rounds,
-            close_evidence=close_evidence,
-            closing=closing,
-            expansion_limit=expansion_limit,
-            max_attached_bytes=attachment_cap,
-            full_record_refs=full_record_refs,
-        )
+        try:
+            request, reads, closing = expand_evidence_request(
+                request,
+                evidence,
+                refs,
+                reads,
+                max_evidence_rounds=max_evidence_rounds,
+                close_evidence=close_evidence,
+                closing=closing,
+                expansion_limit=expansion_limit,
+                max_attached_bytes=attachment_cap,
+                full_record_refs=full_record_refs,
+            )
+        except EvidenceReadLimit as error:
+            # A reply that cannot finish the evidence protocol is not a final
+            # assessment. Keep its receipt, but let an explicit resume obtain
+            # a fresh final response under exactly the same read allowance.
+            receipt.reject(error)
+            raise
     raise ValueError("Missing final response")
 
 

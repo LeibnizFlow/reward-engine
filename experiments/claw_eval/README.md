@@ -1,12 +1,15 @@
-# Claw-Eval
+# Claw-Eval adapter
 
-Follow [native setup](../README.md) before running the OpenCode campaign:
+Set `CLAW_EVAL_ROOT` to the benchmark checkout and `CLAW_EVAL_TASK_MANIFEST` to its pinned 104-task manifest. Install the native `claw-eval-agent:latest` Docker image. Missing declared fixtures require an explicit verified overlay.
+
+Install controller dependencies with `pip install '.[runtime,workbuddy]'`. Supply a private model profile using the [configuration interface](../../docs/configuration.md).
 
 ```sh
-python -m experiments.claw_eval.opencode.campaign prepare --output _local/runs/new_claw
-python -m experiments.claw_eval.opencode.campaign run --output _local/runs/new_claw --canary-only
+export OPENAI_API_KEY='YOUR_API_KEY'
+export REWARD_ENGINE_BACKEND_URL=https://api.example.com/v1
+python -m experiments.claw_eval.campaign prepare --output _local/runs/claw_eval-opencode \
+  --runtime opencode --model-config /path/to/models.json
+python -m experiments.claw_eval.campaign run --output _local/runs/claw_eval-opencode
 ```
 
-Configure `CLAW_EVAL_ROOT`, `CLAW_EVAL_TASK_MANIFEST`, and `OPENCODE_BINARY` for the benchmark checkout, task manifest, and OpenCode executable. Defaults use the restored local layout. Optional fixture overlays must pass their identity checks.
-
-The command above runs the canary set in the prepared configuration; this may include multiple tasks. Omit `--canary-only` to run the prepared campaign. Use `prepare --help` for provider options and `python -m experiments.claw_eval.opencode.continue_rounds --help` for subsequent eligible algorithm rounds. Each run freezes its configuration and source identities; native grading remains separate from online selection. See [native grader requirements](../../reward_engine/adapters/claw_eval/NATIVE_GRADER_HOOK.md).
+For JiuwenSwarm, replace `--runtime opencode` with `--runtime jiuwenswarm --jiuwenswarm-bundle /path/to/immutable/bundle` and choose a new output directory. Both runtimes support the default `three_b_fixed_baselines_v1` protocol. Use `--generation-protocol legacy_abcd` for the legacy protocol explicitly. Native scores are recorded separately from RewardPack construction, feedback and selection.

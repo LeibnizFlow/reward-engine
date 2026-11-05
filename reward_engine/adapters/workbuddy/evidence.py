@@ -73,11 +73,18 @@ def _pptx_shape(shape):
         "height": shape.height,
     }
     if shape.has_table:
-        content["table"] = [
-            [cell.text for cell in row.cells] for row in shape.table.rows
-        ]
+        table = shape.table
+        content["table"] = [[cell.text for cell in row.cells] for row in table.rows]
+        content["table_geometry"] = {
+            "row_heights": [row.height for row in table.rows],
+            "column_widths": [column.width for column in table.columns],
+            "cells": [[{"is_merge_origin": cell.is_merge_origin, "is_spanned": cell.is_spanned,
+                        "span_width": cell.span_width, "span_height": cell.span_height}
+                       for cell in row.cells] for row in table.rows],
+        }
     if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
         content["shapes"] = [_pptx_shape(child) for child in shape.shapes]
+        content["children_coordinate_system"] = "group-local; not rendered slide coordinates"
     return content
 
 
@@ -91,6 +98,8 @@ def inspect_file(path):
         formulas = load_workbook(path, data_only=False, read_only=True)
         cached = load_workbook(path, data_only=True, read_only=True)
         try:
+            cached_values = {sheet.title: {cell.coordinate: cell.value for row in sheet for cell in row
+                                           if cell.value is not None} for sheet in cached}
             return {
                 "sheets": [
                     {
@@ -99,9 +108,7 @@ def inspect_file(path):
                             {
                                 "cell": cell.coordinate,
                                 "value_or_formula": cell.value,
-                                "cached_value": cached[sheet.title][
-                                    cell.coordinate
-                                ].value,
+                                "cached_value": cached_values[sheet.title].get(cell.coordinate),
                             }
                             for row in sheet
                             for cell in row
@@ -129,6 +136,9 @@ def inspect_file(path):
 
         deck = Presentation(path)
         return {
+            "parser_version": "pptx_tables_groups_v1",
+            "slide_width": deck.slide_width,
+            "slide_height": deck.slide_height,
             "slide_count": len(deck.slides),
             "slides": [
                 {

@@ -1,5 +1,7 @@
 """Prospective complete freezes: real prepare/validate, offline filesystem controls."""
 
+from tests.support.model_roles import role_mapping as fixture_roles
+
 import os
 import shutil
 import sys
@@ -9,7 +11,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from experiments import validate_pipeline
+from tests.validation import validate_pipeline
 from experiments.workbuddy import experiment
 from reward_engine.adapters.workbuddy import public_delivery_audit as auditor
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
@@ -21,7 +23,7 @@ RESOURCES = [
     "workbuddy_swarm/transport.ts",
     "workbuddy_swarm/runtime.json",
     "workbuddy_swarm/resource",
-    "experiments/validate_pipeline.py",
+    "tests/validation/validate_pipeline.py",
 ]
 
 
@@ -35,7 +37,7 @@ def prepare_public_run(tmp_path, monkeypatch, task, contract):
         (path / "task.toml").write_text("[agent]\ntimeout_sec = 10\n")
         (path / "instruction.md").write_text(task["prompt"])
     (upstream / ".env").write_text(
-        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=http://offline.invalid/v1\n"
+        "OPENAI_API_KEY=offline-fixture\nOPENAI_BASE_URL=http://offline.invalid/v1\n"
     )
     binary = upstream / "configs/harnesses/opencode-swarm/docker/rootfs/bin/opencode"
     binary.parent.mkdir(parents=True)
@@ -80,6 +82,7 @@ def prepare_public_run(tmp_path, monkeypatch, task, contract):
         SimpleNamespace(
             output=tmp_path / "run",
             benchmark="workbuddy",
+            role_models=[f"{k}={v}" for k,v in fixture_roles().items()],
             task_id=task["task_id"],
             public_delivery_contract=supplied,
             credentials=upstream / ".env",

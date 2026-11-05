@@ -1,0 +1,16 @@
+{
+  "schema": "reward_engine.model_config.v1",
+  "roles": {
+    "actor": "YOUR_MODEL_ID",
+    "jury_reducer": "YOUR_MODEL_ID",
+    "hypothesis_chooser": "YOUR_MODEL_ID",
+    "harness_designer": "YOUR_MODEL_ID",
+    "reward_calibration_judge": "YOUR_MODEL_ID",
+    "jury_member_1": "YOUR_MODEL_ID",
+    "jury_member_2": "YOUR_MODEL_ID",
+    "jury_member_3": "YOUR_MODEL_ID",
+    "hypothesis_member_1": "YOUR_MODEL_ID",
+    "hypothesis_member_2": "YOUR_MODEL_ID",
+    "hypothesis_member_3": "YOUR_MODEL_ID"
+  }
+}

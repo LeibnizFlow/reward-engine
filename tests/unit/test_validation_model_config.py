@@ -1,5 +1,7 @@
 """Explicit prospective model profiles; temporary fixtures and offline Role calls only."""
 
+from tests.support.model_roles import role_mapping as fixture_roles
+
 import asyncio
 import hashlib
 import json
@@ -13,7 +15,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.claw_eval.opencode import campaign
 from experiments.workbuddy import experiment
 from reward_engine.adapters import model_config as profiles
@@ -41,14 +43,14 @@ def offline(monkeypatch):
 
 
 def profile_value():
-    roles = {role: "qwen3.8-max" for role in profiles.ROLES}
-    roles["actor"] = "qwen3.8-flash"
+    roles = {role: "test-model-a" for role in profiles.ROLES}
+    roles["actor"] = "test-actor"
     for family in ("jury", "hypothesis"):
         roles.update(
             {
                 f"{family}_member_{i}": model
                 for i, model in enumerate(
-                    ("qwen3.8-max", "deepseek-v4-flash-0731", "glm-5.3"), 1
+                    ("test-model-a", "test-reasoner-revision", "test-model-c"), 1
                 )
             }
         )
@@ -58,7 +60,7 @@ def profile_value():
         "role_max_tokens": {role: 32768 for role in profiles.ROLES - {"actor"}},
         "model_aliases": {},
         "concurrency": {"model_concurrency": 2, "per_model_concurrency": 1},
-        "role_request_options_by_model": {"glm-5.3": {}},
+        "role_request_options_by_model": {"test-model-c": {}},
     }
 
 
@@ -68,7 +70,7 @@ def launcher(request, tmp_path, monkeypatch):
     output = tmp_path / "run"
     credentials = tmp_path / "fixture.env"
     credentials.write_text(
-        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=http://offline.invalid/v1\n"
+        "OPENAI_API_KEY=offline-fixture\nOPENAI_BASE_URL=http://offline.invalid/v1\n"
     )
 
     def freeze(destination, **kwargs):
@@ -86,9 +88,9 @@ def launcher(request, tmp_path, monkeypatch):
             "code": str(code),
             "tasks_root": str(output / "dataset/tasks"),
             "harness_mount": str(binary.parent.parent),
-            "roles": experiment.role_mapping(),
+            "roles": fixture_roles(),
             "model_aliases": {
-                "deepseek-v4-flash": ["deepseek-v4-flash-0731", "deepseek-flash"]
+                "test-reasoner": ["test-reasoner-revision", "test-reasoner-alias"]
             },
             "model_concurrency": 2,
             "per_model_concurrency": 2,
@@ -162,7 +164,7 @@ def test_prepare_freezes_exact_bytes_and_effective_protocol(launcher):
     if launcher.benchmark == "workbuddy":
         assert (
             config["official_protocol"]
-            == "pinned WorkBuddy CompositeVerifier with qwen3.8-flash"
+            == "pinned WorkBuddy CompositeVerifier with test-actor"
         )
     assert config["model_aliases"] == {}
     assert config["rounds"] == 3 and config["full_audit"] is True
@@ -196,10 +198,10 @@ def test_default_configuration_and_protocol_remain_unchanged(launcher):
     config = launcher.prepare()
     assert "model_config" not in config
     assert not (launcher.output / "model_config.json").exists()
-    assert config["roles"] == experiment.role_mapping()
-    assert config["model_aliases"]["deepseek-v4-flash"] == [
-        "deepseek-v4-flash-0731",
-        "deepseek-flash",
+    assert config["roles"] == fixture_roles()
+    assert config["model_aliases"]["test-reasoner"] == [
+        "test-reasoner-revision",
+        "test-reasoner-alias",
     ]
     assert config["model_concurrency"] == config["per_model_concurrency"] == 6
     limits = config["validation_role_limits"]["role_max_tokens"]
@@ -235,13 +237,13 @@ def test_default_configuration_and_protocol_remain_unchanged(launcher):
         ("model_aliases", {"model": ["alias", "alias"]}),
         (
             "role_request_options_by_model",
-            {"glm-5.3": {"thinking": {"type": "disabled"}}},
+            {"test-model-c": {"thinking": {"type": "disabled"}}},
         ),
         (
             "role_request_options_by_model",
-            {"glm-5.3": {"thinking": {"type": "disabled"}, "enable_thinking": 0}},
+            {"test-model-c": {"thinking": {"type": "disabled"}, "enable_thinking": 0}},
         ),
-        ("role_request_options_by_model", {"glm-5.3": {"extra": True}}),
+        ("role_request_options_by_model", {"test-model-c": {"extra": True}}),
     ],
 )
 def test_invalid_profiles_rejected_before_benchmark_preparation(launcher, field, value):
@@ -300,7 +302,7 @@ def test_tampered_profile_rejected_before_gateway(launcher, monkeypatch, tamper)
     elif tamper == "tokens":
         config["validation_role_limits"]["role_max_tokens"]["jury_reducer"] = 1
     elif tamper == "alias":
-        config["model_aliases"] = {"qwen3.8-flash": ["different-model"]}
+        config["model_aliases"] = {"test-actor": ["different-model"]}
     elif tamper == "concurrency":
         config["model_concurrency"] = 4
     elif tamper == "request_options":
@@ -325,8 +327,8 @@ def test_aliases_are_explicit_and_cannot_collapse_requested_models(launcher):
     original = deepcopy(config)
     for aliases in (
         {"unrequested": ["alias"]},
-        {"qwen3.8-max": ["glm-5.3"]},
-        {"qwen3.8-max": ["shared"], "glm-5.3": ["shared"]},
+        {"test-model-a": ["test-model-c"]},
+        {"test-model-a": ["shared"], "test-model-c": ["shared"]},
     ):
         profile = profiles.parse_profile(
             json.dumps({"schema": profiles.SCHEMA, "model_aliases": aliases}).encode()
@@ -335,9 +337,9 @@ def test_aliases_are_explicit_and_cannot_collapse_requested_models(launcher):
             profiles.apply_profile(config, profile)
         assert config == original
     profiles.apply_profile(
-        config, {"model_aliases": {"qwen3.8-max": ["explicit-version"]}}
+        config, {"model_aliases": {"test-model-a": ["explicit-version"]}}
     )
-    assert config["model_aliases"] == {"qwen3.8-max": ["explicit-version"]}
+    assert config["model_aliases"] == {"test-model-a": ["explicit-version"]}
 
 
 def test_model_options_and_concurrency_respect_configured_scope(launcher):
@@ -369,10 +371,10 @@ async def test_glm_provider_default_overrides_global_disabled_only_for_glm(
         body = json.loads(request.content)
         calls.append(body)
         assert body["max_tokens"] == 32768
-        if body["model"] == "glm-5.3":
+        if body["model"] == "test-model-c":
             assert "thinking" not in body and "enable_thinking" not in body
         else:
-            assert body["model"] == "qwen3.8-max"
+            assert body["model"] == "test-model-a"
             assert body["thinking"] == {"type": "disabled"}
             assert body["enable_thinking"] is False
         event = {
@@ -396,7 +398,7 @@ async def test_glm_provider_default_overrides_global_disabled_only_for_glm(
         assert await role({"mode": "offline-fixture"}) == {"fixture": True}
     assert len(calls) == 2
     protocol = read(launcher.output / "validation_protocol.json")["role_protocol"]
-    assert protocol["role_request_options_by_model"] == {"glm-5.3": {}}
+    assert protocol["role_request_options_by_model"] == {"test-model-c": {}}
     assert protocol["role_request_options"] == {
         "thinking": {"type": "disabled"},
         "enable_thinking": False,
@@ -405,7 +407,7 @@ async def test_glm_provider_default_overrides_global_disabled_only_for_glm(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("actual_model", ["qwen3.8-max", "invented-alias"])
+@pytest.mark.parametrize("actual_model", ["test-model-a", "invented-alias"])
 async def test_actual_role_request_uses_frozen_model_and_32k_budget(
     launcher, monkeypatch, actual_model
 ):
@@ -415,7 +417,7 @@ async def test_actual_role_request_uses_frozen_model_and_32k_budget(
     def reply(request):
         body = json.loads(request.content)
         calls.append(body)
-        assert body["model"] == "qwen3.8-max" and body["max_tokens"] == 32768
+        assert body["model"] == "test-model-a" and body["max_tokens"] == 32768
         event = {
             "model": actual_model,
             "choices": [
@@ -433,7 +435,7 @@ async def test_actual_role_request_uses_frozen_model_and_32k_budget(
         lambda **kw: client(transport=httpx.MockTransport(reply), **kw),
     )
     role = models.Role(config, "jury_reducer", launcher.output / "role")
-    if actual_model == "qwen3.8-max":
+    if actual_model == "test-model-a":
         assert await role({"mode": "offline-fixture"}) == {"fixture": True}
     else:
         with pytest.raises(ValueError, match="mismatch"):
@@ -464,7 +466,7 @@ def test_real_workbuddy_freeze_includes_new_module_and_profile(prepare_tree, tmp
         "reward_engine/adapters/model_config.py"
     ] == file_hash(module)
     assert frozen.manifest["model_config"] == frozen.config["model_config"]
-    assert frozen.config["roles"]["actor"] == "qwen3.8-flash"
+    assert frozen.config["roles"]["actor"] == "test-actor"
 
 
 def test_execute_cannot_override_model_profile(tmp_path, monkeypatch):

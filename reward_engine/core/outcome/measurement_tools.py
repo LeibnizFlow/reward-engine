@@ -6,6 +6,13 @@ from copy import deepcopy
 from uuid import uuid4
 
 from reward_engine.core.outcome.context import validate_current_product_refs
+from reward_engine.core.outcome.measurement_requests import (
+    MeasurementRequestRejected,
+    preflight,
+)
+from reward_engine.core.outcome.measurement_requests import (
+    enabled as recovery_enabled,
+)
 from reward_engine.core.outcome.numeric_program import (
     DEFAULT_STEPS,
     MAX_INPUT_BYTES,
@@ -13,17 +20,14 @@ from reward_engine.core.outcome.numeric_program import (
 )
 
 
-class MeasurementRequestRejected(ValueError):
-    """The probe never executed: its arguments or cited evidence were invalid.
-
-    This is a correctable request error, not an observed measurement failure.
-    It must not be recorded as an unavailable measurement that forces the whole
-    check to unknown; the model may retry with valid refs/paths within the cap.
-    """
-
-
-def validate_probe_arguments(probe):
+def validate_probe_arguments(probe, *, policy=None):
     """Reject a non-executable code placeholder before installing a recipe."""
+    if policy is not None:
+        from reward_engine.core.outcome.measurement_requests import POLICY
+
+        if policy == POLICY:
+            preflight(probe)
+            return
     if probe.get("tool") == "code.run":
         program = probe.get("arguments", {}).get("program")
         if not isinstance(program, str) or not program.strip():
@@ -36,19 +40,89 @@ def validate_probe_arguments(probe):
 
 class MeasurementTools:
     def __init__(
-        self, *, document_reader=None, cuda_runner=None, record=lambda *_: None
+        self, *, document_reader=None, cuda_runner=None, record=lambda *_: None,
+        role_contract_policy=None,
     ):
         self.document_reader, self.cuda_runner, self.record = (
             document_reader,
             cuda_runner,
             record,
         )
+        self.role_contract_policy = role_contract_policy
+
+    def catalog_for(self, evidence):
+        """Capabilities for these inputs; subclasses may require collected data."""
+        return self.catalog()
+
+    def validate_request(self, request, evidence, *, require_available=True, check_program=True):
+        """Shared admission proof for execution, budgeting and retained receipts.
+
+        Historical successful observations do not need a currently available
+        external service. A claimed pre-execution rejection does need proof.
+        """
+        bindings = preflight(request, evidence, check_program=check_program)
+        if require_available:
+            tool = request.get("tool")
+            if (tool == "document.read" and "ref" not in request.get("arguments", {})
+                    and self.document_reader is None):
+                raise MeasurementRequestRejected("External document reader is unavailable",
+                                                 field="arguments.url", code="TOOL_UNAVAILABLE")
+            capability = self.catalog_for(evidence).get(tool, {})
+            if capability.get("available") is False:
+                raise MeasurementRequestRejected(
+                    capability.get("unavailable_reason", "Measurement capability is unavailable for these inputs"),
+                    field="tool", actual=tool, code="TOOL_UNAVAILABLE")
+        return bindings
+
+    async def run_checked(self, request, evidence):
+        """Reject unavailable capabilities before invoking any measurement."""
+        if recovery_enabled(self):
+            try:
+                self.validate_request(request, evidence)
+            except MeasurementRequestRejected as error:
+                receipt = {"tool": request.get("tool"), "arguments": deepcopy(request.get("arguments", {})),
+                           "status": "unknown", "request_rejected": True,
+                           "execution_phase": "preflight", "contract_policy": self.role_contract_policy,
+                           "error_type": type(error).__name__, "reason": str(error),
+                           "diagnostics": error.diagnostics}
+                self.record("measurement_tool_" + uuid4().hex, receipt)
+                return receipt
+        tool = request.get("tool")
+        capability = self.catalog_for(evidence).get(tool, {})
+        if isinstance(capability, dict) and capability.get("available") is False:
+            receipt = {"tool": tool, "arguments": deepcopy(request.get("arguments", {})),
+                       "status": "unknown", "request_rejected": True,
+                       "error_type": "MeasurementRequestRejected",
+                       "reason": capability.get("unavailable_reason", "Measurement capability is unavailable for these inputs")}
+            if recovery_enabled(self):
+                receipt.update(execution_phase="preflight", contract_policy=self.role_contract_policy,
+                               diagnostics=[{"code": "TOOL_UNAVAILABLE", "field": "tool", "actual": tool,
+                                             "rule": receipt["reason"]}])
+            self.record("measurement_tool_" + uuid4().hex, receipt)
+            return receipt
+        return await self.run(request, evidence)
+
+    def execution_metadata(self, request, evidence):
+        if not recovery_enabled(self):
+            return {}
+        return {"execution_phase": "execution", "contract_policy": self.role_contract_policy,
+                "input_bindings": preflight(request, evidence)}
+
+    def validate_historical(self, receipt, evidence):
+        """Adapters may prove equivalence when a deterministic tool contract changes."""
+
+    def text_evidence(self, arguments, evidence):
+        ref = arguments.get("ref")
+        if not isinstance(ref, str) or not isinstance(evidence.get(ref), str):
+            raise ValueError("Text checker requires exact text at supplied ref")
+        return {"text": evidence[ref], "evidence_refs": [ref]}
 
     def catalog(self):
         return {
             "calculate": {
                 "available": True,
-                "arguments": {"expression": "numeric expression"},
+                "arguments": {"expression": "numeric expression" if not recovery_enabled(self) else
+                              "one expression, e.g. (2+3)/5; no assignment or semicolon-separated statements"},
                 "meaning": "Computed number, not proof the expression matches an artifact claim",
             },
             "code.run": {
@@ -60,6 +134,8 @@ class MeasurementTools:
                 },
                 "input_contract": "inputs is a dictionary keyed by the exact input_refs strings. "
                 "Read inputs['exact:ref']; input_refs, data, refs, d and ref0 are NOT program variables. "
+                "Bound inputs contain the complete supplied evidence values (or the explicit input_paths selections), "
+                "subject to the input byte limit, even when the model context showed only a preview. "
                 "Inspect the source schema first; no implicit table/row conversion occurs. "
                 "Optional input_paths selects one nested JSON value per cited ref before the 256000-byte input cap; "
                 "the program then sees that selected value at inputs[ref]. Omitted refs keep the whole source. "
@@ -88,9 +164,14 @@ class MeasurementTools:
                     "rfind",
                 ],
                 "text_search": "find(text, substring[, start[, end]]) and rfind(...) return a position or -1 with Python string semantics. Search existing long input text directly, then take a small slice; do not build range(len(text)) or concatenate all parts. Search work counts against the step budget.",
-                "scalar_conversion": "str(value) accepts one JSON scalar only; containers are not stringified.",
+                "scalar_conversion": "str(value) accepts one JSON scalar or bounded acyclic JSON container. "
+                "The full conversion must fit 10000 characters and the step/depth bounds; slicing the string "
+                "after conversion does not avoid these bounds. Inspect small selected fields or slices instead.",
+                "schema_inspection": "Use the supplied source structure or recovery_hint.input_sources to locate data, "
+                "then inspect small selected values with print/str. type, hasattr, isinstance and arbitrary attributes "
+                "are unavailable; use only the listed functions and supported syntax.",
                 "indexed_assignment": "list[index] = JSON scalar updates an existing slot only; no slice, dictionary or container-valued assignment. Input evidence is copied, never written back.",
-                "limits": "No import/IO/user functions or arbitrary attributes/methods; assignments, for over range/list/string with break/continue, if, assert, arithmetic, JSON indexing, bounded slices/concatenation, single-loop list comprehensions, and/or, in/not in, is None/is not None. The only supported method is list.append(value) as a statement, with list length and cycle guards; "
+                "limits": "No import/IO/user functions or arbitrary attributes/methods; assignments, for over range/list/string with break/continue, if, assert, arithmetic, JSON indexing, bounded slices/concatenation, single-loop list comprehensions, and/or, in/not in, is None/is not None. Supported methods are dict.get, str.find/rfind/count/split and list.append(value) as a statement; print captures at most 10000 characters in the receipt, with list length and cycle guards; "
                 f"{DEFAULT_STEPS} steps. Not general Python or CUDA.",
             },
             "document.read": {
@@ -118,6 +199,7 @@ class MeasurementTools:
             "request_rejected": False,
         }
         try:
+            receipt.update(self.execution_metadata(request, evidence))
             if not isinstance(args, dict):
                 raise MeasurementRequestRejected("Tool arguments must be an object")
             if tool == "calculate":
@@ -169,7 +251,12 @@ class MeasurementTools:
                         raise MeasurementRequestRejected(
                             "Program inputs too large; select relevant evidence"
                         )
-                    result = run_numeric(args["program"], inputs)
+                    captured = []
+                    try:
+                        result = run_numeric(args["program"], inputs, stdout=captured)
+                    finally:
+                        if captured:
+                            receipt["stdout"] = "".join(captured)
                 elif self.cuda_runner is None:
                     raise RuntimeError(
                         "No isolated CUDA execution backend/GPU configured"
@@ -224,6 +311,8 @@ class MeasurementTools:
                 )
                 offset = args.get("offset", 0)
                 if type(offset) is not int or offset < 0 or offset > len(text):
+                    if recovery_enabled(self) and "ref" not in args:
+                        raise ValueError("Invalid offset after external document fetch")
                     raise MeasurementRequestRejected("Invalid document offset")
                 result = {
                     "text": text[offset : offset + 12000],
@@ -245,6 +334,9 @@ class MeasurementTools:
                 reason=str(error)[:300],
                 request_rejected=isinstance(error, MeasurementRequestRejected),
             )
+            if recovery_enabled(self) and isinstance(error, MeasurementRequestRejected):
+                receipt.update(execution_phase="preflight", diagnostics=error.diagnostics,
+                               contract_policy=self.role_contract_policy)
             if tool == "code.run" and isinstance(args, dict):
                 refs = args.get("input_refs", [])
                 sources = {}
@@ -282,6 +374,22 @@ class MeasurementTools:
                     "preserving duplicates; do not assume fixed row order or identifier ranges. Correct this computation locally and cite its "
                     "successful receipt; a prose estimate does not replace a failed calculation.",
                 }
+                if recovery_enabled(self) and not receipt["request_rejected"]:
+                    receipt["recovery_hint"].update(
+                        selection_policy="preserve_failed_selection_select_inside_program",
+                        required_input_bindings=deepcopy(receipt.get("input_bindings", [])),
+                        instruction="This request executed and failed. Keep its exact input_refs and "
+                        "input_paths selections when correcting the program; changing a selection "
+                        "does not cover the failed input. Select needed fields or slices INSIDE "
+                        "the program before str(), concatenation or printing. For example, index "
+                        "the observed content field directly instead of converting an entire "
+                        "source object to text. Each code.run starts fresh: use the exact cited "
+                        "reference strings in inputs[ref], with the original selected value. "
+                        "Use the source structure below to choose real keys, never invented "
+                        "aliases. list.append, dict.get, str.find/rfind/count/split are supported; "
+                        "set, sum, imports and host IO are not. Cite the successful corrected "
+                        "receipt in measurement_recovery; prose cannot replace a failed calculation.",
+                    )
         self.record("measurement_tool_" + uuid4().hex, receipt)
         return receipt
 
@@ -327,7 +435,7 @@ async def author_checker(
         ):
             raise ValueError("Malformed measurement recipe")
         for probe in probes:
-            validate_probe_arguments(probe)
+            validate_probe_arguments(probe, policy=getattr(registry.tools, "role_contract_policy", None))
         return recipe
 
     instruction = (
@@ -379,7 +487,8 @@ async def author_checker(
                 "Checker capability unavailable: " + str(recipe["unavailable_reason"])
             )
         try:
-            receipts = [await registry.tools.run(probe, evidence) for probe in probes]
+            run = registry.tools.run_checked if recovery_enabled(registry.tools) else registry.tools.run
+            receipts = [await run(probe, evidence) for probe in probes]
             failures = [
                 f"probe[{i}] {r['tool']}: {r.get('error_type', r['status'])}: {r.get('reason', '')}"
                 for i, r in enumerate(receipts)

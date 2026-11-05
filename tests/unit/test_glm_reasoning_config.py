@@ -17,7 +17,7 @@ from tests.unit import test_workbuddy_role_models as role_tests
 launcher = profile_tests.launcher
 offline = profile_tests.offline
 thinking_role = role_tests.thinking_role
-PUBLIC_PROFILE = Path(profiles.__file__).parents[1] / "configs/bailian_token_plan.json"
+PUBLIC_PROFILE = Path(__file__).parents[1] / "support/model_profile.json"
 DISABLED = {"thinking": {"type": "disabled"}, "enable_thinking": False}
 
 
@@ -41,16 +41,16 @@ def role_profile_bytes(benchmark):
 def test_profile_and_runtime_share_the_exact_option_allowlist(options):
     profile = {
         "schema": profiles.SCHEMA,
-        "role_request_options_by_model": {"glm-5.3": options},
+        "role_request_options_by_model": {"test-model-c": options},
     }
     before = deepcopy(profile)
     parsed = profiles.parse_profile(json.dumps(profile).encode())
     config = {
-        "roles": {"jury_member_3": "glm-5.3"},
+        "roles": {"jury_member_3": "test-model-c"},
         "role_request_options": DISABLED,
         "role_request_options_by_model": parsed["role_request_options_by_model"],
     }
-    result = models._role_request_options(config, "glm-5.3")
+    result = models._role_request_options(config, "test-model-c")
     assert result == options
     assert result is not options
     assert profile == before
@@ -73,14 +73,14 @@ def test_profile_and_runtime_share_the_exact_option_allowlist(options):
 @pytest.mark.asyncio
 async def test_invalid_effort_or_mixed_options_fail_before_http(thinking_role, options):
     role, calls, _ = thinking_role
-    role.config["role_request_options_by_model"] = {"gemini-3.8-flash": options}
+    role.config["role_request_options_by_model"] = {"test-panel-c": options}
     with pytest.raises(ValueError, match="role_request_options"):
         await role({"mode": "offline-fixture"})
     assert calls == []
     assert not list(role.output.glob("*/request_body.json"))
     profile = {
         "schema": profiles.SCHEMA,
-        "role_request_options_by_model": {"gemini-3.8-flash": options},
+        "role_request_options_by_model": {"test-panel-c": options},
     }
     with pytest.raises(ValueError, match="role_request_options"):
         profiles.parse_profile(json.dumps(profile).encode())
@@ -90,13 +90,13 @@ def test_reasoning_effort_is_opt_in_per_model_only():
     with pytest.raises(ValueError, match="role_request_options"):
         models._role_request_options(
             {
-                "roles": {"jury_member_3": "glm-5.3"},
+                "roles": {"jury_member_3": "test-model-c"},
                 "role_request_options": {"reasoning_effort": "low"},
             },
-            "glm-5.3",
+            "test-model-c",
         )
     assert (
-        models._role_request_options({"roles": {"jury_member_3": "glm-5.3"}}, "glm-5.3")
+        models._role_request_options({"roles": {"jury_member_3": "test-model-c"}}, "test-model-c")
         == {}
     )
 
@@ -104,15 +104,15 @@ def test_reasoning_effort_is_opt_in_per_model_only():
 def test_public_profile_budgets_and_options_are_frozen_exactly(launcher):
     raw = role_profile_bytes(launcher.benchmark)
     profile = profiles.parse_profile(raw)
-    glm_roles = {role for role, model in profile["roles"].items() if model == "glm-5.3"}
+    glm_roles = {role for role, model in profile["roles"].items() if model == "test-model-c"}
     assert glm_roles == {"jury_member_3", "hypothesis_member_3"}
     for role, tokens in profile["role_max_tokens"].items():
         assert tokens == (
-            65536 if profile["roles"][role] in {"glm-5.3", "qwen3.8-max"} else 32768
+            65536 if profile["roles"][role] in {"test-model-c", "test-model-a"} else 32768
         )
     assert profile["role_request_options_by_model"] == {
-        "glm-5.3": {"reasoning_effort": "low"},
-        "qwen3.8-max": {"reasoning_effort": "low"},
+        "test-model-c": {"reasoning_effort": "low"},
+        "test-model-a": {"reasoning_effort": "low"},
     }
     config = launcher.prepare(raw=raw, role_thinking="disabled")
     assert (launcher.output / "model_config.json").read_bytes() == raw
@@ -147,10 +147,10 @@ def test_frozen_effort_or_budget_drift_is_rejected(launcher, tamper):
     if tamper == "frozen_bytes":
         path = launcher.output / "model_config.json"
         value = read(path)
-        value["role_request_options_by_model"]["glm-5.3"] = {"reasoning_effort": "high"}
+        value["role_request_options_by_model"]["test-model-c"] = {"reasoning_effort": "high"}
         write(path, value)
     elif tamper == "effective_options":
-        config["role_request_options_by_model"]["glm-5.3"] = {
+        config["role_request_options_by_model"]["test-model-c"] = {
             "reasoning_effort": "high"
         }
     else:
@@ -192,7 +192,7 @@ async def test_actual_role_bodies_keep_model_overrides_separate_from_global_disa
     def reply(request):
         body = json.loads(request.content)
         calls.append(body)
-        if body["model"] in {"glm-5.3", "qwen3.8-max"}:
+        if body["model"] in {"test-model-c", "test-model-a"}:
             assert body["reasoning_effort"] == "low" and body["max_tokens"] == 65536
             assert "thinking" not in body and "enable_thinking" not in body
         else:
@@ -219,7 +219,7 @@ async def test_actual_role_bodies_keep_model_overrides_separate_from_global_disa
         receipt = read(next(role.output.glob("*/thinking_parameters.json")))
         assert receipt["options"] == (
             {"reasoning_effort": "low"}
-            if config["roles"][name] in {"glm-5.3", "qwen3.8-max"}
+            if config["roles"][name] in {"test-model-c", "test-model-a"}
             else DISABLED
         )
     assert len(calls) == 4
@@ -276,7 +276,7 @@ async def test_effort_changes_cache_identity_and_preserves_prior_cache(thinking_
     request = {"mode": "offline-fixture"}
     for effort in ("low", "high", "max"):
         role.config["role_request_options_by_model"] = {
-            "gemini-3.8-flash": {"reasoning_effort": effort}
+            "test-panel-c": {"reasoning_effort": effort}
         }
         assert await role(request) == {"status": "pass"}
         assert await role(request) == {"status": "pass"}
@@ -288,9 +288,9 @@ async def test_effort_changes_cache_identity_and_preserves_prior_cache(thinking_
 async def test_existing_opt_in_transport_recovery_retains_effort_receipt(thinking_role):
     role, calls, responses = thinking_role
     role.config["role_request_options_by_model"] = {
-        "gemini-3.8-flash": {"reasoning_effort": "low"}
+        "test-panel-c": {"reasoning_effort": "low"}
     }
-    role.nonstream_recovery_models = {"gemini-3.8-flash"}
+    role.nonstream_recovery_models = {"test-panel-c"}
     responses.extend(
         [
             httpx.Response(
@@ -299,7 +299,7 @@ async def test_existing_opt_in_transport_recovery_retains_effort_receipt(thinkin
             httpx.Response(
                 200,
                 json={
-                    "model": "gemini-3.8-flash",
+                    "model": "test-panel-c",
                     "choices": [
                         {
                             "finish_reason": "stop",

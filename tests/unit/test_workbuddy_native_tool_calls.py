@@ -42,7 +42,7 @@ def call(index=0, name="workspace.read", arguments='{"paths":["output.md"]}'):
 
 def event(delta, finish=None, *, index=0):
     return {
-        "model": "deepseek-flash",
+        "model": "test-reasoner-alias",
         "choices": [{"index": index, "delta": delta, "finish_reason": finish}],
     }
 
@@ -71,8 +71,8 @@ def sse(events):
 def transport(tmp_path, monkeypatch):
     config = {
         "output": str(tmp_path),
-        "roles": {"reward_calibration_judge": "deepseek-v4-flash"},
-        "model_aliases": {"deepseek-v4-flash": ["deepseek-flash"]},
+        "roles": {"reward_calibration_judge": "test-reasoner"},
+        "model_aliases": {"test-reasoner": ["test-reasoner-alias"]},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://offline",
     }
@@ -136,7 +136,7 @@ async def test_synthetic_stream_becomes_only_need_tools_with_lossless_provenance
     assert saved["raw_output"] == raw_content
     assert saved["native_tool_call_chunks"] == raw_chunks
     assert saved["finish_reason"] == "tool_calls"
-    assert saved["actual_models"] == ["deepseek-flash"]
+    assert saved["actual_models"] == ["test-reasoner-alias"]
     assert saved["usage"]["total_tokens"] == 12
     note = saved["normalizations"][0]
     assert note["commentary"] == raw_content
@@ -302,8 +302,8 @@ async def test_malformed_native_arguments_fail_without_cache_and_keep_raw_chunks
     saved = read(next(role.output.glob("*/failure.json")))
     assert saved["native_tool_call_chunks"] == [calls]
     assert saved["finish_reason"] == "tool_calls"
-    assert saved["model"] == "deepseek-v4-flash"
-    assert saved["actual_models"] == ["deepseek-flash"]
+    assert saved["model"] == "test-reasoner"
+    assert saved["actual_models"] == ["test-reasoner-alias"]
     assert not list((role.output / "completed").glob("*.json"))
 
 
@@ -461,12 +461,12 @@ def test_interleaved_native_reads_reassemble_by_index_without_argument_coercion(
 @pytest.mark.asyncio
 async def test_nonstream_recovery_cannot_hide_native_tools_inside_a_verdict(transport):
     role, _, responses = transport
-    role.nonstream_recovery_models = {"deepseek-v4-flash"}
+    role.nonstream_recovery_models = {"test-reasoner"}
     responses.extend(
         [
             [{"error": {"message": "offline stream failure"}}],
             {
-                "model": "deepseek-flash",
+                "model": "test-reasoner-alias",
                 "choices": [
                     {
                         "finish_reason": "stop",
@@ -585,12 +585,12 @@ async def test_duplicate_verdict_keys_never_cache_and_keep_original(
     role, _, responses = transport
     raw = '{"status":"fail","status":"pass"}'
     if recovery:
-        role.nonstream_recovery_models = {"deepseek-v4-flash"}
+        role.nonstream_recovery_models = {"test-reasoner"}
         responses.extend(
             [
                 [{"error": {"message": "offline stream failure"}}],
                 {
-                    "model": "deepseek-flash",
+                    "model": "test-reasoner-alias",
                     "choices": [{"finish_reason": "stop", "message": {"content": raw}}],
                 },
             ]

@@ -9,6 +9,10 @@ from reward_engine.core.outcome.context import ResponseContractError, require_re
 
 VERSION = "outcome-clauses/2026-09-11"
 USES = {"task_constraint", "quality_judgment", "illustrative_method"}
+QUOTE_REFERENCE_RULE = (
+    "Each source_quotes[].ref must be explicitly listed in evidence_refs of the same clause; "
+    "parent requirement refs do not satisfy this rule."
+)
 SCHEMA = {
     "id": "stable clause ID; retain the ID when revising this clause",
     "text": "one outcome requirement, quality judgment or illustrative method",
@@ -33,6 +37,44 @@ INSTRUCTION = (
     "not semantic proof. Do not write a second competing subrequirements list: code derives it. "
     "Conditions not supplied remain unstated, not proven universally applicable. "
 )
+
+
+def quote_occurs(text, source):
+    """Use the same exact-source rule for acceptance and repair diagnostics."""
+    def texts(value):
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            return [s for v in value.values() for s in texts(v)]
+        if isinstance(value, list):
+            return [s for v in value for s in texts(v)]
+        return []
+
+    return (isinstance(text, str) and bool(text.strip())
+            and any(text in s for s in texts(source) + [json.dumps(source, ensure_ascii=False)]))
+
+
+def invalid_quote_diagnostics(criteria, evidence):
+    """Report exact quotation failures even when lineage validation fails first."""
+    issues = []
+    for i, criterion in enumerate(criteria):
+        if not isinstance(criterion, dict) or not isinstance(criterion.get("clauses"), list):
+            continue
+        for j, clause in enumerate(criterion["clauses"]):
+            if not isinstance(clause, dict) or not isinstance(clause.get("source_quotes"), list):
+                continue
+            for k, quote in enumerate(clause["source_quotes"]):
+                if not isinstance(quote, dict) or not isinstance(quote.get("ref"), str):
+                    continue
+                ref = quote["ref"]
+                if ref not in evidence or not quote_occurs(quote.get("quote"), evidence[ref]):
+                    issues.append({
+                        "path": ["criteria", i, "clauses", j, "source_quotes", k, "quote"],
+                        "source_ref": ref, "provided_quote": deepcopy(quote.get("quote")),
+                        "reason": "Quote is not verbatim supplied evidence. Inspect the source and explicitly "
+                        "correct this quotation too; repairing the lineage ledger alone is insufficient.",
+                    })
+    return issues
 
 
 def normalize_criteria(criteria, context, evidence, *, required=False):
@@ -111,21 +153,7 @@ def normalize_criteria(criteria, context, evidence, *, required=False):
                 ref, text = quote["ref"], quote.get("quote")
                 source = evidence.get(ref)
 
-                def texts(value):
-                    if isinstance(value, str):
-                        return [value]
-                    if isinstance(value, dict):
-                        return [s for v in value.values() for s in texts(v)]
-                    if isinstance(value, list):
-                        return [s for v in value for s in texts(v)]
-                    return []
-
-                source_texts = texts(source) + [json.dumps(source, ensure_ascii=False)]
-                if (
-                    not isinstance(text, str)
-                    or not text.strip()
-                    or not any(text in s for s in source_texts)
-                ):
+                if not quote_occurs(text, source):
                     error = ResponseContractError(
                         field + ".quote",
                         "Source quote must occur exactly in its cited evidence; "

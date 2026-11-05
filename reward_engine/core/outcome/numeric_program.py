@@ -33,9 +33,79 @@ CMP = {
 }
 DEFAULT_STEPS = 1_000_000
 MAX_INPUT_BYTES = 256_000
+FUNCTIONS = {
+    "abs": abs, "min": min, "max": max, "len": len, "round": round,
+    "int": int, "float": float, "sqrt": math.sqrt, "floor": math.floor,
+}
+TEXT_METHODS = {"find", "rfind", "count", "split"}
 
 
-def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
+def preflight_program(program):
+    """Reject unsupported mandatory syntax without executing or guessing branches.
+
+    Data-dependent failures remain execution failures. Conditional bodies and
+    loop bodies may never run, so this conservative check leaves them alone.
+    """
+    def reject(node, reason):
+        raise ValueError(f"{reason} at line {node.lineno}; use the code.run catalog")
+
+    def expression(node):
+        if isinstance(node, ast.Call):
+            if (node.keywords or any(isinstance(a, ast.Starred) for a in node.args)
+                    or not isinstance(node.func, (ast.Name, ast.Attribute))):
+                reject(node, "Unsupported call syntax")
+            if isinstance(node.func, ast.Name):
+                if node.func.id not in FUNCTIONS.keys() | {"range", "str", "sorted", "find", "rfind"}:
+                    reject(node, f"Unsupported numerical function {node.func.id!r}")
+            else:
+                if node.func.attr not in TEXT_METHODS | {"get"}:
+                    reject(node, f"Unsupported numerical method {node.func.attr!r}")
+                expression(node.func.value)
+            children = node.args
+        elif isinstance(node, ast.IfExp):
+            children = [node.test]
+        elif isinstance(node, ast.BoolOp):
+            children = node.values[:1]
+        elif isinstance(node, ast.Compare):
+            children = [node.left, *node.comparators[:1]]
+        elif isinstance(node, ast.ListComp):
+            if (len(node.generators) != 1 or node.generators[0].is_async
+                    or not isinstance(node.generators[0].target, ast.Name)):
+                reject(node, "Use one bounded list comprehension with a plain variable")
+            children = [node.generators[0].iter]
+        else:
+            children = ast.iter_child_nodes(node)
+        for child in children:
+            expression(child)
+
+    for node in ast.parse(program).body:
+        if isinstance(node, ast.Assign):
+            if len(node.targets) != 1 or not isinstance(node.targets[0], (ast.Name, ast.Subscript)):
+                reject(node, "Use one plain variable or existing list slot assignment")
+            expression(node.value)
+        elif isinstance(node, ast.For):
+            if not isinstance(node.target, ast.Name) or node.orelse:
+                reject(node, "Use a bounded for loop with one plain variable and no else")
+            expression(node.iter)
+        elif isinstance(node, (ast.If, ast.Assert)):
+            expression(node.test)
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            call = node.value
+            if (not call.keywords and (
+                    isinstance(call.func, ast.Name) and call.func.id == "print"
+                    or isinstance(call.func, ast.Attribute) and call.func.attr == "append"
+                    and len(call.args) == 1)):
+                for arg in call.args:
+                    expression(arg)
+                if isinstance(call.func, ast.Attribute):
+                    expression(call.func.value)
+            else:
+                reject(node, "Only print or list.append calls are supported as statements")
+        else:
+            reject(node, f"Unsupported statement: {type(node).__name__}")
+
+
+def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS, stdout=None):
     if not isinstance(program, str) or len(program) > 16000:
         raise ValueError("Program must be bounded text")
     tree = ast.parse(program)
@@ -44,6 +114,7 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
         raise ValueError("Program inputs too large; select relevant evidence")
     env = {"inputs": json.loads(encoded_inputs)}
     remaining = steps
+    printed_size = 0
 
     def tick(cost=1):
         nonlocal remaining
@@ -71,6 +142,47 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
                 elif isinstance(item, (list, tuple)):
                     pending.extend(item)
         return value
+
+    def text_operation(name, args):
+        if name == "split":
+            if (
+                not 1 <= len(args) <= 3
+                or type(args[0]) is not str
+                or len(args) > 1
+                and args[1] is not None
+                and type(args[1]) is not str
+                or len(args) > 2
+                and type(args[2]) is not int
+            ):
+                raise ValueError(
+                    "split requires text, optional string/None separator and integer maxsplit"
+                )
+            text = args[0]
+            separator = args[1] if len(args) > 1 else None
+            maximum = args[2] if len(args) > 2 else -1
+            tick(len(text) + (len(separator) if separator else 0))
+            # At most 10001 pieces are needed to detect an oversized result.
+            result = text.split(
+                separator, 10000 if maximum < 0 else min(maximum, 10000)
+            )
+            for part in result:
+                bound(part)
+            return bound(result)
+        if (
+            not 2 <= len(args) <= 4
+            or not all(type(x) is str for x in args[:2])
+            or any(type(x) is not int for x in args[2:])
+        ):
+            raise ValueError(
+                "find/rfind/count require text, substring and optional integer start/end"
+            )
+        text, needle = args[:2]
+        start = args[2] if len(args) > 2 else 0
+        end = args[3] if len(args) > 3 else len(text)
+        lo, hi, _ = slice(start, end).indices(len(text))
+        tick(max(0, hi - lo) + len(needle))
+        method = {"find": str.find, "rfind": str.rfind, "count": str.count}[name]
+        return method(text, needle, start, end)
 
     def expr(node):
         tick()
@@ -211,6 +323,29 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
             return expr(node.body if expr(node.test) else node.orelse)
         if (
             isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and not node.keywords
+        ):
+            name = node.func.attr
+            if name in TEXT_METHODS:
+                return text_operation(
+                    name, [expr(node.func.value), *[expr(a) for a in node.args]]
+                )
+            if name == "get":
+                value, args = expr(node.func.value), [expr(a) for a in node.args]
+                if not isinstance(value, dict) or not 1 <= len(args) <= 2:
+                    raise ValueError(
+                        "get requires a dictionary, key and optional default"
+                    )
+                tick(len(args[0]) if isinstance(args[0], str) else 1)
+                return value.get(
+                    *args
+                )  # Same copied JSON data as indexed lookup; no mutation.
+            raise ValueError(
+                f"Unsupported numerical method {name!r} at line {node.lineno}"
+            )
+        if (
+            isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and not node.keywords
         ):
@@ -273,20 +408,7 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
                     raise ValueError("Range too large")
                 return list(value)
             if name in {"find", "rfind"}:
-                if (
-                    not 2 <= len(args) <= 4
-                    or not all(type(x) is str for x in args[:2])
-                    or any(type(x) is not int for x in args[2:])
-                ):
-                    raise ValueError(
-                        "find/rfind require text, substring and optional integer start/end"
-                    )
-                text, needle = args[:2]
-                start = args[2] if len(args) > 2 else 0
-                end = args[3] if len(args) > 3 else len(text)
-                lo, hi, _ = slice(start, end).indices(len(text))
-                tick(max(0, hi - lo) + len(needle))
-                return (text.find if name == "find" else text.rfind)(needle, start, end)
+                return text_operation(name, args)
             if name == "sorted" and len(args) == 1:
                 values = args[0]
                 if (
@@ -300,19 +422,8 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
                     raise ValueError("sorted requires a bounded list of JSON scalars")
                 tick(len(values) * max(1, len(values).bit_length()))
                 return bound(sorted(values))
-            funcs = {
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "len": len,
-                "round": round,
-                "int": int,
-                "float": float,
-                "sqrt": math.sqrt,
-                "floor": math.floor,
-            }
-            if name in funcs:
-                return bound(funcs[name](*args))
+            if name in FUNCTIONS:
+                return bound(FUNCTIONS[name](*args))
             raise ValueError(
                 f"Unsupported numerical function {name!r} at line {node.lineno}; "
                 "use functions listed in the code.run catalog"
@@ -320,6 +431,7 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
         raise ValueError(f"Unsupported numerical syntax: {type(node).__name__}")
 
     def statements(nodes, *, in_loop=False):
+        nonlocal printed_size
         for node in nodes:
             tick()
             if (
@@ -361,6 +473,32 @@ def run_numeric(program, inputs=None, *, steps=DEFAULT_STEPS):
                     "(name = expression) or an existing list slot with a JSON scalar; chained, destructured, annotated and augmented "
                     "assignments are unavailable. Use supported list.append or a fresh result value."
                 )
+            elif (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "print"
+                and not node.value.keywords
+            ):
+                # Interpret formatting with the same bounded JSON renderer as
+                # str(). Never call host print or accept file/flush keywords.
+                parts = [
+                    expr(
+                        ast.Call(
+                            func=ast.Name(id="str", ctx=ast.Load()),
+                            args=[arg],
+                            keywords=[],
+                        )
+                    )
+                    for arg in node.value.args
+                ]
+                size = sum(map(len, parts)) + max(0, len(parts) - 1) + 1
+                if printed_size + size > 10000:
+                    raise ValueError("Captured print output exceeds 10000 characters")
+                printed_size += size
+                tick(size)
+                if stdout is not None:
+                    stdout.append(" ".join(parts) + "\n")
             elif (
                 isinstance(node, ast.Expr)
                 and isinstance(node.value, ast.Call)

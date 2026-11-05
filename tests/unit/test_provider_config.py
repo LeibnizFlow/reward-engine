@@ -1,5 +1,7 @@
 """Offline launch/transport regressions; all credentials and benchmark inputs are fixtures."""
 
+from tests.support.model_roles import role_mapping as fixture_roles
+
 import json
 import socket
 import sys
@@ -10,7 +12,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from experiments import smoke, validate_pipeline
+from tests.validation import smoke, validate_pipeline
 from experiments.claw_eval.opencode import campaign
 from experiments.workbuddy import experiment
 from reward_engine.adapters import provider_config as provider
@@ -26,10 +28,10 @@ def offline_environment(monkeypatch):
         "REWARD_ENGINE_CREDENTIALS_FILE",
         "REWARD_ENGINE_KEY_ENV",
         "REWARD_ENGINE_BACKEND_URL",
-        "YIBU_API_KEY",
-        "YIBU_BASE_URL",
-        "OPENLUX_API_KEY",
-        "OPENLUX_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
         "CUSTOM_API_KEY",
         "CUSTOM_BASE_URL",
         "WORKBUDDY_ROOT",
@@ -50,7 +52,7 @@ def test_settings_and_secret_precedence(tmp_path, monkeypatch):
         "REWARD_ENGINE_BACKEND_URL=https://dotenv.invalid/api/v2/\n"
     )
     other = tmp_path / "unused.env"
-    other.write_text("YIBU_API_KEY=wrong-fixture\n")
+    other.write_text("OPENAI_API_KEY=wrong-fixture\n")
     monkeypatch.setenv("REWARD_ENGINE_CREDENTIALS_FILE", str(other))
     config = provider.resolve_provider(credentials=selected, default_credentials=other)
     assert config["credentials_file"] == str(selected)
@@ -84,7 +86,7 @@ def test_settings_and_secret_precedence(tmp_path, monkeypatch):
 def test_credentials_and_key_name_environment_over_dotenv(tmp_path, monkeypatch):
     selected = tmp_path / "selected.env"
     selected.write_text(
-        "REWARD_ENGINE_KEY_ENV=YIBU_API_KEY\nYIBU_API_KEY=unused-fixture\n"
+        "REWARD_ENGINE_KEY_ENV=OPENAI_API_KEY\nOPENAI_API_KEY=unused-fixture\n"
     )
     monkeypatch.setenv("REWARD_ENGINE_CREDENTIALS_FILE", str(selected))
     monkeypatch.setenv("REWARD_ENGINE_KEY_ENV", "CUSTOM_API_KEY")
@@ -96,7 +98,7 @@ def test_credentials_and_key_name_environment_over_dotenv(tmp_path, monkeypatch)
     assert config["backend_url"] == "http://offline.invalid/v1"
     config = provider.resolve_provider(
         default_credentials=tmp_path / "missing",
-        key_env="YIBU_API_KEY",
+        key_env="OPENAI_API_KEY",
         backend_url="https://cli.invalid/v1",
     )
     assert provider.provider_key(config) == "unused-fixture"
@@ -105,14 +107,14 @@ def test_credentials_and_key_name_environment_over_dotenv(tmp_path, monkeypatch)
 def test_documented_dotenv_yibu_base_url_is_used_by_both_launchers(tmp_path):
     credentials = tmp_path / ".env"
     credentials.write_text(
-        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=https://chosen.invalid/v1/\n"
+        "OPENAI_API_KEY=offline-fixture\nOPENAI_BASE_URL=https://chosen.invalid/v1/\n"
     )
     options = provider.prepare_options(
         SimpleNamespace(), default_credentials=credentials
     )
     assert options["backend_url"] == "https://chosen.invalid/v1"
     assert options["credentials"] == str(credentials)
-    assert options["key_env"] == "YIBU_API_KEY"
+    assert options["key_env"] == "OPENAI_API_KEY"
 
 
 @pytest.mark.parametrize(
@@ -144,9 +146,9 @@ def test_custom_key_cannot_silently_use_default_provider(tmp_path):
 
 def test_empty_environment_key_does_not_fall_back_to_dotenv(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    path.write_text("YIBU_API_KEY=dotenv-fixture\n")
-    config = provider.resolve_provider(default_credentials=path)
-    monkeypatch.setenv("YIBU_API_KEY", "")
+    path.write_text("OPENAI_API_KEY=dotenv-fixture\n")
+    config = provider.resolve_provider(default_credentials=path, backend_url="http://provider.invalid/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     with pytest.raises(ValueError, match="Missing provider API key"):
         provider.provider_key(config)
 
@@ -166,14 +168,14 @@ def test_real_workbuddy_prepare_environment_only(
         monkeypatch.setattr(smoke, "REPO", repo)
         config = smoke.prepare(
             SimpleNamespace(
-                output=tmp_path / "frozen", benchmark="workbuddy", task_id="task_00"
+                output=tmp_path / "frozen", benchmark="workbuddy", task_id="task_00", role_models=[f"{k}={v}" for k,v in fixture_roles().items()]
             )
         )
     elif launcher == "pipeline":
         # No --credentials: exercise a missing default .env through BOTH resolutions.
         config = validate_pipeline.prepare(
             SimpleNamespace(
-                output=tmp_path / "frozen", benchmark="workbuddy", task_id="task_00"
+                output=tmp_path / "frozen", benchmark="workbuddy", task_id="task_00", role_models=[f"{k}={v}" for k,v in fixture_roles().items()]
             )
         )
     else:
@@ -211,7 +213,8 @@ def test_missing_key_fails_real_prepare_before_creating_output(prepare_tree, tmp
     assert not (tmp_path / "frozen").exists()
 
 
-def test_real_claw_prepare_environment_only_binds_shared_module(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_profile", [False, True])
+def test_real_claw_prepare_environment_only_binds_shared_module(tmp_path, monkeypatch, with_profile):
     repo = tmp_path / "repo"
     module = repo / "reward_engine/adapters/provider_config.py"
     module.parent.mkdir(parents=True)
@@ -244,7 +247,18 @@ def test_real_claw_prepare_environment_only_binds_shared_module(tmp_path, monkey
         "check_output",
         Mock(side_effect=["offline-image\n", "/offline/docker\n"]),
     )
-    config = campaign.prepare(tmp_path / "frozen", task_ids=["task_0"])
+    options = {"generation_protocol": "legacy_abcd", "role_models": [f"{k}={v}" for k,v in fixture_roles().items()]}
+    if with_profile:
+        profile = tmp_path / "models.json"
+        write(profile, {"schema": "reward_engine.model_config.v1", "roles": fixture_roles(), "role_max_tokens": {"jury_member_1": 4096}})
+        options = {"generation_protocol": "three_b_fixed_baselines_v1", "model_config": profile, "role_models": ["jury_member_1=override-model"]}
+    config = campaign.prepare(tmp_path / "frozen", task_ids=["task_0"], actor_backend="opencode", **options)
+    if with_profile:
+        assert config["roles"]["attack_member_1"] == "override-model"
+        assert config["role_max_tokens"]["attack_reference_1"] == 4096
+        assert (tmp_path / "frozen/model_config.json").read_bytes() == profile.read_bytes()
+        from reward_engine.adapters.model_config import verify_profile
+        verify_profile(config)
     assert config["backend_url"] == "https://custom.invalid/v2"
     assert config["backend_key_env"] == "CUSTOM_API_KEY"
     campaign.verify_freeze(config)

@@ -1,66 +1,51 @@
 # Reward Engine
 
-**Build an executable reward for an open-ended task, then use it to improve an agent's work.**
+Reward Engine constructs executable task criteria, measures candidate work, and uses evidence to guide revisions and selection. A RewardPack remains frozen within each round. The controller updates evidence and memory between rounds; it does not train model weights. Native benchmark grading remains isolated from learning and selection.
 
-Reward Engine turns task requirements and candidate trajectories into a **RewardPack**: testcases for required correctness, rubrics for graded quality, and executable checks that return judgments with evidence. The pack stays frozen while it guides feedback, revision, and candidate selection. Products and receipts inform the next construction round; the loop does not update model weights.
-
-![Reward Engine: build reward, execute by reward, and update reward](docs/figures/reward_engine_overview.png)
-
-The framework has three stages:
-
-1. **Build reward.** Jury members propose task expectations and review candidates; a Builder binds the resulting criteria to executable checks.
-2. **Execute by reward.** Measure candidate work, give feedback to the same actor, and compare completed candidates. Selection requires a strict preference over the fresh task-only baseline with no known checked regression.
-3. **Update reward.** Persist evidence and memory for subsequent rounds, without changing the reward during the current execution.
-
-The figure also shows optional counterexample review and repair. These require explicit configuration; adversarial review is disabled by default. Benchmark graders remain separate and are used only for evaluation.
-
-## Quick start
-
-Python **3.11+** is sufficient for the offline example. From a checkout, run the commands below. No API key, Docker, GPU, or historical experiment data is needed.
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install .
-.venv/bin/python -m reward_engine.examples.minimal --output _local/runs/minimal
+```mermaid
+flowchart LR
+    Task --> Jury --> RewardPack
+    RewardPack --> Measure
+    Actor --> Candidates --> Measure
+    Measure --> Feedback --> Actor
+    Measure --> Select --> Memory --> Jury
+    Candidates --> NativeGrader[Separate benchmark evaluation]
 ```
 
-This runs the actual core controller for three rounds with explicitly synthetic, deterministic roles and a small text task. It exercises construction, checks, feedback, revision, selection, and memory. Use a new output directory for each run.
+## Install and run offline
 
-Inspect `summary.json` for completed rounds, selections, revision counts, and memory; `round_1/` through `round_3/` contain the detailed receipts. This example demonstrates the controller, not live model quality or benchmark results.
-
-## Use a model API
-
-Install the lightweight API dependencies and supply an OpenAI-compatible Chat Completions endpoint:
+Python 3.11 or later is required for the core. No API or benchmark assets are needed for the deterministic example.
 
 ```sh
-.venv/bin/python -m pip install '.[demo]'
+python -m venv .venv
+. .venv/bin/activate
+pip install .
+python -m reward_engine.examples.minimal --output _local/runs/minimal
+```
+
+The example executes construction, measurement, revision, selection, and memory with synthetic roles. Its receipts demonstrate controller behavior, not model performance.
+
+## Connect a model
+
+```sh
+pip install '.[demo]'
 export OPENAI_API_KEY='YOUR_API_KEY'
-.venv/bin/python -m reward_engine.examples.minimal --live \
-  --model YOUR_MODEL --base-url https://your-provider.example/v1 \
-  --key-env OPENAI_API_KEY --output _local/runs/minimal-live
+python -m reward_engine.examples.minimal --live \
+  --model YOUR_MODEL_ID --base-url https://api.example.com/v1 \
+  --output _local/runs/live
 ```
 
-The endpoint must support non-streaming JSON-object responses. This example uses one model for all roles. Model calls use your provider account; invalid responses fail explicitly. See the [usage guide](docs/quickstart.md) for credentials, parameters, and output details.
+Use an OpenAI-compatible Chat Completions API supporting JSON-object responses. See [configuration](docs/configuration.md) for benchmark role profiles and credential precedence.
 
-## Native benchmark adapters
+## Runtime and benchmark support
 
-| Adapter | Environment | Entry point |
-|---|---|---|
-| [WorkBuddy Bench Office](experiments/workbuddy/README.md) | Native office tasks, workspace snapshots, and verifier | `python -m experiments.workbuddy.experiment` |
-| [Claw-Eval](experiments/claw_eval/README.md) | Native tool environment, interaction trace, and grader | `python -m experiments.claw_eval.opencode.campaign` |
+Both OpenCode and JiuwenSwarm support the Claw-Eval and Office adapters, including the fixed-baseline three-B protocol. New runs default to JiuwenSwarm; select OpenCode with `--runtime opencode`. Historical frozen configurations retain their existing interpretation.
 
-Native runs additionally require Python 3.12, benchmark assets, Docker, OpenCode, and model access. Follow [native setup](experiments/README.md) before starting them. These dependencies and datasets are not bundled with the core package.
+| Runtime | Required external installation | Selection |
+| --- | --- | --- |
+| JiuwenSwarm | Python 3.12 runtime bundle with workswarm 0.2.7 and Process CLI 0.1 | `--runtime jiuwenswarm --jiuwenswarm-bundle /path/to/bundle` |
+| OpenCode | Compatible OpenCode binary; set `OPENCODE_BINARY` | `--runtime opencode` |
 
-## Research context
+Native runs also require Docker, separately obtained benchmark assets and model access. Install controller dependencies with `pip install '.[runtime,workbuddy]'`. See [benchmark setup](experiments/README.md), [Claw-Eval](experiments/claw_eval/README.md), [Office](experiments/workbuddy/README.md), and [JiuwenSwarm bundle instructions](reward_engine/adapters/jiuwenswarm/README.md).
 
-![Benchmark results: success consistency and per-task score gains](docs/figures/benchmark_results.png)
-
-The manuscript reports three-run success consistency (Pass³) increasing from **45.0% to 54.0%** on WorkBuddy Bench Office and from **78.4% to 83.7%** on Claw-Eval. These are historical manuscript results, not measurements produced by the quick start or a guarantee for a new provider or configuration. The reinforcement-learning and cross-task meta-learning extensions are not evaluated in those experiments. See [figure provenance](docs/figures/README.md).
-
-## Explore the implementation
-
-- [Architecture](docs/architecture.md) and [Outcome core](reward_engine/core/outcome/README.md)
-- [Arm protocols](reward_engine/core/outcome/ARMS.md), [runtime critic](reward_engine/core/outcome/POLICY_CRITIC.md), and [measurement tools](reward_engine/core/outcome/MEASUREMENT_TOOLS.md)
-- [Multi-turn task scopes](reward_engine/core/outcome/MULTITURN.md) and [optional public-task reward](reward_engine/core/outcome/PUBLIC_REWARD.md)
-
-The project code is licensed under [Apache-2.0](LICENSE). Benchmark data and third-party components retain their own terms; see [licenses and provenance](docs/LICENSES.md).
+See [architecture](docs/architecture.md) and [module documentation](reward_engine/README.md). Source: [LeibnizFlow/reward-engine](https://github.com/LeibnizFlow/reward-engine). Licensed under [Apache 2.0](LICENSE); see [third-party notices](docs/LICENSES.md).

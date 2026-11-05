@@ -30,7 +30,7 @@ from reward_engine.adapters.provider_config import (
 )
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 
 
 def prepare(args):
@@ -56,7 +56,7 @@ def prepare(args):
             "OPENCODE_BINARY",
             str(REPO / "_local/data/claw_eval/environment/bin/opencode"),
         )
-        config = freeze(output, task_ids=[args.task_id], **provider)
+        config = freeze(output, task_ids=[args.task_id], actor_backend="opencode", generation_protocol="legacy_abcd", **provider, model_config=getattr(args, "model_config", None), role_models=getattr(args, "role_models", None))
     else:
         from experiments.workbuddy.experiment import prepare as freeze
 
@@ -72,7 +72,9 @@ def prepare(args):
             .resolve()
             / "upstream",
             task_ids=[args.task_id],
+            actor_backend="opencode", generation_protocol="legacy_abcd",
             **provider,
+            model_config=getattr(args, "model_config", None), role_models=getattr(args, "role_models", None),
             **(
                 {"public_delivery_contract": public_contract} if public_contract else {}
             ),
@@ -94,6 +96,9 @@ def prepare(args):
             "thinking": {"type": "disabled"},
             "enable_thinking": False,
         }
+    config.pop("model_config_precedence", None)
+    config.pop("model_config_role_overrides", None)
+    config.pop("role_max_tokens", None)
     config["validation_role_limits"] = {
         "role_stream_timeout_s": 1800,
         "role_max_tokens": {
@@ -105,10 +110,14 @@ def prepare(args):
     if model_profile is not None:
         raw_profile, profile = model_profile
         apply_profile(config, profile)
+        (output / "model_config.json").unlink(missing_ok=True)
         freeze_profile(config, model_profile_path, raw_profile)
     config["identity"] = digest({k: v for k, v in config.items() if k != "identity"})
     code = Path(config["code"])
-    shutil.copy2(Path(__file__), code / "experiments/validate_pipeline.py")
+    (code / "tests/validation").mkdir(parents=True, exist_ok=True)
+    (code / "tests/__init__.py").touch()
+    (code / "tests/validation/__init__.py").touch()
+    shutil.copy2(Path(__file__), code / "tests/validation/validate_pipeline.py")
     manifest = read(output / "manifest.json")
     manifest["config_identity"] = config["identity"]
     manifest["actor_slots"] = 12
@@ -118,10 +127,13 @@ def prepare(args):
         if args.benchmark == "claw_eval":
             manifest["files"]["model_config.json"] = config["model_config"]["sha256"]
     key = "code_hashes" if args.benchmark == "workbuddy" else "files"
-    relative = "experiments/validate_pipeline.py"
+    relative = "tests/validation/validate_pipeline.py"
     manifest[key][relative if key == "code_hashes" else "code/" + relative] = file_hash(
         code / relative
     )
+    key = "code_hashes" if args.benchmark == "workbuddy" else "files"
+    for relative in ("tests/__init__.py", "tests/validation/__init__.py"):
+        manifest[key][relative if key == "code_hashes" else "code/" + relative] = file_hash(code / relative)
     write(output / "config.json", config)
     write(output / "manifest.json", manifest)
     role_protocol = {
@@ -303,7 +315,7 @@ def main():
         [
             sys.executable,
             "-m",
-            "experiments.validate_pipeline",
+            "tests.validation.validate_pipeline",
             "--execute",
             "--output",
             config["output"],

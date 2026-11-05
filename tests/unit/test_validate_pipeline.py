@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.claw_eval.opencode import campaign, runtime
 from experiments.workbuddy import experiment
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
@@ -24,7 +24,7 @@ def frozen(request, tmp_path, monkeypatch):
     original = {}
     credentials = tmp_path / "provider.env"
     credentials.write_text(
-        "YIBU_API_KEY=offline-fixture\nYIBU_BASE_URL=http://offline.invalid/v1\n"
+        "OPENAI_API_KEY=offline-fixture\nOPENAI_BASE_URL=http://offline.invalid/v1\n"
     )
 
     def freeze(destination, **kwargs):
@@ -132,7 +132,7 @@ def test_prepare_rebinds_validation_settings_and_freezes_driver(frozen):
     assert manifest["config_identity"] == config["identity"]
     assert manifest["provenance"] == "retain-me"
     assert (manifest["actor_slots"], manifest["grading_slots"]) == (12, 9)
-    relative = "experiments/validate_pipeline.py"
+    relative = "tests/validation/validate_pipeline.py"
     frozen_code = Path(config["code"]) / relative
     assert frozen_code.read_bytes() == Path(validation.__file__).read_bytes()
     hashes = (
@@ -163,7 +163,7 @@ async def test_changed_frozen_inputs_are_rejected_before_dispatch(
 ):
     config = frozen.config
     if tamper == "code":
-        (Path(config["code"]) / "experiments/validate_pipeline.py").write_text(
+        (Path(config["code"]) / "tests/validation/validate_pipeline.py").write_text(
             "changed"
         )
     elif tamper == "role_limits":
@@ -280,7 +280,7 @@ def test_main_reexecutes_only_the_prepared_frozen_code(frozen, monkeypatch):
             [
                 validation.sys.executable,
                 "-m",
-                "experiments.validate_pipeline",
+                "tests.validation.validate_pipeline",
                 "--execute",
                 "--output",
                 config["output"],

@@ -677,6 +677,8 @@ async def test_changed_actor_guidance_is_archived_before_resampling(
             pass
 
     monkeypatch.setattr(runtime_module, "Actor", FreshActor)
+    # These archive contracts use a synthetic Actor, independent of host capacity.
+    monkeypatch.setattr(runtime, "check_resources", lambda: None)
     with pytest.raises(RuntimeError, match="fresh Actor started"):
         await runtime.sample("task", slot, guidance="new")
 
@@ -721,6 +723,8 @@ async def test_failed_actor_result_is_archived_before_resampling(tmp_path, monke
             pass
 
     monkeypatch.setattr(runtime_module, "Actor", FreshActor)
+    # These archive contracts use a synthetic Actor, independent of host capacity.
+    monkeypatch.setattr(runtime, "check_resources", lambda: None)
     with pytest.raises(RuntimeError, match="fresh Actor started"):
         await runtime.sample("task", slot)
 
@@ -879,12 +883,12 @@ async def test_real_opencode_mcp_and_same_session_revision_offline(
             chunks = [
                 {
                     "id": "offline",
-                    "model": "deepseek-v4-flash",
+                    "model": "test-reasoner",
                     "choices": [{"index": 0, "delta": delta}],
                 },
                 {
                     "id": "offline",
-                    "model": "deepseek-v4-flash",
+                    "model": "test-reasoner",
                     "choices": [
                         {
                             "index": 0,
@@ -904,11 +908,12 @@ async def test_real_opencode_mcp_and_same_session_revision_offline(
     config = {
         "output": str(tmp_path),
         "identity": "offline-only",
+        "minimum_free_gib": 5,
         "campaign_id": "offline-" + tmp_path.name,
         "benchmark_root": str(tmp_path / "benchmark"),
         "auth_file": str(token),
         "actor_timeout_s": 90,
-        "roles": {"actor": "deepseek-v4-flash"},
+        "roles": {"actor": "test-reasoner"},
         "gateway_container": f"http://host.docker.internal:{server.server_port}",
         "tools_port": port,
         "tools_container": f"http://host.docker.internal:{port}",

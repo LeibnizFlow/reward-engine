@@ -1154,7 +1154,7 @@ def test_validation_prepare_forwards_freezes_and_binds_cli_contract(
 ):
     from types import SimpleNamespace
 
-    from experiments import validate_pipeline
+    from tests.validation import validate_pipeline
     from experiments.workbuddy import experiment
     from reward_engine.adapters.workbuddy.io import read
 
@@ -1195,6 +1195,7 @@ def test_validation_prepare_forwards_freezes_and_binds_cli_contract(
         benchmark="workbuddy",
         task_id=task["task_id"],
         public_delivery_contract=source,
+        backend_url="http://provider.invalid/v1",
     )
     config = validate_pipeline.prepare(args)
     assert captured == [source]

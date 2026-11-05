@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import httpx
 import pytest
@@ -20,8 +21,8 @@ async def test_role_amendment_uses_gemini_and_keeps_old_model_cache(
         "output": str(tmp_path),
         "identity": "original-samples",
         "roles": {
-            "hypothesis_member_3": "glm-5.3",
-            "jury_member_3": "gemini-3.8-flash",
+            "hypothesis_member_3": "test-model-c",
+            "jury_member_3": "test-panel-c",
         },
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://gateway",
@@ -33,19 +34,19 @@ async def test_role_amendment_uses_gemini_and_keeps_old_model_cache(
     old_cache = (
         folder
         / "completed"
-        / (digest({"request": request, "model": "glm-5.3"}) + ".json")
+        / (digest({"request": request, "model": "test-model-c"}) + ".json")
     )
     write(old_cache, {"answer": {"source": "old-glm"}})
     write(
         tmp_path / "role_models.json",
-        {"roles": {"hypothesis_member_3": "gemini-3.8-flash"}},
+        {"roles": {"hypothesis_member_3": "test-panel-c"}},
     )
     requests = []
 
     def upstream(req):
         body = json.loads(req.content)
         requests.append(body)
-        assert body["model"] == "gemini-3.8-flash"
+        assert body["model"] == "test-panel-c"
         event = {
             "model": body["model"],
             "choices": [
@@ -80,7 +81,7 @@ async def test_role_amendment_uses_gemini_and_keeps_old_model_cache(
     "overrides",
     [
         {"hypothesis_member_3": "unconfigured-model"},
-        {"unknown_role": "gemini-3.8-flash"},
+        {"unknown_role": "test-panel-c"},
         {"hypothesis_member_3": None},
         [],
     ],
@@ -88,7 +89,7 @@ async def test_role_amendment_uses_gemini_and_keeps_old_model_cache(
 def test_role_amendment_rejects_unconfigured_roles_and_models(tmp_path, overrides):
     config = {
         "output": str(tmp_path),
-        "roles": {"hypothesis_member_3": "gemini-3.8-flash"},
+        "roles": {"hypothesis_member_3": "test-panel-c"},
     }
     write(tmp_path / "role_models.json", {"roles": overrides})
     with pytest.raises(ValueError, match="configured roles and gateway models"):
@@ -99,9 +100,9 @@ def test_role_amendment_rejects_unconfigured_roles_and_models(tmp_path, override
 @pytest.mark.parametrize(
     "finish,actual",
     [
-        ("stop", "gemini-3.8-flash"),
-        (None, "gemini-3.8-flash"),
-        ("length", "gemini-3.8-flash"),
+        ("stop", "test-panel-c"),
+        (None, "test-panel-c"),
+        ("length", "test-panel-c"),
         ("stop", "wrong-model"),
     ],
 )
@@ -112,7 +113,7 @@ async def test_opt_in_nonstream_recovery_preserves_request_and_requires_complete
 
     config = {
         "output": str(tmp_path),
-        "roles": {"jury_member_3": "gemini-3.8-flash"},
+        "roles": {"jury_member_3": "test-panel-c"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://gateway",
     }
@@ -147,9 +148,9 @@ async def test_opt_in_nonstream_recovery_preserves_request_and_requires_complete
         lambda **kwargs: client(transport=httpx.MockTransport(upstream), **kwargs),
     )
     role = Role(config, "jury_member_3", tmp_path / "role")
-    role.nonstream_recovery_models = {"gemini-3.8-flash"}
+    role.nonstream_recovery_models = {"test-panel-c"}
     request = {"mode": "test"}
-    if finish == "stop" and actual == "gemini-3.8-flash":
+    if finish == "stop" and actual == "test-panel-c":
         assert await role(request) == {"source": "recovered"}
         assert await role(request) == {"source": "recovered"}
     else:
@@ -169,7 +170,7 @@ async def test_stream_recovery_is_disabled_by_default(tmp_path, monkeypatch):
 
     config = {
         "output": str(tmp_path),
-        "roles": {"jury_member_3": "gemini-3.8-flash"},
+        "roles": {"jury_member_3": "test-panel-c"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://gateway",
     }
@@ -197,7 +198,7 @@ def thinking_role(tmp_path, monkeypatch):
 
     config = {
         "output": str(tmp_path),
-        "roles": {"jury_member_3": "gemini-3.8-flash"},
+        "roles": {"jury_member_3": "test-panel-c"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://offline",
     }
@@ -255,17 +256,59 @@ async def test_default_thinking_options_preserve_request_and_cache_identity(
         "stream_options",
         "messages",
     }
-    assert calls[0]["model"] == "gemini-3.8-flash"
+    assert calls[0]["model"] == "test-panel-c"
     assert calls[0]["temperature"] == 0
     assert json.loads(calls[0]["messages"][-1]["content"]) == request
     cache = (
         role.output
         / "completed"
-        / (digest({"request": request, "model": "gemini-3.8-flash"}) + ".json")
+        / (digest({"request": request, "model": "test-panel-c"}) + ".json")
     )
     assert read(cache)["answer"] == {"status": "pass"}
     assert not list(role.output.glob("*/thinking_parameters.json"))
     assert role.config == before
+
+
+@pytest.mark.asyncio
+async def test_frozen_output_budget_is_sent_and_part_of_cache_identity(thinking_role):
+    role, calls, _ = thinking_role
+    request = {"mode": "test"}
+    await role(request)
+    role.config["role_max_tokens"] = {role.role: 16384}
+    await role(request)
+    await role(request)
+    assert len(calls) == 2
+    assert calls[-1]["max_tokens"] == 16384
+    role.config["role_max_tokens"][role.role] = 8192
+    await role(request)
+    assert len(calls) == 3
+    assert calls[-1]["max_tokens"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_frozen_budget_and_empty_model_options_override_legacy_settings(thinking_role):
+    role, calls, _ = thinking_role
+    role.config["role_request_options"] = {"thinking": {"type": "disabled"}, "enable_thinking": False}
+    role.config["role_request_options_by_model"] = {"test-panel-c": {}}
+    role.config["role_max_tokens"] = {role.role: 16384}
+    write(Path(role.config["output"]) / "role_limits.json", {"role_max_tokens": {role.role: 999}})
+    await role({"mode": "test"})
+    assert calls[0]["max_tokens"] == 16384
+    assert "thinking" not in calls[0] and "enable_thinking" not in calls[0]
+    assert read(next(role.output.glob("*/request_parameters.json")))["source"] == "config.role_max_tokens"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budgets", [{"actor": 100}, {"unknown": 100},
+                                    {"jury_member_3": True}, {"jury_member_3": 0}, None])
+async def test_frozen_output_budget_is_validated_before_cache(thinking_role, budgets):
+    role, calls, _ = thinking_role
+    request = {"mode": "test"}
+    await role(request)
+    role.config["role_max_tokens"] = budgets
+    with pytest.raises(ValueError, match="Role output budgets"):
+        await role(request)
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -289,7 +332,7 @@ async def test_explicit_thinking_request_is_exact_recorded_and_separate_from_def
     receipt = next(role.output.glob("*/thinking_parameters.json"))
     assert read(receipt) == {
         "role": "jury_member_3",
-        "model": "gemini-3.8-flash",
+        "model": "test-panel-c",
         "options": options,
         "source": "config.role_request_options",
     }
@@ -327,7 +370,7 @@ async def test_invalid_thinking_options_rejected_before_http_even_with_cached_an
     cache = (
         role.output
         / "completed"
-        / (digest({"request": request, "model": "gemini-3.8-flash"}) + ".json")
+        / (digest({"request": request, "model": "test-panel-c"}) + ".json")
     )
     write(cache, {"answer": {"status": "pass"}})
     old_bytes = cache.read_bytes()
@@ -347,7 +390,7 @@ async def test_thinking_request_is_preserved_and_recorded_on_nonstream_recovery(
     role, calls, responses = thinking_role
     options = {"thinking": {"type": "disabled"}, "enable_thinking": False}
     role.config["role_request_options"] = options
-    role.nonstream_recovery_models = {"gemini-3.8-flash"}
+    role.nonstream_recovery_models = {"test-panel-c"}
     responses.extend(
         [
             httpx.Response(
@@ -356,7 +399,7 @@ async def test_thinking_request_is_preserved_and_recorded_on_nonstream_recovery(
             httpx.Response(
                 200,
                 json={
-                    "model": "gemini-3.8-flash",
+                    "model": "test-panel-c",
                     "choices": [
                         {
                             "finish_reason": "stop",
@@ -371,7 +414,7 @@ async def test_thinking_request_is_preserved_and_recorded_on_nonstream_recovery(
     assert len(calls) == 2
     for body in calls:
         assert {key: body[key] for key in options} == options
-        assert body["model"] == "gemini-3.8-flash"
+        assert body["model"] == "test-panel-c"
         assert body["temperature"] == 0
     receipts = list(role.output.glob("*/thinking_parameters.json"))
     assert len(receipts) == 2
@@ -386,7 +429,7 @@ async def test_role_output_budget_applies_to_uncached_calls_and_keeps_completed_
 
     config = {
         "output": str(tmp_path),
-        "roles": {"jury_reducer": "deepseek-v4-flash"},
+        "roles": {"jury_reducer": "test-reasoner"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://gateway",
     }

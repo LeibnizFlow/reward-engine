@@ -472,6 +472,7 @@ async def construct_reward(
     reduce_max_bytes=393216,
     checkpoint=None,
     adversarial_review_enabled=False,
+    policy=None,
 ):
     """Build a Reward Pack; counterexample review requires operator opt-in."""
     validate_review_flag(adversarial_review_enabled)
@@ -528,7 +529,7 @@ async def construct_reward(
             evidence,
             members,
             roles("jury_reducer"),
-            policy=BatchPolicy(deadline_s=900),
+            policy=policy or BatchPolicy(deadline_s=900),
             strict=True,
             task_only=True,
             reduce_max_bytes=reduce_max_bytes,

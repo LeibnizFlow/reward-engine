@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from experiments import validate_pipeline as validation
+from tests.validation import validate_pipeline as validation
 from experiments.workbuddy import experiment, resume
 from reward_engine.adapters import model_config as profiles
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
@@ -19,12 +19,11 @@ launcher = profile_tests.launcher
 prepare_tree = profile_tests.prepare_tree
 KEY = "measurement_candidate_concurrency"
 REPO = Path(__file__).resolve().parents[2]
-PUBLIC_PROFILE = REPO / "reward_engine/configs/bailian_token_plan.json"
+PUBLIC_PROFILE = REPO / "tests/support/model_profile.json"
 SOURCES = (
     "reward_engine/core/outcome/loop.py",
     "reward_engine/adapters/model_config.py",
     "experiments/workbuddy/experiment.py",
-    "reward_engine/configs/bailian_token_plan.json",
 )
 
 

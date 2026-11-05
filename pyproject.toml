@@ -46,7 +46,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/TheLittleJimmy/reward-engine"
+Repository = "https://github.com/LeibnizFlow/reward-engine"
 "JiuwenSwarm upstream" = "https://github.com/openjiuwen/jiuwenswarm"
 
 [tool.setuptools]
@@ -63,6 +63,7 @@ exclude = ["_local*", "experiments.archive*", "experiments.workbuddy.local*", "l
 [tool.pytest.ini_options]
 addopts = "-ra --basetemp=_local/tmp/pytest"
 cache_dir = "_local/cache/pytest"
+asyncio_default_fixture_loop_scope = "function"
 norecursedirs = ["_local", ".git", ".venv"]
 testpaths = ["tests/unit"]
 

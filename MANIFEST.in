@@ -1,5 +1,5 @@
 include .env.example
-recursive-include docs *.md *.txt *.png
+recursive-include docs *.md *.txt
 prune tests
 prune _local
 global-exclude __pycache__ *.py[cod]

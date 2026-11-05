@@ -14,7 +14,7 @@ Integrations using `TaskSequence` establish a new scope when public requirements
 
 ## Default and optional construction
 
-All current construction entry points default to `adversarial_review_enabled=false`. Ordinary construction runs Jury, Builder, and basic integrity checks without Attack, independent counterexample references, or related repair/retest steps. Unvalidated criteria remain `unverified`; they gain neither case support nor critical-protection authority. Hypothesis still runs, but its actor projection explicitly labels guidance as optional and unvalidated.
+The core compatibility interface defaults to `adversarial_review_enabled=false`. New native three-B campaigns explicitly enable counterexample review and disable Hypothesis. Ordinary construction runs Jury, Builder, and basic integrity checks without Attack, independent counterexample references, or related repair/retest steps. Unvalidated criteria remain `unverified`; they gain neither case support nor critical-protection authority. Hypothesis still runs, but its actor projection explicitly labels guidance as optional and unvalidated.
 
 Enable adversarial review only when explicitly requested for the run. Set the flag at experiment configuration top level, or under `runtime` in a QC manifest. `construction_strategy="counterexample_validated"` alone does not enable it. Dedicated counterexample diagnostics reject disabled configurations before model calls.
 
@@ -30,7 +30,7 @@ Feedback targets the complete desired outcome, including quality, depth, complet
 
 Delivery review distinguishes `needs_improvement`, `needs_verification`, `target_satisfied`, and `unknown`. Target satisfaction is the current review's conclusion, not a native perfect score. Revision budgets are bounded and actual versions are retained. Contract errors receive bounded repair with the same evidence; valid low scores do not trigger resampling.
 
-Targeted review is the default, with configurable `max_tests=3`. Unselected checks remain unknown. Explicit diagnostic full audit uses `DeliveryReview(audit_mode="full")` or `run_task(full_audit=True)`. A narrow criterion pass cannot erase a valid failed local inquiry. Execution errors and insufficient evidence are not, by themselves, product defects.
+Targeted review is the core compatibility default, with configurable `max_tests=3`. Native three-B campaigns use full audit. Unselected checks remain unknown. Explicit diagnostic full audit uses `DeliveryReview(audit_mode="full")` or `run_task(full_audit=True)`. A narrow criterion pass cannot erase a valid failed local inquiry. Execution errors and insufficient evidence are not, by themselves, product defects.
 
 Selections use actual completed candidates and reject known checked regressions. A fresh task-only candidate is the fallback when strict preference is not established; this rule does not guarantee native-score improvement. Within-candidate review can retain an earlier delivery and its measurement as immutable evidence. This does not restore native workspace or service state: retention records explicitly report `native_state_restored=false`. Native grading observes the actual terminal state, and its score cannot be reassigned to retained evidence.
 

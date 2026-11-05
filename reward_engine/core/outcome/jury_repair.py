@@ -56,6 +56,15 @@ def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
                     "field is distinct from a gap's product-specific references.",
                 }
             )
+        if criterion.get("kind") == "hard" and criterion.get("origin") in {"domain", "observed_gap"}:
+            issues.append({
+                "path": ["criteria", i, "kind"],
+                "origin": criterion["origin"],
+                "reason": "Domain preferences and observed gaps cannot become hard Task requirements. "
+                "Preserve actual provenance; do not relabel origin as task merely to pass validation. "
+                "Author kind=soft for this provenance, or substantiate a different requirement from "
+                "the supplied Task with explicit evidence and revision decisions. No field was changed.",
+            })
         if "subrequirements" not in criterion:
             continue
         parts = criterion["subrequirements"]
@@ -284,8 +293,10 @@ def diagnostics(draft, expectations, *, evidence=None, product_ref=None):
     return issues
 
 
-def apply_edits(draft, reply):
-    """Apply exact existing paths atomically; never guess a replacement ID or source."""
+def apply_edits(draft, reply, *, allowed_roots=None, allow_add=False):
+    """Apply exact paths atomically; optional add creates only absent object keys."""
+    if allowed_roots is None:
+        allowed_roots = {"criteria", "gaps", "coverage", "uncertainties"}
     result, _index, edit = draft, None, None
     try:
         edits = reply.get("edits")
@@ -293,16 +304,14 @@ def apply_edits(draft, reply):
             raise ValueError("Repair needs one to 64 explicit edits")
         result = deepcopy(draft)
         for _index, edit in enumerate(edits):
-            if not isinstance(edit, dict) or edit.get("op") not in {
-                "replace",
-                "remove",
-            }:
-                raise ValueError("Repair operation must be replace or remove")
+            operations = {"replace", "remove", *({"add"} if allow_add else set())}
+            if not isinstance(edit, dict) or edit.get("op") not in operations:
+                raise ValueError("Repair operation must be " + ", ".join(sorted(operations)))
             path = edit.get("path")
             if (
                 not isinstance(path, list)
                 or not path
-                or path[0] not in {"criteria", "gaps", "coverage", "uncertainties"}
+                or path[0] not in allowed_roots
                 or any(type(k) not in {str, int} for k in path)
                 or not isinstance(edit.get("reason"), str)
                 or not edit["reason"].strip()
@@ -314,9 +323,13 @@ def apply_edits(draft, reply):
             for key in path[:-1]:
                 target = child(target, key)
             key = path[-1]
-            child(
-                target, key
-            )  # Reject nonexistent keys, negative indices and bool indices.
+            if edit["op"] == "add":
+                if not isinstance(target, dict) or not isinstance(key, str) or key in target:
+                    raise ValueError("Add requires an absent object key in an existing parent")
+            else:
+                child(
+                    target, key
+                )  # Reject nonexistent keys, negative indices and bool indices.
             if edit["op"] == "remove":
                 del target[key]
             else:
@@ -333,10 +346,22 @@ def apply_edits(draft, reply):
 
 def edit_failure(result, index, edit):
     path = edit.get("path") if isinstance(edit, dict) else None
+    fields = set(edit) if isinstance(edit, dict) else set()
+    required = {"op", "path", "reason"}
+    if isinstance(edit, dict) and edit.get("op") in ("replace", "add"):
+        required.add("value")
     details = {
         "edit_index": index,
         "op": edit.get("op") if isinstance(edit, dict) else None,
         "path": deepcopy(path),
+        "edit_fields": sorted(fields, key=str),
+        "missing_edit_fields": sorted(required - fields),
+        "invalid_edit_fields": ["reason"] if "reason" in fields and (
+            not isinstance(edit["reason"], str) or not edit["reason"].strip()
+        ) else [],
+        "edit_field_instruction": "These fields belong to the edit object itself, alongside op and path. "
+        "A reason nested inside value or placed as a separate item in edits does not satisfy "
+        "the edit's required nonempty reason field. These are reply fields, not draft edit paths.",
         "batch_applied": False,
         "applied_edit_count": 0,
         "repair_base": "validation_repair.invalid_draft",

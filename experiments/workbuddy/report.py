@@ -22,6 +22,9 @@ from reward_engine.adapters.workbuddy.io import read, write
 def report(root, report_dir=None):
     root = Path(root)
     config = read(root / "config.json")
+    if config.get("generation_protocol") == "three_b_fixed_baselines_v1":
+        from reward_engine.adapters.jiuwenswarm.report import report as three_b_report
+        return three_b_report(config, report_directory("workbuddy", root, report_dir or config.get("report_dir")))
     destination = report_directory(
         "workbuddy", root, report_dir or config.get("report_dir")
     )

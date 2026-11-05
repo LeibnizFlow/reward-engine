@@ -1,16 +1,13 @@
-"""Freeze and run the Office50-style one-round Claw-Eval campaign."""
+"""Freeze and run Claw-Eval campaigns with either supported actor runtime."""
 
 import argparse
 import asyncio
-import csv
 import fcntl
 import os
 import shutil
-import statistics
 import subprocess
 import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,15 +19,17 @@ from experiments.claw_eval.opencode.runtime import (
     free_port,
     public_task,
 )
+from experiments.claw_eval.report import report as report
+from reward_engine.adapters.integrity import verification_progress
 from reward_engine.adapters.provider_config import (
     add_provider_arguments,
     provider_arguments_supplied,
     provider_key,
     resolve_provider,
 )
+from reward_engine.adapters.scheduling import batch_policy
 from reward_engine.adapters.workbuddy.io import auth, digest, file_hash, read, write
 from reward_engine.adapters.workbuddy.models import Role, registry
-from reward_engine.core.batch import BatchPolicy
 from reward_engine.core.outcome.loop import run_task
 from reward_engine.core.outcome.memory import Memory
 from reward_engine.core.outcome.runner import DeliveryReview
@@ -67,11 +66,21 @@ def install_public_fixtures(benchmark, task_ids, output):
             + spec.get("sandbox_grader_files", [])
             + spec.get("local_grader_files", [])
         )
+        # Services run with benchmark as their cwd. A declared input referenced
+        # verbatim by a service environment variable must exist at that root,
+        # even when its archive entry is supplied through a task overlay.
+        service_inputs = {
+            value
+            for service in spec.get("services", [])
+            for value in (service.get("env") or {}).values()
+            if isinstance(value, str)
+        }
         for relative in paths:
             if Path(relative).is_absolute() or ".." in Path(relative).parts:
                 raise ValueError("Unsafe declared fixture path")
-            destination = folder / relative
-            if destination.exists() or (benchmark / relative).exists():
+            service_input = relative in service_inputs
+            destination = (benchmark if service_input else folder) / relative
+            if destination.exists() or (not service_input and (benchmark / relative).exists()):
                 continue
             if overlay is None:
                 raise FileNotFoundError(
@@ -94,7 +103,14 @@ def install_public_fixtures(benchmark, task_ids, output):
 
 
 def verify_freeze(config):
+    if config.get("implementation_revision"):
+        from experiments.revision import verify_revision
+        return verify_revision(config, verify_freeze)
+    from reward_engine.adapters.jiuwenswarm.config import verify
+    verify(config)
     root = Path(config["output"])
+    from reward_engine.adapters.model_config import verify_profile
+    verify_profile(config)
     manifest = read(root / "manifest.json")
     if (
         config["identity"] != manifest["config_identity"]
@@ -107,7 +123,27 @@ def verify_freeze(config):
             raise ValueError("Frozen file changed: " + relative)
 
 
-def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_url=None):
+def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_url=None,
+            actor_backend="jiuwenswarm", jiuwenswarm_mode="agent.code.normal", jiuwenswarm_bundle=None,
+            generation_protocol="three_b_fixed_baselines_v1", rounds=3, task_images_manifest=None, role_models=None, model_config=None, native_grader_model=None,
+            per_model_concurrency=None, minimum_free_gib=None):
+    from reward_engine.adapters.fresh_config import fresh_roles, freeze_settings
+    from reward_engine.adapters.jiuwenswarm.config import options
+    runtime_options = options(actor_backend=actor_backend, jiuwenswarm_mode=jiuwenswarm_mode,
+        jiuwenswarm_bundle=jiuwenswarm_bundle, generation_protocol=generation_protocol, rounds=rounds)
+    if task_images_manifest is not None:
+        raise ValueError("task_images_manifest is Office-only")
+    from experiments.claw_eval.opencode.model_settings import (
+        configure_roles,
+        validate_model,
+    )
+    if native_grader_model is not None:
+        validate_model(native_grader_model)
+    if per_model_concurrency is not None and (type(per_model_concurrency) is not int or not 1 <= per_model_concurrency <= 128):
+        raise ValueError("per_model_concurrency must be in 1..128")
+    if minimum_free_gib is not None and (type(minimum_free_gib) is not int or not 5 <= minimum_free_gib <= 1024):
+        raise ValueError("minimum_free_gib must be an integer in 5..1024")
+    roles = fresh_roles(model_config, role_models, generation_protocol)
     manifest = read(MANIFEST)
     if len(manifest["task_ids"]) != 104 or len(set(manifest["task_ids"])) != 104:
         raise ValueError("Expected exactly 104 unique task IDs")
@@ -123,8 +159,8 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
         key_env=key_env,
         backend_url=backend_url,
         default_credentials=REPO / ".env",
-        default_key_env="OPENLUX_API_KEY",
-        default_backend_url="https://api.openlux.ai/v1",
+        default_key_env="OPENAI_API_KEY",
+        default_backend_url=None,
     )
     provider_key(provider)
     output.mkdir(parents=True, exist_ok=False)
@@ -141,15 +177,16 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
         SOURCE, benchmark, ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv")
     )
     install_public_fixtures(benchmark, selected, output)
-    binary = Path(
-        os.environ.get("OPENCODE_BINARY", shutil.which("opencode") or "opencode")
-    )
-    if not binary.is_file():
-        raise FileNotFoundError(
-            "Install the pinned OpenCode binary and set OPENCODE_BINARY"
+    if actor_backend == "opencode":
+        binary = Path(
+            os.environ.get("OPENCODE_BINARY", shutil.which("opencode") or "opencode")
         )
-    (output / "bin").mkdir()
-    shutil.copy2(binary, output / "bin/opencode")
+        if not binary.is_file():
+            raise FileNotFoundError(
+                "Install the pinned OpenCode binary and set OPENCODE_BINARY"
+            )
+        (output / "bin").mkdir()
+        shutil.copy2(binary, output / "bin/opencode")
     import subprocess
 
     image = subprocess.check_output(
@@ -159,23 +196,6 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
     docker_root = subprocess.check_output(
         ["docker", "info", "--format", "{{.DockerRootDir}}"], text=True
     ).strip()
-    roles = {
-        r: "deepseek-v4-flash"
-        for r in (
-            "actor",
-            "jury_reducer",
-            "hypothesis_chooser",
-            "harness_designer",
-            "reward_calibration_judge",
-        )
-    }
-    for family in ("jury", "hypothesis"):
-        roles.update(
-            {
-                f"{family}_member_{i}": m
-                for i, m in enumerate(("MiniMax-M3", "qwen3.8-max", "glm-5.3-flash"), 1)
-            }
-        )
     port, tool_port = free_port(), free_port()
     cfg = {
         "schema": "claw_eval.office50_opencode.v1",
@@ -212,10 +232,7 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
         "docker_data_root": docker_root,
         "opencode_binary": str(output / "bin/opencode"),
         "python": sys.executable,
-        "model_aliases": {
-            "deepseek-v4-flash": ["deepseek-v4-flash-0731", "deepseek-flash"],
-            "glm-5.3-flash": ["glm-5-3-flash-260828"],
-        },
+        "model_aliases": {},
         "canaries": [
             manifest["task_ids"][0],
             manifest["groups"]["fresh_sandbox_25"][0],
@@ -223,6 +240,16 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
             "T096_pinbench_business_metrics_summary",
         ],
     }
+    cfg.update(runtime_options)
+    cfg["validation_benchmark"] = "claw_eval"
+    if native_grader_model is not None:
+        cfg["native_grader_model"] = native_grader_model
+    if per_model_concurrency is not None:
+        cfg["per_model_concurrency"] = per_model_concurrency
+    if minimum_free_gib is not None:
+        cfg["minimum_free_gib"] = minimum_free_gib
+        cfg["minimum_free_bytes"] = minimum_free_gib * 1024**3
+    freeze_settings(cfg, model_config, role_models, generation_protocol)
     cfg["canaries"] = [task for task in cfg["canaries"] if task in selected]
     cfg["identity"] = digest(cfg)
     (output / "campaign.auth").write_text(uuid4().hex + uuid4().hex)
@@ -247,10 +274,13 @@ def prepare(output, *, task_ids=None, credentials=None, key_env=None, backend_ur
         output / "manifest.json",
         {
             "files": hashes,
+            **({"model_config": cfg["model_config"]} if "model_config" in cfg else {}),
             "task_manifest": manifest,
             "source_manifest_sha256": file_hash(MANIFEST),
             "config_identity": cfg["identity"],
             "image": image,
+            "runtime_identity": cfg.get("runtime_identity"),
+            "generation_protocol": cfg.get("generation_protocol"),
         },
     )
     return cfg
@@ -352,14 +382,18 @@ async def grade(config, task, row, output):
         "snapshot": file_hash(
             Path(row["native_grader_trial"]) / "environment-snapshot.json"
         ),
-        "identity": config["identity"],
+        "identity": config.get("checkpoint_config_identity", config["identity"]),
     }
     if target.exists():
         saved = read(target)
         if saved.get("binding") != binding:
             raise ValueError("Score artifact binding changed")
-        return saved
+        if config.get("generation_protocol") != "three_b_fixed_baselines_v1" or saved.get("status") == "graded":
+            return saved
+        # Original worker receipts remain immutable; retry only native grading.
+        write(output / "official.private" / (str(time.time_ns()) + ".failed.json"), saved)
     os.environ["CLAW_CAMPAIGN_AUTH"] = auth(config)
+    grader_model = config.get("native_grader_model", config["roles"]["actor"])
     settings = {
         "benchmark_root": config["benchmark_root"],
         "task_yaml": str(
@@ -368,11 +402,11 @@ async def grade(config, task, row, output):
         "python": config["python"],
         "timeout_s": 3600,
         "judge": {
-            "model": config["roles"]["actor"],
+            "model": grader_model,
             "base_url": config["gateway_local"] + "/grade/v1",
             "api_key_env": "CLAW_CAMPAIGN_AUTH",
-            "allowed_models": [config["roles"]["actor"]]
-            + config["model_aliases"].get(config["roles"]["actor"], []),
+            "allowed_models": [grader_model]
+            + config["model_aliases"].get(grader_model, []),
             "temperature": 0.6,
             "max_tokens": 32768,
             "read_timeout_s": 1860,
@@ -439,7 +473,60 @@ def corrected_failure_retry_available(task):
     return corrected_failure_retry_limit(task) > 2
 
 
+async def three_b_task(config, runtime, task_id):
+    from reward_engine.adapters.claw_eval.recovery import recover_prelaunch
+    from reward_engine.adapters.jiuwenswarm.checkpoints import verify_actor
+    from reward_engine.adapters.scheduling import check_stage_admission
+    from reward_engine.core.outcome import three_b
+    root = Path(config["output"]) / "tasks" / task_id
+    root.mkdir(parents=True, exist_ok=True)
+    _, task = public_task(config, task_id)
+    policy = batch_policy(config)
+    def record(name, value):
+        write(root / (name + ".json"), value)
+    def restore(name):
+        path = root / (name + ".json")
+        return read(path) if path.exists() else None
+    retries = getattr(runtime, "actor_retries", None)
+    def actor_slot(name, slot):
+        return retries.slot(task_id, name, slot) if retries else slot
+    def recover_actor(name, stage):
+        return recover_prelaunch(root, name, stage) or bool(
+            retries and retries.recover(task_id, name, stage)
+        )
+    async def baseline(index):
+        slot = actor_slot(f"seed_{index}", root / "seeds" / str(index + 1))
+        return await runtime.sample(task_id, slot)
+    async def sample(arm, number, prompt, pack):
+        slot = actor_slot(f"round_{number}/{arm}", root / f"round_{number}" / "actors" / arm)
+        review = DeliveryReview(task, pack, registry(config, slot / "checks"), memory=Memory(),
+            max_revisions=2, audit_mode="full", policy=policy, source_prefix=str(slot / "checks"),
+            record=lambda n, v: write(slot / "checks" / (n + ".json"), v))
+        return await runtime.sample(task_id, slot, guidance=prompt, review=review)
+    async def evaluate(task, row):
+        return await grade(config, task, row, Path(row["runtime_directory"]))
+    try:
+        result = await three_b.run_task(task, rounds=config["rounds"],
+            runtime={"config_identity": config.get("checkpoint_config_identity", config["identity"]), "runtime_identity": config.get("runtime_identity"), "image": config["image"]},
+            implementation=config["identity"],
+            baseline=baseline, sample=sample, evaluate=evaluate,
+            roles=lambda role, prefix: Role(config, role, root / prefix / "models" / role),
+            registry=registry(config, root / "measurement"), policy=policy,
+            jury_reduce_max_bytes=Role.request_budget_bytes, record=record, restore=restore, verify_actor=verify_actor,
+            admit_stage=lambda name: check_stage_admission(config, task_id, name),
+            recover_actor=recover_actor
+            if config.get("actor_backend") == "jiuwenswarm" else None)
+        record("state", {"status": result["status"], "completed_rounds": result["completed_rounds"]})
+        return result
+    except BaseException as error:
+        record("state", {"status": "failed", "error_type": type(error).__name__, "reason": str(error)})
+        raise
+
+
 async def task_run(config, runtime, task_id):
+    from reward_engine.core.outcome.three_b import PROTOCOL
+    if config.get("generation_protocol") == PROTOCOL:
+        return await three_b_task(config, runtime, task_id)
     root = Path(config["output"]) / "tasks" / task_id
     root.mkdir(parents=True, exist_ok=True)
     recovery_count = substantive_recovery_count(root)
@@ -509,7 +596,7 @@ async def task_run(config, runtime, task_id):
         if failures:
             raise failures[0]
         record("seeds", seeds)
-        policy = BatchPolicy(**config["batch"])
+        policy = batch_policy(config)
         memory = Memory()
 
         async def sample(arm, number, prompt, pack):
@@ -755,133 +842,6 @@ def recover_orphaned_tasks(config):
     return recovered
 
 
-def report(config):
-    root = Path(config["output"])
-    expected_tasks = len(config["task_ids"])
-    expected_actors = expected_tasks * (config["seeds"] + len("ABC"))
-    expected_scores = expected_tasks * len("ABC")
-    tasks = {}
-    rows = []
-    for tid in config["task_ids"]:
-        folder = root / "tasks" / tid
-        state = (
-            read(folder / "state.json")
-            if (folder / "state.json").exists()
-            else {"status": "pending"}
-        )
-        scores = {}
-        for arm in "ABC":
-            path = folder / "round_1/actors" / arm / "OFFICIAL.private.json"
-            value = read(path) if path.exists() else {}
-            score = value.get("task_score") if value.get("status") == "graded" else None
-            scores[arm] = score
-            rows.append(
-                {
-                    "task_id": tid,
-                    "arm": arm,
-                    "status": value.get("status", "pending"),
-                    "score": score,
-                }
-            )
-        selected = None
-        result_file = folder / "result.private.json"
-        if result_file.exists():
-            selected = read(result_file).get("selected_delivery")
-        tasks[tid] = {**state, "scores": scores, "selected_delivery": selected}
-    actors = sum(
-        1
-        for p in (root / "tasks").glob("*/seeds/*/RESULT.json")
-        if read(p)["status"] == "completed"
-    )
-    actors += sum(
-        1
-        for p in (root / "tasks").glob("*/round_1/actors/*/RESULT.json")
-        if read(p)["status"] == "completed"
-    )
-    data = {
-        "expected_tasks": expected_tasks,
-        "expected_actors": expected_actors,
-        "expected_scores": expected_scores,
-        "completed_actors": actors,
-        "valid_scores": sum(r["score"] is not None for r in rows),
-        "completed_tasks": sum(t["status"] == "completed" for t in tasks.values()),
-        "tasks": tasks,
-        "at": time.time(),
-    }
-    data["arm_means"] = {
-        arm: {"n": len(values), "mean": statistics.mean(values) if values else None}
-        for arm in "ABC"
-        for values in [
-            [
-                row["score"]
-                for row in rows
-                if row["arm"] == arm and row["score"] is not None
-            ]
-        ]
-    }
-    data["paired_differences"] = {}
-    for arm in "BC":
-        differences = [
-            t["scores"][arm] - t["scores"]["A"]
-            for t in tasks.values()
-            if t["scores"][arm] is not None and t["scores"]["A"] is not None
-        ]
-        data["paired_differences"][arm + "-A"] = {
-            "n": len(differences),
-            "mean": statistics.mean(differences) if differences else None,
-        }
-    usage = defaultdict(
-        lambda: {
-            "attempts": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "missing_usage": 0,
-        }
-    )
-    for section in ("transport", "official.private"):
-        for path in (root / section).glob("*/*/receipt.json"):
-            receipt = read(path)
-            totals = usage[section + "/" + receipt["model"]]
-            attempts = receipt.get("stream_attempts") or [
-                {"usage": receipt.get("usage")}
-            ]
-            totals["attempts"] += receipt.get("attempts", 1)
-            totals["missing_usage"] += max(
-                0, receipt.get("attempts", 1) - len(attempts)
-            )
-            for attempt in attempts:
-                item = attempt.get("usage") or {}
-                totals["missing_usage"] += not bool(item)
-                for key in ("prompt_tokens", "completion_tokens"):
-                    totals[key] += item.get(key, 0) or 0
-    data["usage"] = dict(usage)
-    data["monetary_cost"] = {
-        "status": "not_available",
-        "reason": "Provider usage retained; no verified account pricing supplied",
-    }
-    write(root / "report.json", data)
-    with (root / "scores.csv").open("w") as stream:
-        writer = csv.DictWriter(
-            stream, fieldnames=["task_id", "arm", "status", "score"]
-        )
-        writer.writeheader()
-        writer.writerows(rows)
-    (root / "REPORT.md").write_text(
-        f"# Claw-Eval {expected_tasks} tasks · OpenCode\n\nActors {actors}/{expected_actors}; valid scores {data['valid_scores']}/{expected_scores}; completed tasks {data['completed_tasks']}/{expected_tasks}.\n\n"
-        + "| Task | Status | A | B | C |\n|---|---|---|---|---|\n"
-        + "".join(
-            f"| {tid} | {v['status']} | "
-            + " | ".join(
-                "—" if v["scores"][a] is None else f"{v['scores'][a]:.4f}"
-                for a in "ABC"
-            )
-            + " |\n"
-            for tid, v in tasks.items()
-        )
-    )
-    return data
-
-
 async def probe(config):
     async with httpx.AsyncClient(timeout=240, trust_env=False) as client:
         for model in dict.fromkeys(config["roles"].values()):
@@ -913,12 +873,56 @@ async def probe(config):
                 raise RuntimeError("Preflight reply incomplete: " + model)
 
 
-async def serve(config, canary_only=False, probe_only=False):
+async def run_three_b_tasks(config, runtime, names):
+    from reward_engine.adapters.claw_eval.services import ServiceStartError
+    from reward_engine.adapters.scheduling import run_bounded
+    from reward_engine.adapters.task_admission import TaskAdmission, check_space
+
+    admission = TaskAdmission(config, check_space)
+
+    async def one(tid):
+        admission.admit()
+        for attempt in range(3):
+            try:
+                return await task_run(config, runtime, tid)
+            except ServiceStartError:
+                if attempt == 2:
+                    raise
+
+    results = await run_bounded(config, names, one)
+    report(config)
+    errors = [result for result in results if isinstance(result, BaseException)]
+    if errors:
+        raise errors[0]
+
+
+async def wait_for_servers(servers, tasks, timeout=60):
+    """Wait for bound listeners, surfacing startup failures before any model call."""
+    async with asyncio.timeout(timeout):
+        while True:
+            for name, task in zip(servers, tasks, strict=True):
+                if task.done():
+                    await task
+                    raise RuntimeError(f"{name} server exited before readiness")
+            if all(server.started for server in servers.values()):
+                return
+            await asyncio.sleep(0.05)
+
+
+async def serve(config, canary_only=False, probe_only=False, *, only_tasks=None,
+                actor_retry_authorizations=()):
     from reward_engine.adapters.provider_config import application
 
     root = Path(config["output"])
     sys.path.insert(0, str(Path(config["benchmark_root"]) / "src"))
     runtime = Runtime(config)
+    if actor_retry_authorizations:
+        from reward_engine.adapters.claw_eval.actor_retry import ActorRetries
+        documents = [read(path) for path in actor_retry_authorizations]
+        runtime.actor_retries = ActorRetries(config, documents)
+        if (only_tasks is None or canary_only or probe_only
+                or any(task_id not in only_tasks for task_id, _ in runtime.actor_retries.entries)):
+            raise ValueError("Actor retry authorizations require explicit matching task selection")
     gateway = uvicorn.Server(
         uvicorn.Config(
             application(config),
@@ -936,9 +940,19 @@ async def serve(config, canary_only=False, probe_only=False):
         asyncio.create_task(gateway.serve()),
         asyncio.create_task(tool_server.serve()),
     ]
-    await asyncio.sleep(1)
+    ready = False
     try:
+        await wait_for_servers({"gateway": gateway, "tools": tool_server}, servers)
+        ready = True
         await probe(config)
+        if config.get("generation_protocol") == "three_b_fixed_baselines_v1":
+            if probe_only:
+                return
+            names = only_tasks if only_tasks is not None else config["canaries"] if canary_only else config["task_ids"]
+            if len(set(names)) != len(names) or not set(names) <= set(config["task_ids"]):
+                raise ValueError("Run subset must name unique frozen tasks")
+            await run_three_b_tasks(config, runtime, names)
+            return
         recover_orphaned_tasks(config)
         if probe_only:
             return
@@ -1001,7 +1015,10 @@ async def serve(config, canary_only=False, probe_only=False):
         )
     finally:
         gateway.should_exit = tool_server.should_exit = True
-        await asyncio.gather(*servers)
+        if not ready:
+            for task in servers:
+                task.cancel()
+        await asyncio.gather(*servers, return_exceptions=not ready)
 
 
 def main():
@@ -1012,11 +1029,35 @@ def main():
     parser.add_argument("--source-campaign", type=Path)
     parser.add_argument("--canary-only", action="store_true")
     parser.add_argument("--probe-only", action="store_true")
+    parser.add_argument("--only-task", action="append", help="Run only these frozen task IDs; leaves all other tasks pending")
+    parser.add_argument("--actor-retry-authorization", action="append", type=Path,
+                        help="Explicit operator approval for one evidence-bound terminated Actor retry")
+    from reward_engine.adapters.jiuwenswarm.config import add_arguments, arguments
+    add_arguments(parser)
+    parser.add_argument("--task-id", action="append")
+    parser.add_argument("--model-config", type=Path)
+    parser.add_argument("--role-model", action="append", default=[])
+    parser.add_argument("--native-grader-model")
+    parser.add_argument("--per-model-concurrency", type=int)
+    parser.add_argument("--minimum-free-gib", type=int, help="Frozen storage reserve for fresh campaigns; default 20 GiB")
+    parser.add_argument("--revision", type=Path)
     args = parser.parse_args()
+    if args.revision and args.action == "prepare":
+        parser.error("Use experiments.revision to prepare an explicit code revision")
+    if (arguments(args) or args.task_id or args.model_config or args.role_model or args.native_grader_model or args.per_model_concurrency is not None or args.minimum_free_gib is not None) and (args.action != "prepare" or args.source_campaign):
+        parser.error("Runtime and task settings are frozen during fresh preparation")
     if provider_arguments_supplied(args) and (
         args.action != "prepare" or args.source_campaign
     ):
         parser.error("Provider settings must be supplied during fresh preparation")
+    if args.only_task and (args.action != "run" or args.canary_only or args.probe_only):
+        parser.error("--only-task requires run without canary/probe-only")
+    if args.actor_retry_authorization and not args.only_task:
+        parser.error("--actor-retry-authorization requires --only-task")
+    if args.actor_retry_authorization:
+        if any(not path.is_absolute() for path in args.actor_retry_authorization):
+            parser.error("--actor-retry-authorization requires absolute paths")
+        args.actor_retry_authorization = [path.resolve() for path in args.actor_retry_authorization]
     output = args.output.resolve()
     if args.action == "prepare":
         if args.source_campaign:
@@ -1027,10 +1068,17 @@ def main():
                 credentials=args.credentials,
                 key_env=args.key_env,
                 backend_url=args.backend_url,
+                task_ids=args.task_id,
+                role_models=args.role_model, model_config=args.model_config,
+                native_grader_model=args.native_grader_model,
+                per_model_concurrency=args.per_model_concurrency,
+                minimum_free_gib=args.minimum_free_gib,
+                **arguments(args),
             )
         print(output)
         return
-    config = read(output / "config.json")
+    from experiments.revision import load, verify_execution
+    config = load(output, args.revision)
     if args.action == "report":
         report(config)
         return
@@ -1049,8 +1097,12 @@ def main():
     with (output / "campaign.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         write(output / "process.json", {"pid": os.getpid(), "started_at": time.time()})
-        verify_freeze(config)
-        asyncio.run(serve(config, args.canary_only, args.probe_only))
+        with verification_progress(output / "verification-progress.json", "startup_verification"):
+            verify_execution(config, verify_freeze)
+        asyncio.run(serve(config, args.canary_only, args.probe_only,
+                          **({"only_tasks": args.only_task} if args.only_task else {}),
+                          **({"actor_retry_authorizations": args.actor_retry_authorization}
+                             if args.actor_retry_authorization else {})))
 
 
 if __name__ == "__main__":

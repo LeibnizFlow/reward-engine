@@ -19,7 +19,7 @@ async def test_per_model_provider_default_is_applied_recorded_and_not_global(
     disabled = {"thinking": {"type": "disabled"}, "enable_thinking": False}
     role.config["role_request_options"] = disabled
     role.config["roles"]["other_role"] = "other-model"
-    role.config["role_request_options_by_model"] = {"gemini-3.8-flash": {}}
+    role.config["role_request_options_by_model"] = {"test-panel-c": {}}
     before = deepcopy(role.config)
     assert await role({"mode": "test"}) == {"status": "pass"}
     assert "enable_thinking" not in calls[0] and "thinking" not in calls[0]
@@ -32,7 +32,7 @@ async def test_per_model_provider_default_is_applied_recorded_and_not_global(
 
 @pytest.mark.parametrize(
     "overrides",
-    [None, [], {"not-configured": {}}, {"gemini-3.8-flash": {"model": "other"}}],
+    [None, [], {"not-configured": {}}, {"test-panel-c": {"model": "other"}}],
 )
 @pytest.mark.asyncio
 async def test_invalid_model_options_fail_before_network(thinking_role, overrides):

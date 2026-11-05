@@ -4,7 +4,7 @@ Settings use CLI > process environment > selected dotenv > launcher defaults.
 REWARD_ENGINE_CREDENTIALS_FILE selects the dotenv, REWARD_ENGINE_KEY_ENV selects
 the key variable, and REWARD_ENGINE_BACKEND_URL selects the API base URL.
 The selected key's corresponding *_BASE_URL is also supported (e.g.
-YIBU_API_KEY / YIBU_BASE_URL). At execution, the key itself uses environment >
+CUSTOM_API_KEY / CUSTOM_BASE_URL). At execution, the key itself uses environment >
 dotenv. No key values are copied into frozen sources, manifests or argv.
 """
 
@@ -57,8 +57,8 @@ def resolve_provider(
     key_env=None,
     backend_url=None,
     default_credentials,
-    default_key_env="YIBU_API_KEY",
-    default_backend_url="https://yibuapi.com/v1",
+    default_key_env="OPENAI_API_KEY",
+    default_backend_url=None,
 ):
     path = (
         Path(
@@ -100,6 +100,8 @@ def resolve_provider(
                 "A custom provider key variable requires an explicit base URL"
             )
         url = default_backend_url
+    if not url:
+        raise ValueError("An explicit API base URL is required (--backend-url or REWARD_ENGINE_BACKEND_URL)")
     # Avoid storing credentials embedded in URLs, or silently changing API paths.
     try:
         parsed = urlsplit(url)
@@ -147,7 +149,7 @@ def prepare_options(args, *, default_credentials):
 
 def provider_key(config):
     """Read the selected secret only at use time; never attach it to config."""
-    name = _key_name(config.get("backend_key_env", "YIBU_API_KEY"))
+    name = _key_name(config.get("backend_key_env", "OPENAI_API_KEY"))
     key = os.environ.get(name)
     if key is None:
         key = _dotenv(Path(config["credentials_file"])).get(name)

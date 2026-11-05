@@ -13,7 +13,7 @@ from reward_engine.adapters.support import read_json, write_json
 
 
 class Chunk:
-    def __init__(self, content, model="qwen3.8-max", finish="stop"):
+    def __init__(self, content, model="test-model-a", finish="stop"):
         self.model, self.usage = model, None
         self.choices = [NS(delta=NS(content=content), finish_reason=finish)]
 
@@ -46,28 +46,93 @@ class Client:
 
 def test_native_request_preserved_streamed_and_low_score_not_retried(tmp_path):
     client = Client(Chunk('{"score":0,"reasoning":"No saved draft"}'))
-    transport = hook.StreamingClient(client, {}, tmp_path)
+    transport = hook.StreamingClient(client, {"model": "test-model-a"}, tmp_path)
     messages = [{"role": "user", "content": "native rubric and exact evidence"}]
     response = transport.create(model="unused", messages=messages)
     assert json.loads(response.choices[0].message.content)["score"] == 0
     assert len(client.requests) == 1
     assert client.requests[0]["messages"] == messages
-    assert client.requests[0]["model"] == "qwen3.8-max"
+    assert client.requests[0]["model"] == "test-model-a"
     assert client.requests[0]["stream"] is True
     assert read_json(tmp_path / "judge_001/result.json")["returned_models"] == [
-        "qwen3.8-max"
+        "test-model-a"
     ]
+
+
+def test_native_judge_requests_json_without_rewriting_native_prompt(tmp_path):
+    class FormatClient(Client):
+        def create(self, **kwargs):
+            self.chunk = Chunk(
+                '{"score":0,"reasoning":"synthetic missing artifact"}'
+                if kwargs.get("response_format") == {"type": "json_object"}
+                else "Score: 0. The synthetic artifact is missing."
+            )
+            return super().create(**kwargs)
+
+    client = FormatClient(None)
+    messages = [{"role": "system", "content": 'Return JSON with score and reasoning.'},
+                {"role": "user", "content": "Synthetic native rubric and audit evidence."}]
+    response = hook.StreamingClient(client, {"model": "test-model-a"}, tmp_path).create(messages=messages)
+    assert json.loads(response.choices[0].message.content)["score"] == 0
+    assert len(client.requests) == 1
+    assert client.requests[0]["messages"] == messages
+    assert read_json(tmp_path / "judge_001/request.json")["response_format"] == {"type": "json_object"}
+
+
+def test_native_format_retry_preserves_evidence_and_does_not_guess_prose_score(tmp_path):
+    class FormatClient(Client):
+        def create(self, **kwargs):
+            self.chunk = Chunk(
+                '{"score":0,"reasoning":"synthetic missing artifact"}'
+                if len(kwargs["messages"]) == 3
+                else "Score: 0.5. This is invalid prose, not a valid score receipt."
+            )
+            return super().create(**kwargs)
+
+    client = FormatClient(None)
+    messages = [{"role": "system", "content": "Native JSON instruction."},
+                {"role": "user", "content": "Synthetic rubric and private evidence."}]
+    response = hook.StreamingClient(client, {"model": "test-model-a"}, tmp_path).create(messages=messages)
+    assert json.loads(response.choices[0].message.content)["score"] == 0
+    assert len(client.requests) == 2 and len(messages) == 2
+    assert client.requests[0]["messages"] == messages
+    assert client.requests[1]["messages"][:2] == messages
+    assert "original rubric" in client.requests[1]["messages"][-1]["content"]
+    assert "0.5" not in client.requests[1]["messages"][-1]["content"]
+    assert read_json(tmp_path / "judge_001/failure_0.json")["partial_answer"].startswith("Score: 0.5")
+    assert read_json(tmp_path / "judge_001/request_1.json") == client.requests[1]
+
+
+def test_native_format_retry_names_exact_json_fields(tmp_path):
+    class FieldClient(Client):
+        def create(self, **kwargs):
+            recovery = kwargs["messages"][-1]["content"]
+            self.chunk = Chunk(
+                '{"score":0,"reasoning":"synthetic explanation"}'
+                if '"score"' in recovery and '"reasoning"' in recovery
+                else '{"score":0,"reason":"synthetic explanation"}'
+            )
+            return super().create(**kwargs)
+
+    client = FieldClient(None)
+    messages = [{"role": "user", "content": "Synthetic rubric and private evidence."}]
+    response = hook.StreamingClient(client, {"model": "test-model-a"}, tmp_path).create(messages=messages)
+    assert json.loads(response.choices[0].message.content) == {
+        "score": 0, "reasoning": "synthetic explanation",
+    }
+    assert len(client.requests) == 2
+    assert client.requests[1]["messages"][:-1] == messages
 
 
 @pytest.mark.parametrize(
     "content,model,finish",
     [
-        ('{"score":1,"reasoning":"cut"}', "qwen3.8-max", "length"),
+        ('{"score":1,"reasoning":"cut"}', "test-model-a", "length"),
         ('{"score":1,"reasoning":"ok"}', "wrong-model", "stop"),
-        ('{"score":2,"reasoning":"bad"}', "qwen3.8-max", "stop"),
-        ('{"score":NaN,"reasoning":"bad"}', "qwen3.8-max", "stop"),
-        ('{"score":true,"reasoning":"bad"}', "qwen3.8-max", "stop"),
-        ("not JSON", "qwen3.8-max", "stop"),
+        ('{"score":2,"reasoning":"bad"}', "test-model-a", "stop"),
+        ('{"score":NaN,"reasoning":"bad"}', "test-model-a", "stop"),
+        ('{"score":true,"reasoning":"bad"}', "test-model-a", "stop"),
+        ("not JSON", "test-model-a", "stop"),
     ],
 )
 def test_judge_failure_cannot_be_caught_as_candidate_zero(
@@ -76,7 +141,7 @@ def test_judge_failure_cannot_be_caught_as_candidate_zero(
     client = Client(Chunk(content, model, finish))
     with pytest.raises(hook.JudgeUnavailable):
         try:
-            hook.StreamingClient(client, {}, tmp_path).create(messages=[])
+            hook.StreamingClient(client, {"model": "test-model-a"}, tmp_path).create(messages=[])
         except Exception:
             pytest.fail("Native grader would silently turn this into zero")
     assert len(client.requests) == 2
@@ -204,7 +269,7 @@ def native_case(tmp_path, monkeypatch):
         "trace": str(trace),
         "environment_snapshot": str(snapshot),
     }
-    monkeypatch.setenv("YIBU_API_KEY", "offline-test-only")
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-test-only")
     client = Client(Chunk('{"score":0.5,"reasoning":"fixture"}'))
     monkeypatch.setattr("openai.OpenAI", lambda **kwargs: client)
     output = tmp_path / "private"
@@ -329,7 +394,7 @@ def test_artifact_quality_uses_complete_body_without_arm_or_critic_history(
         evaluation_kind="artifact_quality",
         artifact_file=str(artifact),
         artifact_sha256=hashlib.sha256(text.encode()).hexdigest(),
-        judge={"model": "qwen3.8-max", "base_url": "https://yibuapi.com/v1"},
+        judge={"model": "test-model-a", "base_url": "https://provider.example/v1"},
     )
     result = hook.grade_artifact(request, output)
     assert result["content_judge_score"] == 0.5 and "task_score" not in result

@@ -23,7 +23,7 @@ from reward_engine.adapters.provider_config import (
 )
 from reward_engine.adapters.workbuddy.io import digest, file_hash, read, write
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 
 
 def prepare(args):
@@ -36,7 +36,7 @@ def prepare(args):
             "OPENCODE_BINARY",
             str(REPO / "_local/data/claw_eval/environment/bin/opencode"),
         )
-        config = prepare_claw(output, task_ids=[args.task_id], **provider)
+        config = prepare_claw(output, task_ids=[args.task_id], actor_backend="opencode", generation_protocol="legacy_abcd", **provider, model_config=getattr(args, "model_config", None), role_models=getattr(args, "role_models", None))
         if args.task_id not in config["task_ids"]:
             raise ValueError("Task is not in the pinned Claw-Eval manifest")
         config["task_ids"] = [args.task_id]
@@ -56,7 +56,9 @@ def prepare(args):
             .resolve()
             / "upstream",
             task_ids=[args.task_id],
+            actor_backend="opencode", generation_protocol="legacy_abcd",
             **provider,
+            model_config=getattr(args, "model_config", None), role_models=getattr(args, "role_models", None),
         )
     config.update(
         smoke_benchmark=args.benchmark,
@@ -68,18 +70,24 @@ def prepare(args):
     # Record the explicit smoke protocol before launching or making model calls.
     config["identity"] = digest({k: v for k, v in config.items() if k != "identity"})
     code = Path(config["code"])
-    shutil.copy2(Path(__file__), code / "experiments/smoke.py")
+    (code / "tests/validation").mkdir(parents=True, exist_ok=True)
+    (code / "tests/__init__.py").touch()
+    (code / "tests/validation/__init__.py").touch()
+    shutil.copy2(Path(__file__), code / "tests/validation/smoke.py")
     manifest = read(output / "manifest.json")
     manifest["config_identity"] = config["identity"]
     if args.benchmark == "workbuddy":
         manifest["actor_slots"] = manifest["grading_slots"] = 1
-        manifest["code_hashes"]["experiments/smoke.py"] = file_hash(
-            code / "experiments/smoke.py"
+        manifest["code_hashes"]["tests/validation/smoke.py"] = file_hash(
+            code / "tests/validation/smoke.py"
         )
     else:
-        manifest["files"]["code/experiments/smoke.py"] = file_hash(
-            code / "experiments/smoke.py"
+        manifest["files"]["code/tests/validation/smoke.py"] = file_hash(
+            code / "tests/validation/smoke.py"
         )
+    key = "code_hashes" if args.benchmark == "workbuddy" else "files"
+    for relative in ("tests/__init__.py", "tests/validation/__init__.py"):
+        manifest[key][relative if key == "code_hashes" else "code/" + relative] = file_hash(code / relative)
     write(output / "config.json", config)
     write(output / "manifest.json", manifest)
     return config
@@ -199,6 +207,7 @@ def main():
     add_provider_arguments(parser)
     parser.add_argument("--workbuddy-root", type=Path)
     parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--model-config", type=Path)
     args = parser.parse_args()
     if args.execute and (provider_arguments_supplied(args) or args.workbuddy_root):
         parser.error("Provider and native paths are frozen at prepare time")
@@ -213,7 +222,7 @@ def main():
         [
             sys.executable,
             "-m",
-            "experiments.smoke",
+            "tests.validation.smoke",
             "--execute",
             "--output",
             config["output"],

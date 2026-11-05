@@ -261,6 +261,20 @@ async def build(
     return pack
 
 
+def _scope_provenance(value, available, omitted):
+    """Scope a copied definition's evidence handles, including nested clauses."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "evidence_refs" and isinstance(child, list):
+                omitted.extend(ref for ref in child if ref not in available)
+                value[key] = [ref for ref in child if ref in available]
+            else:
+                _scope_provenance(child, available, omitted)
+    elif isinstance(value, list):
+        for child in value:
+            _scope_provenance(child, available, omitted)
+
+
 async def _build_semantic(
     context,
     evidence,
@@ -473,12 +487,9 @@ async def _build_semantic(
     definition = {"criteria": deepcopy(jury["criteria"])}
     omitted = {}
     for criterion in definition["criteria"]:
-        refs = criterion.get("evidence_refs", [])
-        omitted[criterion["id"]] = [ref for ref in refs if ref not in compile_evidence]
-        if "evidence_refs" in criterion:
-            criterion["evidence_refs"] = [
-                ref for ref in refs if ref in compile_evidence
-            ]
+        excluded = []
+        _scope_provenance(criterion, compile_evidence, excluded)
+        omitted[criterion["id"]] = list(dict.fromkeys(excluded))
     compile_context["products"] = [
         p for p in compile_context["products"] if p["user_updates"]
     ]
@@ -549,6 +560,15 @@ async def _build_semantic(
             "outcome_builder",
             compile_context,
             compile_evidence,
+            "You are the harness designer. This operation compiles the supplied Jury criteria into "
+            "reusable rubrics and tests for FUTURE deliveries. Return the rubrics/tests JSON contract. "
+            "No delivery is being measured now: context.products is deliberately empty, and "
+            "current_product_contract describes handles the runtime will bind later. Do not ask for "
+            "a current product, decide its status, or refuse to design checks because it is absent. "
+            "Describe which future observations each check needs and how it will handle unavailable "
+            "evidence; never invent observations. The checker and measurement_tools catalogs describe "
+            "capabilities for the generated tests/probes, not native tools to invoke during design. "
+            "If needed, request only supplied Task/knowledge evidence handles using need_evidence. "
             "Task is the primary goal; knowledge is supplemental and must not add obligations or prescribe "
             "one reference solution. Keep EVERY supplied criterion's identity, meaning and kind. "
             "Define rubric anchors for fail/partial/full. Partial fulfillment is distinct from an absent "
@@ -556,18 +576,18 @@ async def _build_semantic(
             "A binary fail from one checker is not an overall outcome rejection. Do not add approval "
             "prerequisites or required presentation details absent from the frozen criterion. "
             "Preserve its stated priority, scope and valid alternatives. "
-            "and one reusable check per criterion by default; split only for genuinely distinct execution methods. "
+            "Define one reusable check per criterion by default; split only for genuinely distinct execution methods. "
             "Never multiply tests by the number of historical products. These anchors describe evidence, not an absolute grade. "
             "Use available checkers when adequate. Checker keys are open: if a capability is absent, "
+            "describe the new implementation required, not imaginary success. "
             "Prefer an actual parser/calculation/runtime/source lookup over prose judgment when it can "
             "answer the question. Do not claim that evidence.review executed code or verified hardware. "
             "Check the major outcome coverage, not only historical defects. Unmeasurable expectations "
             "remain visible; binding every criterion does not prove the definition is complete. "
             "The full proposal/coverage ledger is retained by code in the Pack, not repeated here. "
             "Compiling accepted criteria does not resolve outstanding proposal coverage. "
-            "describe the new implementation required, not imaginary success. "
             "For evidence.review you may supply up to three probes using measurement_tools. "
-            "These execute before the semantic judgment and provide real numeric/source observations. "
+            "These execute later during measurement, before the semantic judgment, and provide real numeric/source observations. "
             "code.run accepts a bounded numerical Python subset, not arbitrary Python or host execution. "
             "The missing-checker author can generate a recipe once; unavailable GPU capability remains unavailable. "
             "Checks run on future current products: do not hardcode historical candidate identifiers/answers. "
@@ -914,7 +934,7 @@ def compile_contract(result, jury, registry, *, roles=None):
                     "Inline probes belong to the tool-assisted semantic checker"
                 )
             for probe in probes:
-                validate_probe_arguments(probe)
+                validate_probe_arguments(probe, policy=getattr(registry.tools, "role_contract_policy", None))
             test["execution_recipe"] = {"probes": deepcopy(probes)}
         tests.append(test)
     if {t["criterion_id"] for t in tests} != set(originals):

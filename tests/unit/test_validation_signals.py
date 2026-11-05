@@ -20,7 +20,7 @@ def run_child(root, benchmark):
     import httpx
     import uvicorn
 
-    from experiments import validate_pipeline as driver
+    from tests.validation import validate_pipeline as driver
     from experiments.claw_eval.opencode import campaign, runtime
     from experiments.workbuddy import experiment
     from reward_engine.adapters.workbuddy.io import write
@@ -178,7 +178,9 @@ def test_one_sigint_cancels_pipeline_and_closes_real_servers(
         start_new_session=True,
     )
     try:
-        deadline = time.monotonic() + 10
+        # Cold imports and local listener startup are separate from the strict
+        # five-second SIGINT cleanup deadline asserted below.
+        deadline = time.monotonic() + 60
         while not (tmp_path / "ready.json").exists():
             if process.poll() is not None:
                 stdout, stderr = process.communicate()

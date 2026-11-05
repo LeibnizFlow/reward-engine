@@ -304,7 +304,7 @@ async def preview_measurement(scope="both", *, bounded=True, exhaust=False):
             return {"need_evidence": ["task"]}
         if exhaust and len(requests) == 2:
             return {"need_evidence": ["product_1:artifact:final_response"]}
-        assert len(requests) <= (4 if exhaust else 2 if bounded else 1)
+        assert len(requests) <= (5 if exhaust else 2 if bounded else 1)
         return deepcopy(raw)
 
     model.bounded_stage = bounded
@@ -317,7 +317,7 @@ async def test_preview_read_exhaustion_cannot_restore_passes_or_erase_error():
     from experiments.pipeline_audit import check_result
 
     result, requests, ref = await preview_measurement(exhaust=True)
-    assert len(requests) == 4 and requests[-1]["evidence_access_closed"]
+    assert len(requests) == 5 and requests[-1]["evidence_access_closed"]
     assert all(ref not in r.get("requested_evidence", {}) for r in requests)
     assert result["status"] == "unknown" and result["error"]
     assert result["unresolved_evidence_refs"] == [ref]

@@ -14,7 +14,7 @@ from reward_engine.core.outcome.harness import defaults
 def event(delta, finish=None):
     return {
         "id": "completion-1",
-        "model": "qwen3.8-max",
+        "model": "test-model-a",
         "created": 123,
         "choices": [
             {
@@ -51,7 +51,7 @@ def encode(events):
 def transport(tmp_path, monkeypatch):
     config = {
         "output": str(tmp_path),
-        "roles": {"judge": "qwen3.8-max"},
+        "roles": {"judge": "test-model-a"},
         "auth_file": str(tmp_path / "auth"),
         "gateway_local": "http://offline",
     }

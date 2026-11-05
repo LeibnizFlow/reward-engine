@@ -24,6 +24,26 @@ from tests.unit.test_claim_summary_root_diagnostics import (
 )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["summary", "reason"])
+async def test_missing_summary_uses_field_correction_and_keeps_extra_claim_fields(transport, missing):
+    from tests.unit.test_claw_outcome_measurement_tools import case as measurement_case
+    from tests.unit.test_claw_outcome_measurement_tools import verdict
+
+    context, evidence, _, _ = measurement_case()
+    first = verdict()
+    first["claims"][0]["claim_refs_note"] = "Preserve this model-authored annotation"
+    fields = ["status", "reason", "gap"] if missing == "summary" else ["reason"]
+    values = {key: first.pop(key) for key in fields}
+    result, requests = await replay(transport, [first, {"field_corrections": values}], context, evidence)
+    assert requests[1]["field_correction_reply"]["required_fields"] == sorted(fields)
+    if missing == "summary":
+        assert requests[1]["field_correction_reply"]["allowed_values"]["status"] == ["pass", "fail", "unknown"]
+    assert len(requests) == 2
+    assert result["status"] == "pass" and not result.get("error")
+    assert result["claims"] == first["claims"]
+
+
 def case(kind):
     if kind == "root_refs":
         first = deepcopy(CASES[STRUCTURE][0])

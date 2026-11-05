@@ -13,6 +13,7 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 
+from reward_engine.adapters.jiuwenswarm.container import backend
 from reward_engine.adapters.workbuddy.evidence import collect
 from reward_engine.adapters.workbuddy.io import auth, digest, read, write
 from reward_engine.core.outcome.runner import review_result_fields, run_delivery
@@ -178,17 +179,21 @@ class Runtime:
         return {"content": content, "isError": result.is_error}
 
     async def sample(self, task_id, output, *, guidance="", review=None):
+        output = Path(output)
+        retries = getattr(self, "actor_retries", None)
+        protocol = self.config.get("actor_protocol_identity", self.config["identity"])
+        if retries:
+            protocol = retries.protocol_identity(output, protocol)
         identity = digest(
             {
                 "task": task_id,
                 "guidance": guidance,
                 "review": bool(review),
-                "protocol": self.config.get(
-                    "actor_protocol_identity", self.config["identity"]
-                ),
+                "protocol": protocol,
             }
         )
-        output = Path(output)
+        if retries:
+            retries.validate_slot(output, identity)
         if (output / "RESULT.json").exists():
             row = read(output / "RESULT.json")
             changed = row.get("identity") != identity
@@ -223,7 +228,7 @@ class Runtime:
             raise RuntimeError(
                 "Interrupted Actor slot needs inspection; not resampling"
             )
-        self.check_resources()
+        await self.wait_for_resources(output, identity)
         output.mkdir(parents=True)
         write(output / "STARTED.json", {"identity": identity, "at": time.time()})
         actor = Actor(self, task_id, output)
@@ -240,6 +245,24 @@ class Runtime:
                 "session": actor.session,
                 "review_status": review.status if review else "disabled",
                 "actor_execution_s": actor.execution_s,
+                "resources": {
+                    "turns": actor.turn,
+                    "revision_turns": max(0, actor.turn - 1),
+                    **(
+                        {
+                            "transport_recoveries": actor.transport_recoveries,
+                            "process_executions": actor.turn
+                            + actor.transport_recoveries,
+                            "actor_timeout_s": self.config["actor_timeout_s"],
+                        }
+                        if getattr(actor, "transport_recoveries", 0)
+                        else {}
+                    ),
+                },
+                "tool_errors": sum(
+                    bool(result.is_error) for _, result, _ in actor.events
+                ),
+                "usage": actor.usage if backend(self.config) == "jiuwenswarm" else None,
                 "memory": review.memory.rows if review and review.memory else [],
                 "task_progress": review.progress.snapshot() if review else None,
                 "final_measurement": review.history[-1]
@@ -247,6 +270,14 @@ class Runtime:
                 else None,
                 **review_result_fields(review, candidate),
             }
+            if self.config.get("generation_protocol") == "three_b_fixed_baselines_v1":
+                from reward_engine.adapters.jiuwenswarm.checkpoints import (
+                    artifact_bindings,
+                )
+
+                row["artifact_bindings"] = artifact_bindings(output)
+            if retries:
+                row.update(retries.result_fields(output, actor.execution_s))
             write(output / "RESULT.json", row)
             return row
         except BaseException as error:
@@ -263,9 +294,45 @@ class Runtime:
         finally:
             await actor.close()
 
+    async def wait_for_resources(self, output, identity):
+        """Wait before starting the Actor clock; cancellation leaves no Actor slot."""
+        from reward_engine.adapters.claw_eval.recovery import RESOURCE_DENIALS
+
+        waiting = None
+        receipt = output.parent / (output.name + ".resource_wait.json")
+        while True:
+            try:
+                self.check_resources()
+            except RuntimeError as error:
+                if (
+                    self.config.get("failure_policy") != "isolate_tasks_v1"
+                    or str(error) not in RESOURCE_DENIALS
+                ):
+                    raise
+                waiting = waiting or {
+                    "identity": identity,
+                    "started_at": time.time(),
+                    "checks": 0,
+                }
+                waiting.update(
+                    status="waiting",
+                    reason=str(error),
+                    at=time.time(),
+                    checks=waiting["checks"] + 1,
+                )
+                write(receipt, waiting)
+                await asyncio.sleep(5)
+            else:
+                if waiting is not None:
+                    write(receipt, {**waiting, "status": "admitted", "at": time.time()})
+                return
+
     def check_resources(self):
+        reserve = self.config.get("minimum_free_gib", 20)
+        if type(reserve) is not int or not 5 <= reserve <= 1024:
+            raise ValueError("minimum_free_gib must be an integer in 5..1024")
         for path in (self.config["output"], self.config["docker_data_root"]):
-            if shutil.disk_usage(path).free < 20 * 1024**3:
+            if shutil.disk_usage(path).free < reserve * 1024**3:
                 raise RuntimeError("Storage admission floor reached")
         available = next(
             int(line.split()[1]) * 1024
@@ -283,7 +350,7 @@ class Actor:
         self.trial_id, self.token = uuid4().hex, uuid4().hex
         self.container = "claw-office-" + self.trial_id
         self.session, self.turn, self.execution_s = None, 0, 0
-        self.events, self.raw_events = [], []
+        self.events, self.raw_events, self.usage = [], [], []
         self.services = self.dispatcher = self.writer = None
         self.accept_tools = False
         self.started = time.monotonic()
@@ -305,8 +372,9 @@ class Actor:
         from claw_eval.runner.dispatcher import ToolDispatcher
         from claw_eval.runner.sandbox_dispatcher import SandboxToolDispatcher
         from claw_eval.runner.sandbox_tools import SANDBOX_TOOLS
-        from claw_eval.runner.services import ServiceManager
         from claw_eval.trace.writer import TraceWriter
+
+        from reward_engine.adapters.claw_eval.services import ServiceManager
 
         self.workspace = self.output / "workspace"
         self.workspace.mkdir()
@@ -329,7 +397,11 @@ class Actor:
             "-v",
             str(self.workspace) + ":/workspace",
             "-v",
-            self.config["opencode_binary"] + ":/usr/local/bin/opencode:ro",
+            (
+                self.config["jiuwenswarm_bundle"] + ":/opt/jiuwenswarm:ro"
+                if backend(self.config) == "jiuwenswarm"
+                else self.config["opencode_binary"] + ":/usr/local/bin/opencode:ro"
+            ),
             "-v",
             str(Path(__file__).with_name("mcp_stdio.py")) + ":/opt/claw_mcp.py:ro",
             self.config["image"],
@@ -398,6 +470,7 @@ class Actor:
                     self.task.services,
                     cwd=Path(self.config["benchmark_root"]),
                     mock_today=self.task.environment.mock_today,
+                    output=self.output / "services",
                 )
                 await asyncio.to_thread(self.services.__enter__)
             finally:
@@ -428,62 +501,99 @@ class Actor:
             prompt += "\nCurrent task date: " + self.task.environment.mock_today
         self.instruction = prompt
         self.trace_message("user", prompt)
-        oc = opencode_config(
-            self.config["roles"]["actor"],
-            self.config["gateway_container"] + "/wb-" + self.trial_id,
-            auth(self.config),
-            200000,
-            32768,
-        )
-        oc["mcp"] = {
-            "claw": {
-                "type": "local",
-                "command": [
-                    "python",
-                    "/opt/claw_mcp.py",
-                    self.config["tools_container"] + "/tool/" + self.trial_id,
-                    self.token,
+        if backend(self.config) == "jiuwenswarm":
+            from reward_engine.adapters.jiuwenswarm.container import prepare
+            from reward_engine.adapters.jiuwenswarm.gateway import register
+            from reward_engine.adapters.jiuwenswarm.policy import policy
+
+            contract = policy(["mcp_claw_" + t.name for t in self.tools])
+            channel = "actor-" + self.trial_id
+            actor_token = register(self.config, channel, contract)
+            self.process = await prepare(
+                self.container,
+                self.output,
+                self.config,
+                {
+                    "base_url": self.config["gateway_container"]
+                    + "/"
+                    + channel
+                    + "/v1",
+                    "api_key": actor_token,
+                    "model": self.config["roles"]["actor"],
+                },
+                user="root",
+                allowed_tools=contract["allowed"],
+                mcp=[
+                    {
+                        "name": "claw",
+                        "enabled": True,
+                        "transport": "stdio",
+                        "command": "/opt/jiuwenswarm/bin/python",
+                        "args": [
+                            "/opt/claw_mcp.py",
+                            self.config["tools_container"] + "/tool/" + self.trial_id,
+                            self.token,
+                        ],
+                    }
                 ],
-                "enabled": True,
-                "timeout": 180000,
+            )
+        else:
+            oc = opencode_config(
+                self.config["roles"]["actor"],
+                self.config["gateway_container"] + "/wb-" + self.trial_id,
+                auth(self.config),
+                200000,
+                32768,
+            )
+            oc["mcp"] = {
+                "claw": {
+                    "type": "local",
+                    "command": [
+                        "python",
+                        "/opt/claw_mcp.py",
+                        self.config["tools_container"] + "/tool/" + self.trial_id,
+                        self.token,
+                    ],
+                    "enabled": True,
+                    "timeout": 180000,
+                }
             }
-        }
-        # All task execution passes through the auditable native tool dispatcher.
-        builtins = (
-            "bash",
-            "edit",
-            "glob",
-            "grep",
-            "read",
-            "skill",
-            "task",
-            "todowrite",
-            "todoread",
-            "webfetch",
-            "websearch",
-            "codesearch",
-            "write",
-            "question",
-            "apply_patch",
-            "lsp",
-            "plan_enter",
-            "plan_exit",
-            "batch",
-        )
-        oc["tools"] = {name: False for name in builtins}
-        oc["permission"] = {"*": "deny", "claw_*": "allow"}
-        oc["instructions"] = []
-        encoded = base64.b64encode(json.dumps(oc).encode()).decode()
-        await command(
-            "docker",
-            "exec",
-            self.container,
-            "sh",
-            "-c",
-            "mkdir -p /root/.config/opencode; echo "
-            + encoded
-            + " | base64 -d > /root/.config/opencode/opencode.json",
-        )
+            # All task execution passes through the auditable native tool dispatcher.
+            builtins = (
+                "bash",
+                "edit",
+                "glob",
+                "grep",
+                "read",
+                "skill",
+                "task",
+                "todowrite",
+                "todoread",
+                "webfetch",
+                "websearch",
+                "codesearch",
+                "write",
+                "question",
+                "apply_patch",
+                "lsp",
+                "plan_enter",
+                "plan_exit",
+                "batch",
+            )
+            oc["tools"] = {name: False for name in builtins}
+            oc["permission"] = {"*": "deny", "claw_*": "allow"}
+            oc["instructions"] = []
+            encoded = base64.b64encode(json.dumps(oc).encode()).decode()
+            await command(
+                "docker",
+                "exec",
+                self.container,
+                "sh",
+                "-c",
+                "mkdir -p /root/.config/opencode; echo "
+                + encoded
+                + " | base64 -d > /root/.config/opencode/opencode.json",
+            )
         self.initial = collect(
             self.workspace, candidate_id=self.trial_id, final_response=""
         )[1]
@@ -518,6 +628,8 @@ class Actor:
         return await self._turn(feedback)
 
     async def _turn(self, prompt):
+        if backend(self.config) == "jiuwenswarm":
+            return await self._jiuwenswarm_turn(prompt)
         self.turn += 1
         for continuation in range(3):
             remaining = self.config["actor_timeout_s"] - self.execution_s
@@ -591,6 +703,9 @@ class Actor:
                 self.trace_message(
                     "assistant", event["part"]["text"], timestamp=timestamp
                 )
+        return await self._snapshot(answer)
+
+    async def _snapshot(self, answer):
         snapshot = self.output / "snapshots" / str(self.turn)
         await asyncio.to_thread(
             shutil.copytree, self.workspace, snapshot / "workspace", symlinks=True
@@ -622,6 +737,83 @@ class Actor:
             },
         )
         return candidate
+
+    async def _jiuwenswarm_turn(self, prompt):
+        from reward_engine.adapters.jiuwenswarm.container import docker
+        from reward_engine.adapters.jiuwenswarm.recovery import CONTINUE, proposal
+
+        remaining = self.config["actor_timeout_s"] - self.execution_s
+        if remaining <= 0:
+            raise TimeoutError("Actor execution budget exhausted")
+        self.turn += 1
+        for recovery in range(2):
+            suffix = "-recovery-1" if recovery else ""
+            label = f"turn-{self.turn}" + suffix
+            started = time.monotonic()
+            try:
+                result = await self.process.run(
+                    prompt,
+                    workspace=Path("/workspace"),
+                    session_id=self.session,
+                    timeout_s=remaining,
+                    label=label,
+                )
+            finally:
+                self.execution_s += time.monotonic() - started
+            self.session = result.session_id
+            self.usage.append(result.result.get("usage") or None)
+            self.raw_events.extend(result.events)
+            archive = self.output / "sessions" / (str(self.turn) + suffix)
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            exported = False
+            try:
+                await docker(
+                    "cp", self.container + ":" + self.process.child_root, str(archive)
+                )
+                exported = True
+            except Exception as error:
+                write(
+                    archive.with_suffix(".export-failure.json"),
+                    {
+                        "error_type": type(error).__name__,
+                        "reason": str(error),
+                        "session": self.session,
+                        "process_status": result.result["status"],
+                    },
+                )
+                if result.result["status"] == "completed":
+                    raise
+            proof = None
+            if (
+                not recovery
+                and exported
+                and result.result["status"] == "failed"
+                and self.config.get("generation_protocol")
+                == "three_b_fixed_baselines_v1"
+            ):
+                proof = proposal(
+                    self.output,
+                    self.turn,
+                    self.config["actor_timeout_s"],
+                    self.execution_s,
+                )
+            if proof is not None:
+                write(
+                    self.output
+                    / "jiuwenswarm/process"
+                    / f"turn-{self.turn}.recovery.json",
+                    proof,
+                )
+                self.transport_recoveries = getattr(self, "transport_recoveries", 0) + 1
+                remaining, prompt = proof["remaining_s"], CONTINUE
+                self.trace_message("user", prompt)
+                continue
+            result.require_completed()
+            break
+        if not result.output.strip():
+            raise ValueError("No public final response")
+        self.trace_message("assistant", result.output)
+        return await self._snapshot(result.output)
 
     async def finalize(self):
         from claw_eval.cli import _collect_env_snapshot
@@ -657,17 +849,14 @@ class Actor:
         finishes = [
             e["part"] for e in self.raw_events if e.get("type") == "step_finish"
         ]
-        self.writer.write_event(
-            TraceEnd(
-                trace_id=self.trial_id,
-                total_turns=len(finishes),
-                input_tokens=sum(p.get("tokens", {}).get("input", 0) for p in finishes),
-                output_tokens=sum(
-                    p.get("tokens", {}).get("output", 0) for p in finishes
-                ),
-                wall_time_s=time.monotonic() - self.started,
-            )
+        terminal = TraceEnd(
+            trace_id=self.trial_id,
+            total_turns=len(finishes),
+            input_tokens=sum(p.get("tokens", {}).get("input", 0) for p in finishes),
+            output_tokens=sum(p.get("tokens", {}).get("output", 0) for p in finishes),
+            wall_time_s=time.monotonic() - self.started,
         )
+        self.writer.write_event(terminal)
         self.writer.close()
         trace_path = self.output / "trace.jsonl"
         raw_trace = self.output / "trace.unsorted.jsonl"
@@ -677,6 +866,22 @@ class Actor:
             for line in raw_trace.read_text().splitlines()
             if line.strip()
         ]
+        if backend(self.config) == "jiuwenswarm":
+            for row in rows:
+                if row["type"] == "trace_end":
+                    # Native schema supplies zero defaults on read; omit unknown
+                    # usage in stored evidence instead of reporting it as measured.
+                    for field in (
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "model_input_tokens",
+                        "model_output_tokens",
+                    ):
+                        row.pop(field, None)
+                    row["total_turns"] = self.turn + getattr(
+                        self, "transport_recoveries", 0
+                    )
         rows.sort(
             key=lambda row: (row["type"] == "trace_end", row.get("timestamp", ""))
         )
@@ -689,6 +894,8 @@ class Actor:
     async def close(self):
         self.accept_tools = False
         self.runtime.sessions.pop(self.trial_id, None)
+        if hasattr(self, "process"):
+            await self.process.close()
         try:
             await command("docker", "rm", "-f", self.container)
         except Exception:

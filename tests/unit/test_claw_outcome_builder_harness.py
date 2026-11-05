@@ -206,6 +206,49 @@ def test_compile_excludes_historical_handles_but_published_provenance_is_lossles
     }
 
 
+@pytest.mark.parametrize("field", ["clauses", "part_revisions"])
+def test_compile_scopes_nested_provenance_without_losing_accepted_criteria(field):
+    _, _, jury, reply = setup()
+    context, evidence = build_context(
+        {"task_id": "x", "prompt": "Deliver JSON"},
+        [
+            {"artifact": {"final_response": "old"}},
+            {"artifact": {
+                "final_response": "another old answer",
+                "public_consultation": {"earlier_exchanges": [
+                    {"speaker": "user", "text": "Use UTF-8 for my file"}
+                ]},
+            }, "source_documents": ["old manual"]},
+        ],
+    )
+    refs = ["task", "product_2:source:0", "product_2:public:0",
+            "product_1:artifact:final_response"]
+    jury["criteria"][0][field] = [{
+        "id": "encoding", "standard": "Use UTF-8 when requested",
+        "evidence_refs": refs,
+        "details": {"evidence_refs": ["product_2:source:0"]},
+    }]
+    original = deepcopy(jury)
+    records = {}
+
+    async def call(request):
+        projected = deepcopy(original["criteria"][0])
+        projected[field][0]["evidence_refs"] = ["task", "product_2:public:0"]
+        projected[field][0]["details"]["evidence_refs"] = []
+        assert request["jury"]["criteria"][0] == projected
+        assert "product_2:source:0" not in request["context"]["available_evidence_refs"]
+        assert request["context"]["products"][0]["user_updates"][0]["text"] == "Use UTF-8 for my file"
+        return reply
+
+    pack = asyncio.run(build(context, evidence, jury, defaults(call), call,
+                             record=lambda k, v: records.update({k: v})))
+    assert jury == original
+    assert pack["criteria"][0][field] == original["criteria"][0][field]
+    assert set(records["builder_provenance_scope"]["excluded_from_executable_context"]["syntax"]) == {
+        "product_2:source:0", "product_1:artifact:final_response"
+    }
+
+
 def test_compile_preserves_actual_scoped_user_requirements():
     _, _, jury, reply = setup()
     context, evidence = build_context(
