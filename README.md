@@ -1,6 +1,5 @@
 # Reward Engine
 
-Reward Engine constructs executable task criteria, measures candidate work, and uses evidence to guide revisions and selection. A RewardPack remains frozen within each round. The controller updates evidence and memory between rounds; it does not train model weights. Native benchmark grading remains isolated from learning and selection.
 
 ![Figure 1: From a self-motivated student to a self-motivated agent](docs/figures/motivation_analogy.png)
 
